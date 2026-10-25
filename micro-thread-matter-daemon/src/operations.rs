@@ -28,11 +28,17 @@ use serde::Serialize;
 
 #[derive(Clone)]
 pub enum Action {
-    Delete { local: bool },
+    Delete { local: bool,
+    },
     Read,
     ReadLevel,
-    ThermostatRead { attribute: u32 },
-    Thermostat { field: String, value: String },
+    ThermostatRead {
+        attribute: u32,
+    },
+    Thermostat {
+        field: String,
+        value: String,
+    },
     ReadSensor {
         cluster: u32,
     },
@@ -43,8 +49,11 @@ pub enum Action {
         level: u8,
         transition_deciseconds: u16,
     },
-    SyncTime { time_zone: String, offset_seconds: i32 },
-    Bind { targets: Vec<BindingTarget> },
+    SyncTime { time_zone: String, offset_seconds: i32,
+    },
+    Bind {
+        targets: Vec<BindingTarget>,
+    },
 }
 #[derive(Clone)]
 pub struct Operation {
@@ -111,8 +120,12 @@ impl PartialEq for Value {
             (Self::Bool(a),Self::Bool(b))=>a==b,
             (Self::U8(a),Self::U8(b))=>a==b,
             (Self::RawMeasurement(a),Self::RawMeasurement(b))=>same_report_number(*a,*b),
-            (Self::Measurement(a),Self::Measurement(b))=>same_report_number(a.value,b.value)&&a.unit==b.unit&&a.quality==b.quality,
-            (Self::AirQuality(a),Self::AirQuality(b))=>a.value==b.value&&a.quality==b.quality,
+            (Self::Measurement(a),Self::Measurement(b))=> {
+                same_report_number(a.value,b.value)&&a.unit==b.unit&&a.quality==b.quality
+            }
+            (Self::AirQuality(a), Self::AirQuality(b)) => {
+                a.value == b.value && a.quality == b.quality
+            }
             _=>false,
         }
     }
@@ -137,8 +150,9 @@ async fn provision_group_member<C: Crypto>(
             Ok((entry.group_id()?, entry.group_key_set_id()?))
         }).collect::<Result<Vec<_>, Error>>()
     }).await??;
-    if key_map.iter().any(|(mapped_group, key_id)|
-        (*key_id == group && *mapped_group != group) || (*mapped_group == group && *key_id != group)) {
+    if key_map.iter().any(|(mapped_group, key_id)| {
+        (*key_id == group && *mapped_group != group) || (*mapped_group == group && *key_id != group)
+    }) {
         return Err(ErrorCode::ConstraintError.into());
     }
     key_map.retain(|(mapped_group, _)| *mapped_group != group);
@@ -313,7 +327,9 @@ pub fn report_values(
 impl Operation {
     pub fn decode(request: Request) -> Result<Self, Failure> {
         let (node, endpoint, action) = match request {
-            Request::Device(DeviceRequest::Delete { node, local, .. }) => (node, 0, Action::Delete { local }),
+            Request::Device(DeviceRequest::Delete { node, local, .. }) => {
+                (node, 0, Action::Delete { local })
+            }
             Request::Device(DeviceRequest::Bind { node, endpoint, targets, .. }) => {
                 if targets.is_empty() || targets.len() > 32 || targets.iter().any(|target| {
                     !matches!(target.cluster, 6 | 8) ||
@@ -323,13 +339,20 @@ impl Operation {
                     target.group == Some(0) || target.members.len() > 32 ||
                     (target.group.is_some() && target.members.is_empty()) ||
                     (target.group.is_none() && !target.members.is_empty()) ||
-                    target.members.iter().any(|member| member.node.0 < 2 || member.endpoint == u16::MAX ||
-                        target.members.iter().filter(|candidate| candidate.node == member.node &&
-                            candidate.endpoint == member.endpoint).count() != 1)
+                    target.members.iter().any(|member| {
+                                member.node.0 < 2 || member.endpoint == u16::MAX ||
+                        target.members.iter().filter(|candidate| {
+                                            candidate.node == member.node
+                                                && candidate.endpoint == member.endpoint
+                                        })
+                                        .count()
+                                        != 1
+                            })
                 }) { return Err(Failure::Malformed); }
                 for (index, target) in targets.iter().enumerate() {
-                    if target.group.is_some() && targets[..index].iter().any(|previous|
-                        previous.group == target.group && previous.members != target.members) {
+                    if target.group.is_some() && targets[..index].iter().any(|previous| {
+                            previous.group == target.group && previous.members != target.members
+                        }) {
                         return Err(Failure::Malformed);
                     }
                 }
@@ -359,7 +382,9 @@ impl Operation {
                 (node, endpoint, Action::ReadSensor { cluster })
             }
             Request::Device(DeviceRequest::Read { node, endpoint, cluster: 513, attribute, .. })
-                if crate::thermostat::readable(attribute) => (node, endpoint, Action::ThermostatRead { attribute }),
+                if crate::thermostat::readable(attribute) => {
+                (node, endpoint, Action::ThermostatRead { attribute })
+            }
             Request::Command(CommandRequest::Thermostat { node, endpoint, field, value, .. }) => {
                 if !crate::thermostat::request_valid(&field, &value) { return Err(Failure::Malformed); }
                 (node, endpoint, Action::Thermostat { field, value })
@@ -387,9 +412,14 @@ impl Operation {
                     transition_deciseconds,
                 },
             ),
-            Request::Command(CommandRequest::SyncTime { node, endpoint, time_zone, offset_seconds, .. }) => {
-                (node, endpoint, Action::SyncTime { time_zone, offset_seconds })
-            }
+            Request::Command(CommandRequest::SyncTime { node, endpoint, time_zone, offset_seconds, .. }) => (
+                node,
+                endpoint,
+                Action::SyncTime {
+                    time_zone,
+                    offset_seconds,
+                },
+            ),
             _ => return Err(Failure::Unsupported),
         };
         if node.0 < 2 || endpoint == u16::MAX {
@@ -433,7 +463,9 @@ impl Operation {
             for target in targets {
                 if let (Some(node), Some(endpoint)) = (target.node, target.endpoint) {
                     let target_endpoint = snapshots.iter().find(|candidate| candidate.node == node.0 && candidate.online)
-                        .and_then(|candidate| candidate.endpoints.iter().find(|item| item.id == endpoint))
+                        .and_then(|candidate| {
+                            candidate.endpoints.iter().find(|item| item.id == endpoint)
+                        })
                         .ok_or(Failure::NotFound)?;
                     if !target_endpoint.servers.contains(&target.cluster) { return Err(Failure::Unsupported); }
                 }
@@ -477,15 +509,20 @@ impl Operation {
         timeout: embassy_time::Duration,
     ) -> Result<ResultValue, Failure> {
         let transaction = async {
-            if let Action::Thermostat { ref field, ref value } = self.action {
-                return crate::thermostat::operate(matter, &crypto, fabric, self.node, self.endpoint, field, value).await;
+            if let Action::Thermostat { ref field, ref value,
+            } = self.action {
+                return crate::thermostat::operate(matter, &crypto, fabric, self.node, self.endpoint, field, value,
+                ).await;
             }
             if let Action::ThermostatRead { attribute } = self.action {
-                return crate::thermostat::read(matter, &crypto, fabric, self.node, self.endpoint, attribute).await;
+                return crate::thermostat::read(matter, &crypto, fabric, self.node, self.endpoint, attribute,
+                ).await;
             }
             if let Action::Delete { local } = self.action {
                 if !local {
-                    use rs_matter::dm::clusters::noc::{OperationalCredentialsClient, NodeOperationalCertStatusEnum};
+                    use rs_matter::dm::clusters::noc::{
+                        NodeOperationalCertStatusEnum, OperationalCredentialsClient,
+                    };
                     // Fabric indexes are local to the accessory, not the controller.
                     let index = Exchange::initiate(matter, &crypto, fabric, self.node).await?
                         .operational_credentials().current_fabric_index_read(0).await?;
@@ -497,10 +534,12 @@ impl Operation {
                     }
                     handle.complete().await?;
                 }
-                return Ok(ResultValue { node: Id(self.node), endpoint: 0, cluster: 62, attribute: 0, value: Value::Bool(true) });
+                return Ok(ResultValue { node: Id(self.node), endpoint: 0, cluster: 62, attribute: 0, value: Value::Bool(true),
+                });
             }
             if let Action::Bind { targets } = &self.action {
-                use rs_matter::dm::clusters::decl::binding::{BindingClient, TargetStructArrayBuilder};
+                use rs_matter::dm::clusters::decl::binding::{BindingClient, TargetStructArrayBuilder,
+                };
                 let mut provisioned_groups = Vec::new();
                 for target in targets.iter().filter(|target| target.group.is_some()) {
                     let group = target.group.ok_or(ErrorCode::InvalidData)?;
@@ -525,8 +564,10 @@ impl Operation {
                     }).collect::<Result<Vec<_>, Error>>()
                 }).await??;
                 for target in targets.iter() {
-                    let duplicate = merged.iter().any(|entry| entry.node.map(|id| id.0) == target.node.map(|id| id.0) &&
-                        entry.endpoint == target.endpoint && entry.group == target.group && entry.cluster == target.cluster);
+                    let duplicate = merged.iter().any(|entry| {
+                        entry.node.map(|id| id.0) == target.node.map(|id| id.0) &&
+                        entry.endpoint == target.endpoint && entry.group == target.group && entry.cluster == target.cluster
+                    });
                     if !duplicate { merged.push(target.clone()); }
                 }
                 if merged.len() > 128 { return Err(ErrorCode::ResourceExhausted.into()); }
@@ -578,7 +619,8 @@ impl Operation {
                             })
                             .await?
                     }
-                    Action::SyncTime { ref time_zone, offset_seconds } => {
+                    Action::SyncTime { ref time_zone, offset_seconds,
+                    } => {
                         const MATTER_EPOCH_UNIX_SECONDS: u64 = 946_684_800;
                         let unix = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
@@ -621,7 +663,8 @@ impl Operation {
             }
             if matches!(self.action, Action::SyncTime { .. }) {
                 return Ok(ResultValue { node: Id(self.node), endpoint: self.endpoint, cluster: 56,
-                    attribute: 0, value: Value::Bool(true) });
+                    attribute: 0, value: Value::Bool(true),
+                });
             }
             // An invocation acknowledgement is insufficient: return the actual value.
             let exchange = Exchange::initiate(matter, &crypto, fabric, self.node).await?;
@@ -837,14 +880,22 @@ mod tests {
     #[test]
     fn report_equality_matches_serialized_number_and_quality_semantics() {
         use super::{MeasurementValue,Value};
-        let numbers=[None,Some(0.0),Some(-0.0),Some(21.125),Some(f32::NAN),Some(f32::INFINITY)];
+        let numbers=[None,Some(0.0),Some(-0.0),Some(21.125),Some(f32::NAN),Some(f32::INFINITY),
+        ];
         for a in numbers {for b in numbers {for quality in ["measured","unknown"] {
-            let a=Value::Measurement(MeasurementValue{value:a,unit:"celsius",quality:"measured"});
-            let b=Value::Measurement(MeasurementValue{value:b,unit:"celsius",quality});
+            let a=Value::Measurement(MeasurementValue{value:a,unit:"celsius",quality:"measured",
+                    });
+                    let b = Value::Measurement(MeasurementValue {
+                        value: b,
+                        unit: "celsius",
+                        quality,
+                    });
             assert_eq!(a==b,serde_json::to_vec(&a).unwrap()==serde_json::to_vec(&b).unwrap());
         }}}
-        let a=Value::Measurement(MeasurementValue{value:Some(20.0),unit:"celsius",quality:"measured"});
-        let b=Value::Measurement(MeasurementValue{value:Some(20.0),unit:"percent",quality:"measured"});
+        let a=Value::Measurement(MeasurementValue{value:Some(20.0),unit:"celsius",quality:"measured",
+        });
+        let b=Value::Measurement(MeasurementValue{value:Some(20.0),unit:"percent",quality:"measured",
+        });
         assert!(a!=b);
     }
 
@@ -853,7 +904,7 @@ mod tests {
     #[test]
     fn binding_requests_require_supported_targets_and_complete_group_membership() {
         let decode = |body: &str| {
-            let request = Request::decode(10, body.as_bytes()).unwrap();
+            let request = Request::decode_json(10, body.as_bytes()).unwrap();
             Operation::decode(request)
         };
         assert!(decode(r#"{"schema":1,"action":"bind","node":"123456789abcdef0","endpoint":1,"targets":[{"node":"223456789abcdef0","endpoint":2,"cluster":6}]}"#).is_ok());
@@ -867,7 +918,8 @@ mod tests {
         utils::storage::WriteBuf,
     };
 
-    fn append_attribute_report_at(writer: &mut WriteBuf<'_>, cluster: u32, attribute: u32, data: &[u8]) {
+    fn append_attribute_report_at(writer: &mut WriteBuf<'_>, cluster: u32, attribute: u32, data: &[u8],
+    ) {
         AttrResp::from(AttrData::new(
             None,
             AttrPath {
@@ -962,7 +1014,7 @@ mod tests {
     #[test]
     fn unsupported_paths_and_invalid_identity_are_rejected() {
         let decode = |opcode, body: &str| {
-            Operation::decode(Request::decode(opcode, body.as_bytes()).unwrap())
+            Operation::decode(Request::decode_json(opcode, body.as_bytes()).unwrap())
         };
         let level_read = decode(10, r#"{"schema":1,"action":"read","node":"0000000000000002","endpoint":1,"cluster":8,"attribute":0}"#).unwrap();
         assert!(matches!(level_read.action, Action::ReadLevel));
@@ -1005,47 +1057,47 @@ mod tests {
         )
         .unwrap();
         assert_eq!(operation.authorize(&[]), Err(Failure::NotFound));
-        let encoded = crate::responses::reply::<_, Failure>(Ok(ResultValue {
+        let encoded = serde_json::to_vec(&ResultValue {
             node: Id(2),
             endpoint: 1,
             cluster: 6,
             attribute: 0,
             value: Value::Bool(false),
-        }))
+        })
         .unwrap();
-        assert_eq!(encoded, br#"{"schema":1,"ok":true,"result":{"node":"0000000000000002","endpoint":1,"cluster":6,"attribute":0,"value":{"type":"bool","value":false}}}"#);
-        let encoded = crate::responses::reply::<_, Failure>(Ok(ResultValue {
+        assert_eq!(encoded, br#"{"node":"0000000000000002","endpoint":1,"cluster":6,"attribute":0,"value":{"type":"bool","value":false}}"#);
+        let encoded = serde_json::to_vec(&ResultValue {
             node: Id(2),
             endpoint: 1,
             cluster: 8,
             attribute: 0,
             value: Value::U8(Some(124)),
-        }))
+        })
         .unwrap();
-        assert_eq!(encoded, br#"{"schema":1,"ok":true,"result":{"node":"0000000000000002","endpoint":1,"cluster":8,"attribute":0,"value":{"type":"u8","value":124}}}"#);
+        assert_eq!(encoded, br#"{"node":"0000000000000002","endpoint":1,"cluster":8,"attribute":0,"value":{"type":"u8","value":124}}"#);
     }
 
     #[test]
     fn typed_sensor_values_preserve_unit_and_null_quality() {
-        let measured = crate::responses::reply::<_, Failure>(Ok(ResultValue {
+        let measured = serde_json::to_vec(&ResultValue {
             node: Id(2),
             endpoint: 1,
             cluster: 1026,
             attribute: 0,
             value: measurement(Some(-5.25), "celsius"),
-        }))
+        })
         .unwrap();
-        assert_eq!(measured, br#"{"schema":1,"ok":true,"result":{"node":"0000000000000002","endpoint":1,"cluster":1026,"attribute":0,"value":{"type":"measurement","value":{"value":-5.25,"unit":"celsius","quality":"measured"}}}}"#);
-        let unknown = crate::responses::reply::<_, Failure>(Ok(ResultValue {
+        assert_eq!(measured, br#"{"node":"0000000000000002","endpoint":1,"cluster":1026,"attribute":0,"value":{"type":"measurement","value":{"value":-5.25,"unit":"celsius","quality":"measured"}}}"#);
+        let unknown = serde_json::to_vec(&ResultValue {
             node: Id(2),
             endpoint: 1,
             cluster: 1066,
             attribute: 0,
             value: measurement(None, "ug/m3"),
-        }))
+        })
         .unwrap();
-        assert_eq!(unknown, br#"{"schema":1,"ok":true,"result":{"node":"0000000000000002","endpoint":1,"cluster":1066,"attribute":0,"value":{"type":"measurement","value":{"value":null,"unit":"ug/m3","quality":"unknown"}}}}"#);
-        let air = crate::responses::reply::<_, Failure>(Ok(ResultValue {
+        assert_eq!(unknown, br#"{"node":"0000000000000002","endpoint":1,"cluster":1066,"attribute":0,"value":{"type":"measurement","value":{"value":null,"unit":"ug/m3","quality":"unknown"}}}"#);
+        let air = serde_json::to_vec(&ResultValue {
             node: Id(2),
             endpoint: 1,
             cluster: 91,
@@ -1054,8 +1106,8 @@ mod tests {
                 value: "moderate",
                 quality: "measured",
             }),
-        }))
+        })
         .unwrap();
-        assert_eq!(air, br#"{"schema":1,"ok":true,"result":{"node":"0000000000000002","endpoint":1,"cluster":91,"attribute":0,"value":{"type":"air_quality","value":{"value":"moderate","quality":"measured"}}}}"#);
+        assert_eq!(air, br#"{"node":"0000000000000002","endpoint":1,"cluster":91,"attribute":0,"value":{"type":"air_quality","value":{"value":"moderate","quality":"measured"}}}"#);
     }
 }

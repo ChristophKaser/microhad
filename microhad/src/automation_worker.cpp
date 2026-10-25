@@ -189,14 +189,24 @@ struct AutomationWorker::Impl {
             if(!s->owner->gateway||!s->owner->gateway->submitAutomation(a,&err))return failure(L,err.empty()?"coordinator unavailable":err);
         }else if(d->metadata->source=="matter"){
             if(!s->owner->matter)return failure(L,"Matter worker unavailable");
-            std::ostringstream request;request<<"{\"schema\":1,\"node\":\""<<d->metadata->matterNode<<"\",\"endpoint\":"<<d->metadata->matterEndpoint;
-            unsigned char opcode=11;if(a.operation=="refresh"){opcode=10;request<<",\"cluster\":"<<(d->metadata->light||d->metadata->actor?6:d->metadata->contact?69:d->metadata->humidity?1029:1026)<<",\"attribute\":0";}else if(a.args.fields.count("brightness")){request<<",\"command\":\"move_to_level\",\"level\":"<<static_cast<int>((a.args.fields["brightness"].number*254+50)/100)<<",\"transition_deciseconds\":0";}else request<<",\"command\":\""<<(a.args.fields["on"].boolean?"on":"off")<<"\"";request<<"}";uint32_t id;std::string prepared;bool ok=opcode==10?MatterChannel::deviceReadRequest(request.str(),&prepared):MatterChannel::deviceCommandRequest(request.str(),&prepared);if(!ok||!s->owner->matter->submit(opcode,prepared,&id,&err))return failure(L,err.empty()?"unsupported Matter operation":err);
+            const uint64_t node=strtoull(d->metadata->matterNode.c_str(),0,16);
+            if(node<2||d->metadata->matterEndpoint<0||d->metadata->matterEndpoint>65534)return failure(L,"unsupported Matter endpoint");
+            MatterProto::MessageBody request;unsigned char opcode=11;
+            if(a.operation=="refresh"){
+                opcode=10;MatterProto::DeviceControlRequest read;read.schema=1;read.action=std::string("read");read.node=node;read.endpoint=d->metadata->matterEndpoint;
+                read.cluster=d->metadata->light||d->metadata->actor?6:d->metadata->contact?69:d->metadata->humidity?1029:1026;read.attribute=0;request.device_control_request=read;
+            }else{
+                MatterProto::DeviceCommandRequest command;command.schema=1;command.node=node;command.endpoint=d->metadata->matterEndpoint;
+                if(a.args.fields.count("brightness")){command.command=std::string("move_to_level");command.level=static_cast<int>((a.args.fields["brightness"].number*254+50)/100);command.transition_deciseconds=0;}
+                else command.command=std::string(a.args.fields["on"].boolean?"on":"off");
+                request.device_command_request=command;
+            }
+            uint32_t id;
+            if(!s->owner->matter->submit(opcode,request,&id,&err))return failure(L,err.empty()?"unsupported Matter operation":err);
             if(a.args.fields.count("brightness")&&a.args.fields.count("on")){
-                std::ostringstream power;
-                power<<"{\"schema\":1,\"node\":\""<<d->metadata->matterNode<<"\",\"endpoint\":"<<d->metadata->matterEndpoint
-                     <<",\"command\":\""<<(a.args.fields["on"].boolean?"on":"off")<<"\"}";
-                if(!MatterChannel::deviceCommandRequest(power.str(),&prepared)||!s->owner->matter->submit(11,prepared,&id,&err))
-                    return failure(L,err.empty()?"unsupported Matter power operation":err);
+                MatterProto::DeviceCommandRequest power;power.schema=1;power.node=node;power.endpoint=d->metadata->matterEndpoint;power.command=std::string(a.args.fields["on"].boolean?"on":"off");
+                request=MatterProto::MessageBody();request.device_command_request=power;
+                if(!s->owner->matter->submit(11,request,&id,&err))return failure(L,err.empty()?"unsupported Matter power operation":err);
             }
         }else if(!s->owner->gateway||!s->owner->gateway->submitAutomation(a,&err))return failure(L,err.empty()?"coordinator unavailable":err);
         lua_pushboolean(L,1);return 1;

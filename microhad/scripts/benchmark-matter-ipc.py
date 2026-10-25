@@ -35,10 +35,12 @@ def main():
 #include <string>
 namespace MatterWire { bool decodeProtobuf(const Bytes&, Frame*); }
 int main(int argc, char** argv) {
-    if (argc!=5) return 1;
-    MatterWire::Frame frame; frame.kind=std::atoi(argv[1]);frame.opcode=std::atoi(argv[2]);frame.id=frame.kind==2?0:1;
-    std::string payload=argv[3];frame.payload.assign(payload.begin(),payload.end());
-    int count=std::atoi(argv[4]);MatterWire::Bytes wire;
+    if(argc!=3)return 1;
+    MatterWire::Bytes fixture;std::string hex=argv[1];
+    for(size_t i=0;i<hex.size();i+=2)fixture.push_back(static_cast<unsigned char>(std::strtoul(hex.substr(i,2).c_str(),0,16)));
+    MatterWire::Decoder decoder;MatterWire::Frame frame;
+    if(!decoder.feed(fixture)||!decoder.pop(&frame))return 2;
+    const int count=std::atoi(argv[2]);MatterWire::Bytes wire;
     if(!MatterWire::encode(frame,&wire))return 2;
     MatterWire::Bytes body(wire.begin()+2,wire.end());
     for(int mode=0;mode<2;++mode){
@@ -79,7 +81,7 @@ int main(int argc, char** argv) {
                         *objects, '-o', str(executable)], check=True)
         for name in names:
             v = vectors[name]
-            samples = [list(map(float, subprocess.check_output([str(executable), str(v['kind']), str(v['opcode']), json.dumps(v['body'], separators=(',', ':')), str(args.iterations)], text=True).split())) for _ in range(5)]
+            samples = [list(map(float, subprocess.check_output([str(executable), v['wire'], str(args.iterations)], text=True).split())) for _ in range(5)]
             print(json.dumps({'name': name, 'iterations': args.iterations, 'encode_cpu_us': statistics.median(s[0] for s in samples), 'decode_cpu_us': statistics.median(s[1] for s in samples)}), flush=True)
 
 

@@ -1,7 +1,7 @@
 # Matter sensor reads
 
 The private wire format is [protobuf v3](../micro-thread-matter-daemon/docs/matter-ipc-v3.md), served
-by `mthread-matter` in `micro-thread-matter-daemon/`. JSON examples describe public/in-process representations. Nullable values
+by `mthread-matter` in `micro-thread-matter-daemon/`. JSON examples describe public/fixture representations. Nullable values
 also use explicit protobuf null variants on the private wire.
 
 Boolean State (cluster 69) is read as a typed boolean using the generic

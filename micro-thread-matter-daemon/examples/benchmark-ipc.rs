@@ -1,5 +1,5 @@
 //! Synthetic host-only benchmark: cargo run --release --example benchmark-ipc -- 3000.
-use micro_thread_matter_daemon::ipc::{Decoder, Frame};
+use micro_thread_matter_daemon::ipc::Decoder;
 use std::hint::black_box;
 use std::os::raw::c_long;
 unsafe extern "C" { fn clock() -> c_long; }
@@ -9,9 +9,17 @@ fn main() {
     let iterations: usize = std::env::args().nth(1).map(|n| n.parse().unwrap()).unwrap_or(3000);
     assert!(iterations>0);
     let vectors: serde_json::Value = serde_json::from_str(include_str!("../../protocol/matter-wire-vectors.json")).unwrap();
-    for name in ["empty-status", "max-ble-bytes", "max-dataset-bytes", "measurement-event", "thermostat-schedule-job", "repeated-512"] {
+    for name in ["empty-status", "max-ble-bytes", "max-dataset-bytes", "measurement-event", "thermostat-schedule-job", "repeated-512",
+    ] {
         let v=vectors.as_array().unwrap().iter().find(|v|v["name"]==name).unwrap();
-        let frame=Frame{kind:v["kind"].as_u64().unwrap() as u8,opcode:v["opcode"].as_u64().unwrap() as u8,id:v["id"].as_u64().unwrap() as u32,payload:serde_json::to_vec(&v["body"]).unwrap()};
+        let hex = v["wire"].as_str().unwrap();
+        let input: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        let mut decoder = Decoder::default();
+        decoder.feed(&input).unwrap();
+        let frame = decoder.pop().unwrap();
         let wire=frame.encode().unwrap();
         let mut results=Vec::new();
         for mode in 0..2 {

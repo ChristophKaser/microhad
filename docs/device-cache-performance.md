@@ -90,6 +90,8 @@ names were replaced by `BleAttachResult`, `BleIndicationResult`, and
 or legacy-name adapter is introduced.
 
 ## Host IPC adapter follow-up (2026-10-25)
+
+Historical adapter-only pass, superseded by the typed IPC implementation below.
 The first IPC optimization pass removes whole-subtree copies during native
 normalization/conversion and Rust decoding, replaces full conversion-table
 scans with generated sorted lookups, avoids constructing a Rust discriminator
@@ -238,3 +240,67 @@ python3 microhad/scripts/benchmark-state-conversions.py --benchmark logs
 
 The log benchmark needs local SysV IPC permissions. All fixtures use synthetic
 input and private temporary resources; none accesses the gateway.
+
+## Typed IPC: JSON detour removed (2026-10-25)
+Both native and Rust frames now own generated protobuf message types. Native
+worker jobs/events, Lua/device/thermostat/observation request producers, response
+validation and reading extraction use those types directly. Rust request
+dispatch and reply/event builders construct or consume generated Prost structs.
+There is no JSON serialization/parser or generic value-tree conversion in
+either IPC codec or dispatcher. IDs and opaque bytes stay numeric/binary across
+IPC. Public HTTP/phone and persistence adapters keep their existing formats;
+the old Rust JSON adapter is compiled only for tests/the explicit host probe.
+Native decoding uses direct generated numeric-tag switches and presence flags.
+Rust checks outbound bounds directly on typed structs, and validates received
+wire data with integer schema IDs, presence bits and fixed counters before
+Prost allocation. This preserves duplicate-field/oneof, finite-number, UTF-8,
+repeated-count, depth, framing, correlation and payload-size checks without
+string field lookups or per-message hash-table allocations.
+Baseline: `877478c` (the previous optimized JSON bridge). Same Ryzen host and
+compiler/release settings as above. Each result is median process CPU
+microseconds per frame over five samples of 5,000 iterations. The identical
+benchmark driver prepares messages by decoding fixed synthetic wire fixtures
+outside the timed region, so it works on both old JSON frames and new typed
+frames. Native decode excludes the stream prefix; Rust includes stream framing.
+Do not compare the two languages as equivalent whole-request costs.
+| Adapter / message | Encode before → after (µs) | Decode before → after (µs) |
+|---|---:|---:|
+| Native / empty-status | 1.96 → 0.44 | 1.33 → 0.90 |
+| Native / max-ble-bytes | 10.22 → 0.59 | 5.25 → 1.09 |
+| Native / max-dataset-bytes | 9.37 → 0.55 | 4.63 → 1.04 |
+| Native / measurement-event | 16.64 → 1.31 | 8.98 → 1.53 |
+| Native / thermostat-schedule-job | 23.26 → 1.66 | 11.59 → 1.66 |
+| Native / repeated-512 | 117.48 → 24.49 | 124.64 → 7.38 |
+| Rust / empty-status | 0.76 → 0.10 | 0.85 → 0.22 |
+| Rust / max-ble-bytes | 3.85 → 0.30 | 3.45 → 0.38 |
+| Rust / max-dataset-bytes | 3.62 → 0.23 | 3.23 → 0.38 |
+| Rust / measurement-event | 5.60 → 0.53 | 5.19 → 0.65 |
+| Rust / thermostat-schedule-job | 7.26 → 0.56 | 6.82 → 0.69 |
+| Rust / repeated-512 | 52.04 → 8.36 | 42.90 → 9.37 |
+
+Reproduce from the final checkout:
+
+```sh
+python3 microhad/scripts/benchmark-matter-ipc.py --revision 877478c --iterations 5000
+python3 microhad/scripts/benchmark-matter-ipc.py --iterations 5000
+python3 micro-thread-matter-daemon/scripts/benchmark-ipc.py --revision 877478c --iterations 5000
+python3 micro-thread-matter-daemon/scripts/benchmark-ipc.py --iterations 5000
+```
+
+The Rust revision wrapper copies only tracked baseline sources into a private
+temporary directory and uses the same benchmark driver and installed pinned
+dependencies offline. These are host codec CPU measurements, not device CPU or
+end-to-end HTTP timings. No device was accessed or deployment performed.
+
+The native target retains its 64 KiB Matter-worker stack; host builds reserve
+128 KiB because their owned C++ strings/messages are larger. Target assembly
+stack-frame inspection was performed offline, and the periodic status loop
+reuses typed request/response storage to keep stack use bounded.
+
+Validation: native host unit/integration suites and 20 synthetic peer tests;
+111 Rust service library tests; the shared native codec corpus and 21 vectors
+against standard protobuf bindings; deterministic generator checks; native
+worker/HTTP, service runtime and real Rust-to-native report fixtures; and both
+native/Rust MIPS builds with target ABI/instruction verification. Service job
+and BLE session tokens also remain numeric in worker state and polling; hex
+formatting happens only at the external boundary.

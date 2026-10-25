@@ -1,3 +1,4 @@
+#include "matter_json.h"
 #include "matter_client.h"
 #include "matter_protocol.h"
 #include "matter_worker.h"
@@ -18,6 +19,10 @@
 #include <vector>
 
 namespace {
+bool submitJson(MatterWorker& worker,unsigned char op,const std::string& json,uint32_t* id,std::string* error){
+    MatterProto::MessageBody body;if(!MatterChannel::requestFromJson(op,json,&body)){*id=0;*error="malformed";return false;}return worker.submit(op,body,id,error);
+}
+
 struct Peer {
     int fd;
     unsigned char opcode;
@@ -54,7 +59,7 @@ void* serveStatus(void* opaque) {
     assert(request.kind == MatterWire::Frame::Request);
     assert(request.opcode == peer->opcode);
     assert(request.id == peer->id);
-    MatterWire::Frame expected=request; expected.payload.assign(peer->body.begin(),peer->body.end());
+    MatterWire::Frame expected=request; assert(MatterWire::parseJson(expected.kind,expected.opcode,peer->body,&expected.payload));
     MatterWire::Bytes expectedBytes; assert(MatterWire::encode(expected,&expectedBytes));
     MatterWire::Decoder expectedDecoder; assert(expectedDecoder.feed(expectedBytes));
     MatterWire::Frame normalized; assert(expectedDecoder.pop(&normalized));
@@ -63,9 +68,9 @@ void* serveStatus(void* opaque) {
     response.kind = MatterWire::Frame::Response;
     response.opcode = request.opcode;
     response.id = request.id;
-    response.payload.assign(peer->reply.begin(), peer->reply.end());
+    if(!MatterWire::parseJson(response.kind,response.opcode,peer->reply,&response.payload))assert(MatterWire::parseJson(response.kind,response.opcode,"{}",&response.payload));
     if (!MatterWire::encode(response, &bytes)) {
-        response.payload.assign(2, 0); response.payload[0]='{';response.payload[1]='}';
+        assert(MatterWire::parseJson(response.kind,response.opcode,"{}",&response.payload));
         assert(MatterWire::encode(response, &bytes));
     }
     for (unsigned int i = 0; i < bytes.size(); ++i) assert(write(client, &bytes[i], 1) == 1);
@@ -81,17 +86,17 @@ void* serveChannel(void* opaque) {
     ChannelPeer* peer = static_cast<ChannelPeer*>(opaque);
     for (unsigned int i = 1; i <= (peer->wrongId ? 1U : 2U); ++i) {
         MatterWire::Frame request; assert(readFrame(peer->fd, &request));
-        assert(request.payload.empty() && request.id == i);
+        assert(MatterWire::jsonBody(request.kind,request.opcode,request.payload).empty() && request.id == i);
         if (i == 1 && peer->firstDelayUs) usleep(peer->firstDelayUs);
         MatterWire::Frame frame;
         frame.kind = MatterWire::Frame::Event; frame.opcode = 12;
-        frame.payload.assign(peer->event.begin(), peer->event.end());
+        assert(MatterWire::parseJson(frame.kind,frame.opcode,peer->event,&frame.payload));
         MatterWire::Bytes bytes; assert(MatterWire::encode(frame, &bytes));
         for (unsigned int event = 0; event < peer->eventCount; ++event)
             assert(write(peer->fd, &bytes[0], bytes.size()) == static_cast<ssize_t>(bytes.size()));
         frame.kind = MatterWire::Frame::Response; frame.opcode = 2; frame.id = peer->wrongId ? 77 : i;
         const std::string reply = "{\"enabled\":true,\"available\":true,\"configured\":false,\"attached\":false,\"state\":\"detached\",\"linux_ipv6_or_tun\":false}";
-        frame.payload.assign(reply.begin(), reply.end()); assert(MatterWire::encode(frame, &bytes));
+        assert(MatterWire::parseJson(frame.kind,frame.opcode,reply,&frame.payload)); assert(MatterWire::encode(frame, &bytes));
         assert(write(peer->fd, &bytes[0], bytes.size()) == static_cast<ssize_t>(bytes.size()));
     }
     close(peer->fd); return 0;
@@ -137,7 +142,7 @@ void* serveWorker(void* opaque) {
     }
     MatterWire::Frame event; event.kind = MatterWire::Frame::Event; event.opcode = 12;
     const std::string text = "{\"schema\":1,\"event\":\"thread\",\"data\":" + worker->thread + '}';
-    event.payload.assign(text.begin(), text.end()); MatterWire::Bytes bytes;
+    assert(MatterWire::parseJson(event.kind,event.opcode,text,&event.payload)); MatterWire::Bytes bytes;
     assert(MatterWire::encode(event, &bytes));
     assert(write(fd, &bytes[0], bytes.size()) == static_cast<ssize_t>(bytes.size()));
     unsigned char byte; assert(read(fd, &byte, 1) == 0);
@@ -181,17 +186,23 @@ void runMatterClientUnitTests() {
     assert(MatterChannel::inventoryNodesEvent("{\"schema\":1,\"event\":\"matter_inventory_nodes\",\"data\":{\"nodes\":[{\"node\":\"0000000000000002\"}]}}", &manifest) && manifest.size() == 1);
     assert(MatterChannel::inventoryNodesEvent("{\"schema\":1,\"event\":\"matter_inventory_nodes\",\"data\":{\"nodes\":[]}}", &manifest) && manifest.empty());
     assert(!MatterChannel::inventoryNodesEvent("{\"schema\":1,\"event\":\"matter_inventory_nodes\",\"data\":{\"nodes\":[{\"node\":\"0000000000000002\"},{\"node\":\"0000000000000002\"}]}}", &manifest));
+    {
+        MatterProto::MessageBody binding;
+        assert(MatterChannel::requestFromJson(10,"{\"schema\":1,\"action\":\"bind\",\"node\":\"ffffffffffffffff\",\"endpoint\":1,\"targets\":[{\"node\":null,\"endpoint\":null,\"group\":3,\"members\":[{\"node\":\"0000000000000002\",\"endpoint\":1}],\"cluster\":6}]}",&binding));
+        assert(!binding.device_control_request.value.targets.value.items[0].node.present);
+        MatterWire::Frame frame;frame.opcode=10;frame.id=1;frame.payload=binding;MatterWire::Bytes bytes;assert(MatterWire::encode(frame,&bytes));
+    }
     MatterReading deleted;
     assert(MatterChannel::deviceResult("{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"complete\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":0,\"cluster\":62,\"attribute\":0,\"value\":{\"type\":\"bool\",\"value\":true}}}}", "0000000000000001", &deleted) && deleted.cluster == 62);
 
     {
         const std::string inventory="{\"schema\":1,\"event\":\"matter_inventory\",\"data\":{\"kind\":\"identity\",\"endpoint_count\":0,\"device\":{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":false,\"id\":\"matter:0000000000000001:0000000000000002\",\"endpoint\":null,\"servers\":[],\"clients\":[],\"device_types\":[],\"manufacturer\":\"IKEA of Sweden\",\"model\":\"ALPSTUGA air quality monitor\",\"rssi_dbm\":-72}}}";
         MatterWire::Frame frame; frame.kind=MatterWire::Frame::Event;frame.opcode=12;
-        frame.payload.assign(inventory.begin(),inventory.end());
+        assert(MatterWire::parseJson(frame.kind,frame.opcode,inventory,&frame.payload));
         MatterWire::Bytes encoded; assert(MatterWire::encode(frame,&encoded));
         MatterWire::Decoder decoder;assert(decoder.feed(encoded));assert(decoder.pop(&frame));
         std::string kind; unsigned int count=99; MatterEndpoint endpoint;
-        assert(MatterChannel::inventoryEvent(std::string(frame.payload.begin(),frame.payload.end()),&kind,&count,&endpoint));
+        assert(MatterChannel::inventoryEvent(MatterWire::jsonBody(frame.kind,frame.opcode,frame.payload),&kind,&count,&endpoint));
         assert(kind=="identity" && count==0 && endpoint.endpoint==0xffff);
         assert(endpoint.manufacturer == "IKEA of Sweden" && endpoint.model == "ALPSTUGA air quality monitor" && endpoint.rssiDbm == -72);
     }
@@ -489,10 +500,11 @@ void runMatterClientUnitTests() {
         if (i == 1) body.replace(body.find("4294967295"), 10, "4294967296");
         if (i == 2) body.replace(body.find("000fff"), 6, "00zzff");
         if (i == 3) body.insert(body.size()-1, ",\"pin\":12345678");
-        if (i == 4) for (unsigned int n = 0; n < 32; ++n) channel.events_.push_back(writeEvent);
-        frame.payload.assign(body.begin(), body.end()); MatterWire::Bytes bytes;
-        // Invalid integer/hex input cannot be represented by the typed encoder.
-        if (i == 1 || i == 2) { assert(!MatterWire::encode(frame, &bytes)); close(pair[1]); continue; }
+        if(i==4){MatterProto::MessageBody body;assert(MatterWire::parseJson(2,12,writeEvent,&body));for(unsigned n=0;n<32;++n)channel.events_.push_back(body);}
+        const bool represented=MatterWire::parseJson(frame.kind,frame.opcode,body,&frame.payload);MatterWire::Bytes bytes;
+        // Invalid integer/hex input cannot construct a typed message.
+        if(i==1||i==2){assert(!represented);close(pair[1]);continue;}
+        assert(represented);
         assert(MatterWire::encode(frame, &bytes));
         assert(write(pair[1], &bytes[0], bytes.size()) == static_cast<ssize_t>(bytes.size()));
         assert(channel.poll(&error) == (i == 0 || i == 3));
@@ -571,10 +583,10 @@ void runMatterClientUnitTests() {
     }
     assert(available && json == thread);
     uint32_t jobId = 0;
-    assert(!worker.submit(3, "{\"schema\":1,\"discriminator\":0,\"pin\":12345678,\"timeout_seconds\":30}", &jobId, &error));
+    assert(!submitJson(worker,3, "{\"schema\":1,\"discriminator\":0,\"pin\":12345678,\"timeout_seconds\":30}", &jobId, &error));
     assert(error == "malformed" && jobId == 0);
     assert(clock_gettime(CLOCK_MONOTONIC, &begin) == 0);
-    assert(worker.submit(5, "{\"schema\":1,\"session\":\"0000000000000001\"}", &jobId, &error));
+    assert(submitJson(worker,5, "{\"schema\":1,\"session\":\"0000000000000001\"}", &jobId, &error));
     assert(jobId != 0 && worker.job(jobId, &json));
     assert(clock_gettime(CLOCK_MONOTONIC, &end) == 0);
     assert((end.tv_sec-begin.tv_sec)*1000 + (end.tv_nsec-begin.tv_nsec)/1000000 < 100);
@@ -607,12 +619,12 @@ void runMatterClientUnitTests() {
     assert(available);
     const std::string cancel = "{\"schema\":1,\"session\":\"0000000000000001\"}";
     std::vector<uint32_t> failedJobs;
-    assert(worker.submit(5, cancel, &jobId, &error)); failedJobs.push_back(jobId);
+    assert(submitJson(worker,5, cancel, &jobId, &error)); failedJobs.push_back(jobId);
     usleep(50000); // First call is blocked at the peer; fill all pending slots.
     for (unsigned int i = 0; i < 8; ++i) {
-        assert(worker.submit(5, cancel, &jobId, &error)); failedJobs.push_back(jobId);
+        assert(submitJson(worker,5, cancel, &jobId, &error)); failedJobs.push_back(jobId);
     }
-    assert(!worker.submit(5, cancel, &jobId, &error) && error == "capacity");
+    assert(!submitJson(worker,5, cancel, &jobId, &error) && error == "capacity");
     bool allFailed = false;
     for (unsigned int i = 0; i < 100; ++i) {
         allFailed = true;
@@ -628,7 +640,7 @@ void runMatterClientUnitTests() {
     worker.stop(); assert(pthread_join(peerThread, 0) == 0);
     close(listener); assert(unlink(path.c_str()) == 0); assert(rmdir(directory) == 0);
     assert(worker.start(&error));
-    assert(!worker.submit(5, "{\"schema\":1,\"session\":\"0000000000000001\"}", &jobId, &error));
+    assert(!submitJson(worker,5, "{\"schema\":1,\"session\":\"0000000000000001\"}", &jobId, &error));
     assert(error == "not_ready");
     usleep(60000); assert(!worker.status(false, &json, &error)); worker.stop();
 }

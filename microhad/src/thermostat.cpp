@@ -399,3 +399,61 @@ std::string thermostatJson(const Device& device) {
        <<"\",\"error\":\""<<jsonEscape(t.error)<<"\"}";
     return out.str();
 }
+
+// Matter IPC delivers typed attribute values; the JSON helper above is only
+// for public/configuration inputs. Neither scalar nor schedule reports reparse JSON.
+bool thermostatWireValue(unsigned int attribute,const MatterProto::AttributeValue& a) {
+    if(!a.type.present||!a.value.present){ return false; }
+    const MatterProto::ReadingValue& v=a.value.value;
+    if(a.type.value=="thermostat_list"&&(attribute==65531||attribute==65529)){
+        if(!v.list.present||v.list.value.items.size()>512){ return false; }
+        std::set<uint32_t> unique(v.list.value.items.begin(),v.list.value.items.end());
+        return unique.size()==v.list.value.items.size();
+    }
+    if(a.type.value=="thermostat_schedule"&&attribute>=65536&&attribute<65543){
+        if(!v.measurement.present){ return false; }const MatterProto::Measurement& m=v.measurement.value;
+        if(!m.mode.present||m.mode.value<1||m.mode.value>3||!m.transitions.present||m.transitions.value.items.size()>32||m.value.present||m.unit.present||m.quality.present){ return false; }
+        int previous=-1;
+        for(size_t i=0;i<m.transitions.value.items.size();++i){const MatterProto::ThermostatTransition& t=m.transitions.value.items[i];
+            if(!t.time.present||t.time.value>=1440||static_cast<int>(t.time.value)<=previous||t.heat.present!=bool(m.mode.value&1)||t.cool.present!=bool(m.mode.value&2)){ return false; }
+            previous=t.time.value;const double values[]={t.heat.value,t.cool.value};
+            for(unsigned n=0;n<2;++n)if(m.mode.value&(1U<<n)){const double x=values[n];if(!std::isfinite(x)||x< -273.15||x>327.67||std::fabs(x*100-std::floor(x*100+.5))>.00001){ return false; }}
+        }return true;
+    }
+    if(a.type.value!="thermostat"){ return false; }
+    unsigned long count;const ThermostatAttribute* list=thermostatAttributes(&count);
+    for(unsigned long i=0;i<count;++i)if(list[i].cluster==513&&list[i].attribute==attribute){
+        if(v.null_value.present)return v.null_value.value;
+        if(!v.integer.present&&!v.unsigned_value.present){ return false; }
+        const double raw=v.integer.present?static_cast<double>(v.integer.value):static_cast<double>(v.unsigned_value.value);
+        return raw/list[i].scale>=list[i].minimum&&raw/list[i].scale<=list[i].maximum;
+    }{ return false; }
+}
+bool applyMatterThermostat(Device* d,unsigned int attribute,const MatterProto::AttributeValue& a,long now){
+    if(!isThermostat(*d)||!thermostatWireValue(attribute,a)){ return false; }
+    const MatterProto::ReadingValue& v=a.value.value;
+    if(a.type.value=="thermostat_list"){
+        std::set<unsigned int>& target=attribute==65531?d->thermostat.attributes:d->thermostat.commands;
+        target.clear();target.insert(v.list.value.items.begin(),v.list.value.items.end());
+        if(attribute==65531)d->thermostat.attributesKnown=true;else{d->thermostat.commandsKnown=true;d->thermostat.scheduleSupported=target.count(1)&&target.count(2);}return true;
+    }
+    if(a.type.value=="thermostat_schedule"){
+        const MatterProto::Measurement& m=v.measurement.value;const std::vector<MatterProto::ThermostatTransition>& entries=m.transitions.value.items;
+        const unsigned maximum=isTrvzb(*d)?6:static_cast<unsigned>(thermostatValue(*d,"number_of_daily_transitions",thermostatValue(*d,"number_of_weekly_transitions",10)));
+        if(entries.size()>maximum||(isTrvzb(*d)&&(m.mode.value!=1||(!entries.empty()&&entries[0].time.value!=0)))){ return false; }
+        std::vector<unsigned char> bytes;bytes.push_back(entries.size());bytes.push_back(1U<<(attribute-65536));bytes.push_back(m.mode.value);
+        for(size_t i=0;i<entries.size();++i){const MatterProto::ThermostatTransition& t=entries[i];put16(&bytes,t.time.value);
+            for(unsigned bit=1;bit<=2;bit<<=1)if(m.mode.value&bit){const ThermostatAttribute* base=thermostatAttribute(bit==1?"occupied_heating_setpoint":"occupied_cooling_setpoint");const ThermostatAttribute def=thermostatDefinition(*d,*base);const double value=bit==1?t.heat.value:t.cool.value;
+                if(!thermostatSupported(*d,*base)||value<def.minimum||value>def.maximum||std::fabs(value/def.step-std::floor(value/def.step+.5))>.00001){ return false; }
+                put16(&bytes,static_cast<unsigned>(static_cast<long>(std::floor(value*100+.5))));
+            }
+        }d->thermostat.scheduleSupported=true;return applyThermostatSchedule(d,bytes);
+    }
+    unsigned long count;const ThermostatAttribute* list=thermostatAttributes(&count);
+    for(unsigned long i=0;i<count;++i)if(list[i].cluster==513&&list[i].attribute==attribute){
+        if(v.null_value.present){d->thermostat.values.erase(list[i].name);if(attribute==0){d->temperatureKnown=false;d->temperatureObservation.at=0;}return true;}
+        const uint64_t raw=v.integer.present?static_cast<uint64_t>(v.integer.value):v.unsigned_value.value;std::vector<unsigned char> bytes;
+        for(unsigned b=0;b<width(list[i].type);++b)bytes.push_back(static_cast<unsigned char>(raw>>(8*b)));
+        return applyThermostatAttribute(d,513,attribute,list[i].type,bytes,now);
+    }{ return false; }
+}

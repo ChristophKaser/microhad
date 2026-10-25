@@ -9,6 +9,7 @@
 #include "json_util.h"
 #include "storage.h"
 #include "matter_worker.h"
+#include "matter_json.h"
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -80,7 +81,7 @@ struct ThermostatPeer {
             else if(frame.opcode==1)reply="{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":true,\"state\":\"running\"}";
             else if(frame.opcode==2)reply=thread;
             else if(frame.opcode==11) {
-                const std::string body(frame.payload.begin(),frame.payload.end());
+                const std::string body=MatterWire::jsonBody(frame.kind,frame.opcode,frame.payload);
                 std::string command,node,field,value;long endpoint=0;
                 assert(jsonStringField(body,"command",&command)&&command=="thermostat");
                 assert(jsonStringField(body,"node",&node)&&node=="0000000000000072");
@@ -92,7 +93,7 @@ struct ThermostatPeer {
                 assert(frame.opcode==10);
                 reply="{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"complete\",\"result\":{\"node\":\"0000000000000072\",\"endpoint\":2,\"cluster\":513,\"attribute\":28,\"value\":{\"type\":\"thermostat\",\"value\":4}}}}";
             }
-            frame.kind=MatterWire::Frame::Response;frame.payload.assign(reply.begin(),reply.end());
+            frame.kind=MatterWire::Frame::Response;assert(MatterWire::parseJson(frame.kind,frame.opcode,reply,&frame.payload));
             MatterWire::Bytes encoded;assert(MatterWire::encode(frame,&encoded));
             size_t offset=0;while(offset<encoded.size()){ssize_t sent=send(fd,&encoded[offset],encoded.size()-offset,MSG_NOSIGNAL);assert(sent>0);offset+=sent;}
         }

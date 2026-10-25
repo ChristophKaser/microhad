@@ -113,9 +113,9 @@ public:
         assert(thermostatModeSupported(matter,1) && thermostatModeSupported(matter,3));
         assert(applyMatterThermostat(&matter,0,"thermostat","null",101));assert(!matter.temperatureKnown);
         assert(applyMatterThermostat(&matter,0,"thermostat","-525",102));assert(matter.temperatureCelsius==-5.25);
-        g.devices_[matter.ieeeAddress]=matter;std::string request,prepared;
+        g.devices_[matter.ieeeAddress]=matter;MatterProto::MessageBody request;
         assert(g.setThermostat(matter.ieeeAddress,"occupied_cooling_setpoint","26.5",&error,&request));
-        assert(MatterChannel::deviceCommandRequest(request,&prepared));assert(prepared==request);
+        assert(request.device_command_request.present&&request.device_command_request.value.value.value=="26.5");
         assert(g.thermostatResult(matter.matterNode,2,"occupied_cooling_setpoint","timeout"));
         assert(!g.devices_[matter.ieeeAddress].thermostat.error.empty());
         assert(!g.setThermostat(matter.ieeeAddress,"child_lock","1",&error,&request));

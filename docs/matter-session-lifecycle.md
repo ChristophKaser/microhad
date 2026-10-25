@@ -21,7 +21,7 @@ Start remains `not_ready` until a validated dataset is active on a freshly
 observed matching coordinator channel.
 
 Session IDs are unpredictable nonzero OS-entropy u64 values, rendered as sixteen
-lowercase hex characters in public/in-process JSON and unsigned integers on the
+lowercase hex characters in public/fixture JSON and unsigned integers on the
 private protobuf wire. They are distinct from IPC correlations. Status uses
 monotonic deadlines (30–900 seconds); reading status or accepting callbacks does
 not extend them. Cancellation, deadline expiry and task completion drop the

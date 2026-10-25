@@ -138,7 +138,7 @@ fn validate_state_directory(
 fn dispatch<C: Crypto>(
     request: Frame,
     peer: u64,
-    subscribers: &mut Vec<(u64, Vec<u8>)>,
+    subscribers: &mut Vec<(u64, micro_thread_matter_daemon::protobuf::MessageBody)>,
     lifecycle: &mut Lifecycle,
     thread: Option<&OpenThread>,
     entropy: &mut OsEntropy,
@@ -152,24 +152,48 @@ fn dispatch<C: Crypto>(
     let decoded = Request::decode(request.opcode, &request.payload);
     let payload = match decoded {
         Ok(Request::MatterStatus) => {
+            use micro_thread_matter_daemon::protobuf as p;
             devices.subscribe_inventory(peer);
-            let session = controller.commissioning_session(Instant::now())
-                .map(|id| format!(",\"commissioning_session\":\"{:016x}\"", id.0))
-                .unwrap_or_default();
-            format!("{{\"enabled\":true,\"available\":true,\"controller_initialized\":true,\"fabric_ready\":{},\"state\":\"{}\"{}}}",
-                fabric_ready, if thread.is_some() { "running" } else { "awaiting_coordinator" }, session)
-        },
-        Ok(Request::ThreadStatus) => serde_json::to_string(&lifecycle.snapshot()).ok()?,
+            p::MessageBody {
+                choice: Some(p::MessageBodyChoice::Matter(p::MatterStatus {
+                    enabled: Some(true),
+                    available: Some(true),
+                    controller_initialized: Some(true),
+                    fabric_ready: Some(fabric_ready),
+                    state: Some(
+                        if thread.is_some() {
+                            "running"
+                        } else {
+                            "awaiting_coordinator"
+                        }
+                        .into(),
+                    ),
+                    commissioning_session: controller
+                        .commissioning_session(Instant::now())
+                        .map(|id| id.0),
+                })),
+            }
+        }
+        Ok(Request::ThreadStatus) => {
+            use micro_thread_matter_daemon::protobuf as p;
+            p::MessageBody {
+                choice: Some(p::MessageBodyChoice::Thread(
+                    micro_thread_matter_daemon::responses::thread(&lifecycle.snapshot()),
+                )),
+            }
+        }
         Ok(Request::Thread(body)) => {
             let now = Instant::now();
             let radio = thread.map(|r| r as &dyn Radio);
             let result = match body {
                 ThreadRequest::Status { subscribe, .. } => {
                     if subscribe && !subscribers.iter().any(|entry| entry.0 == peer) {
-                        subscribers.push((peer, Vec::new()));
+                        subscribers.push((peer,
+                            micro_thread_matter_daemon::protobuf::MessageBody::default(),
+                        ));
                     }
                     Ok(lifecycle.snapshot())
-                },
+                }
                 ThreadRequest::Observe { zigbee_channel, zigbee_online, .. } =>
                     lifecycle.observe(zigbee_channel, zigbee_online, radio, now),
                 ThreadRequest::Create { zigbee_channel, .. } => match radio {
@@ -185,7 +209,7 @@ fn dispatch<C: Crypto>(
                             None => Err(Failure::NotReady),
                         }
                     }
-                },
+                }
                 ThreadRequest::Import { zigbee_channel, dataset, .. } => match radio {
                     Some(radio) => lifecycle.import(dataset.bytes(), zigbee_channel, radio, now),
                     None => Err(Failure::NotReady),
@@ -195,66 +219,69 @@ fn dispatch<C: Crypto>(
                     None => Err(Failure::NotReady),
                 },
             };
-            String::from_utf8(micro_thread_matter_daemon::responses::reply(result)?).ok()?
-        },
-        Ok(Request::CommissionStart(_)) if devices.operations_busy() =>
-            String::from_utf8(micro_thread_matter_daemon::responses::reply::<(), _>(Err(
+            micro_thread_matter_daemon::responses::reply(result)?
+        }
+        Ok(Request::CommissionStart(_)) if devices.operations_busy() => {
+            micro_thread_matter_daemon::responses::reply::<(), _>(Err(
                 micro_thread_matter_daemon::sessions::SessionError::Busy,
-            ))?).ok()?,
+            ))?
+        }
         Ok(body @ (Request::CommissionStart(_) | Request::CommissionStatus(_) |
             Request::CommissionCancel(_) | Request::BleAttach(_) | Request::BleIndication(_) |
-            Request::BleWriteComplete(_))) => String::from_utf8(controller.handle(
-                body, peer, lifecycle, entropy, Instant::now(),
-            )?).ok()?,
-        Ok(Request::Device(micro_thread_matter_daemon::control::DeviceRequest::Subscriptions { node, restore, cursor, .. })) => {
+            Request::BleWriteComplete(_)),
+        ) => controller.handle(body, peer, lifecycle, entropy, Instant::now())?,
+        Ok(Request::Device(micro_thread_matter_daemon::control::DeviceRequest::Subscriptions { node, restore, cursor, .. },
+        )) => {
             let result = if restore && (controller.commissioning(Instant::now()) || devices.operations_busy()) {
                 Err(micro_thread_matter_daemon::operations::Failure::Busy)
             } else {
                 devices.subscription_health(node.0, restore, cursor, Instant::now())
             };
-            String::from_utf8(micro_thread_matter_daemon::responses::reply(result)?).ok()?
-        },
-        Ok(Request::Device(body @ micro_thread_matter_daemon::control::DeviceRequest::Delete { .. })) =>
-            String::from_utf8(micro_thread_matter_daemon::responses::reply(devices.submit(
+            micro_thread_matter_daemon::responses::reply(result)?
+        }
+        Ok(Request::Device(
+            body @ micro_thread_matter_daemon::control::DeviceRequest::Delete { .. },
+        )) => micro_thread_matter_daemon::responses::reply(devices.submit(
                 Request::Device(body), lifecycle.snapshot().attached && thread.is_some(),
                 controller.commissioning(Instant::now()), Instant::now(),
-            ))?).ok()?,
-        Ok(Request::Device(body @ micro_thread_matter_daemon::control::DeviceRequest::Read { .. })) =>
-            String::from_utf8(micro_thread_matter_daemon::responses::reply(devices.submit(
+            ))?,
+        Ok(Request::Device(body @ micro_thread_matter_daemon::control::DeviceRequest::Read { .. },
+        )) => micro_thread_matter_daemon::responses::reply(devices.submit(
                 Request::Device(body), lifecycle.snapshot().attached && thread.is_some(),
                 controller.commissioning(Instant::now()), Instant::now(),
-            ))?).ok()?,
-        Ok(Request::Device(body @ micro_thread_matter_daemon::control::DeviceRequest::Bind { .. })) =>
-            String::from_utf8(micro_thread_matter_daemon::responses::reply(devices.submit(
+            ))?,
+        Ok(Request::Device(body @ micro_thread_matter_daemon::control::DeviceRequest::Bind { .. },
+        )) => micro_thread_matter_daemon::responses::reply(devices.submit(
                 Request::Device(body), lifecycle.snapshot().attached && thread.is_some(),
                 controller.commissioning(Instant::now()), Instant::now(),
-            ))?).ok()?,
+            ))?,
         Ok(Request::Command(body @ (micro_thread_matter_daemon::control::CommandRequest::Thermostat { .. } |
             micro_thread_matter_daemon::control::CommandRequest::On { .. } |
             micro_thread_matter_daemon::control::CommandRequest::Off { .. } |
             micro_thread_matter_daemon::control::CommandRequest::Toggle { .. } |
             micro_thread_matter_daemon::control::CommandRequest::MoveToLevel { .. } |
-            micro_thread_matter_daemon::control::CommandRequest::SyncTime { .. }))) =>
-            String::from_utf8(micro_thread_matter_daemon::responses::reply(devices.submit(
+            micro_thread_matter_daemon::control::CommandRequest::SyncTime { .. }),
+        )) => micro_thread_matter_daemon::responses::reply(devices.submit(
                 Request::Command(body), lifecycle.snapshot().attached && thread.is_some(),
                 controller.commissioning(Instant::now()), Instant::now(),
-            ))?).ok()?,
-        Ok(Request::Device(micro_thread_matter_daemon::control::DeviceRequest::Job { job, .. })) =>
-            String::from_utf8(micro_thread_matter_daemon::responses::reply(devices.job(job))?).ok()?,
-        Err(_) if request.opcode == OP_MATTER_STATUS || request.opcode == OP_THREAD_STATUS => return None,
-        Err(_) => "{\"schema\":1,\"ok\":false,\"error\":\"malformed\"}".into(),
+            ))?,
+        Ok(Request::Device(micro_thread_matter_daemon::control::DeviceRequest::Job { job, .. })) => micro_thread_matter_daemon::responses::reply(devices.job(job))?,
+        Err(_) if request.opcode == OP_MATTER_STATUS || request.opcode == OP_THREAD_STATUS => {
+            return None
+        }
+        Err(_) => micro_thread_matter_daemon::responses::reply::<(), _>(Err("malformed"))?,
     };
     Some(Frame {
         kind: 1,
         opcode: request.opcode,
         id: request.id,
-        payload: payload.into_bytes(),
+        payload,
     })
 }
 
 fn publish_thread(
     ipc: &mut IpcServer,
-    subscribers: &mut Vec<(u64, Vec<u8>)>,
+    subscribers: &mut Vec<(u64, micro_thread_matter_daemon::protobuf::MessageBody)>,
     lifecycle: &Lifecycle,
 ) -> Result<(), std::io::Error> {
     subscribers.retain(|entry| ipc.has_peer(entry.0));

@@ -11,6 +11,7 @@
 #include "notification_worker.h"
 #include "matter_client.h"
 #include "matter_worker.h"
+#include "matter_typed.h"
 #include "automation_worker.h"
 #include "syslog_log_reader.h"
 #include "thread_name.h"
@@ -824,9 +825,10 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             delete view;
             if (valid) body.swap(prepared);
         }
-        if (!valid || !MatterChannel::validRequest(opcode, body)) error = "malformed";
+        MatterProto::MessageBody ipcRequest;
+        if(!valid||!MatterChannel::requestFromJson(opcode,body,&ipcRequest))error="malformed";
         else if (!matterWorker_) error = "not_ready";
-        else matterWorker_->submit(opcode, body, &id, &error);
+        else matterWorker_->submit(opcode,ipcRequest,&id,&error);
         if (id != 0) {
             std::ostringstream out;
             out << "{\"schema\":1,\"ok\":true,\"job\":" << id << ",\"state\":\"queued\"}";
@@ -979,9 +981,10 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
             if (!valid) writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"Invalid deletion mode\"}");
             else if (address.substr(0, 7) == "matter:") {
 #if MICROHAD_MATTER_ENABLED
-                std::string node; uint32_t job = 0;
-                if (gateway_->matterDeletionTarget(address, &node, &error) && matterWorker_ && matterWorker_->submit(10,
-                    "{\"schema\":1,\"action\":\"delete\",\"node\":\"" + node + "\",\"local\":" + (mode == "local" ? "true" : "false") + "}", &job, &error)) {
+                std::string node;uint32_t job=0;MatterProto::MessageBody requestBody;
+                const bool target=gateway_->matterDeletionTarget(address,&node,&error);
+                if(target){MatterProto::DeviceControlRequest command;command.schema=1;command.action=std::string("delete");command.node=strtoull(node.c_str(),0,16);command.local=mode=="local";requestBody.device_control_request=command;}
+                if(target&&matterWorker_&&matterWorker_->submit(10,requestBody,&job,&error)){
                     std::ostringstream out; out << "{\"ok\":true,\"state\":\"pending\",\"job\":" << job << '}';
                     writeResponse(clientFd, 200, "application/json", out.str());
                 } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error.empty() ? "Matter service unavailable" : error) + "\"}");
@@ -1308,13 +1311,13 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         if (thermostatAt != std::string::npos) {
             std::string address = decodeComponent(request.substr(prefix.size(), thermostatAt - prefix.size()));
-            std::string field, value, error, matterRequest;
+            std::string field,value,error;MatterProto::MessageBody matterRequest;
             const std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt + 4);
             bool valid = formValue(body, "field", &field) && formValue(body, "value", &value);
             if (valid && gateway_->setThermostat(address, field, value, &error, &matterRequest)) {
                 uint32_t job=0;
-                if (!matterRequest.empty() && (!matterWorker_ || !matterWorker_->submit(11,matterRequest,&job,&error))) {
-                    std::string node; long endpoint=0; jsonStringField(matterRequest,"node",&node); jsonLongField(matterRequest,"endpoint",&endpoint);
+                if (matterRequest.device_command_request.present && (!matterWorker_ || !matterWorker_->submit(11,matterRequest,&job,&error))) {
+                    const std::string node=MatterWire::hexId(matterRequest.device_command_request.value.node.value);const long endpoint=matterRequest.device_command_request.value.endpoint.value;
                     gateway_->thermostatResult(node,static_cast<unsigned short>(endpoint),field,error.empty()?"Matter worker unavailable":error);
                     writeResponse(clientFd,400,"application/json","{\"ok\":false,\"error\":\"Matter thermostat request failed\"}");
                 } else {

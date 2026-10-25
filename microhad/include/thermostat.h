@@ -4,6 +4,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "../../protocol/generated/matter_messages.pb.h"
 struct Device;
 struct TemperatureObservation {
     long at;
@@ -48,6 +49,8 @@ double thermostatValue(const Device& device, const std::string& name, double fal
 ThermostatAttribute thermostatDefinition(const Device& device, const ThermostatAttribute& base);
 bool thermostatModeSupported(const Device& device, int mode);
 bool thermostatScheduleForDevice(const Device& device, const std::string& text, int day, std::vector<unsigned char>* payload);
+bool thermostatWireValue(unsigned int attribute,const MatterProto::AttributeValue& value);
+bool applyMatterThermostat(Device* device,unsigned int attribute,const MatterProto::AttributeValue& value,long now);
 bool thermostatWireValue(unsigned int attribute, const std::string& kind, const std::string& value);
 bool applyMatterThermostat(Device* device, unsigned int attribute, const std::string& kind, const std::string& value, long now);
 bool isTrvzb(const Device& device);

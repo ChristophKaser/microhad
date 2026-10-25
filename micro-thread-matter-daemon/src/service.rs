@@ -415,7 +415,7 @@ mod tests {
             kind: 0,
             opcode: 1,
             id,
-            payload: vec![],
+            payload: crate::wire_json::from_json(0, 1, b"").unwrap(),
         }
         .encode()
         .unwrap()
@@ -425,7 +425,7 @@ mod tests {
             kind: 1,
             opcode: request.opcode,
             id: request.id,
-            payload: b"{\"available\":true}".to_vec(),
+            payload: crate::wire_json::from_json(1, 1, b"{\"available\":true}").unwrap(),
         })
     }
     #[test]
@@ -475,7 +475,7 @@ mod tests {
             kind: 0,
             opcode: 1,
             id: 91,
-            payload: vec![],
+            payload: crate::wire_json::from_json(0, 1, b"").unwrap(),
         })
         .unwrap()
         .encode()
@@ -576,7 +576,12 @@ mod tests {
             kind: 2,
             opcode: 12,
             id: 0,
-            payload: br#"{"schema":1,"event":"thread","data":{}}"#.to_vec(),
+            payload: crate::wire_json::from_json(
+                2,
+                12,
+                br#"{"schema":1,"event":"thread","data":{}}"#,
+            )
+            .unwrap(),
         };
         assert!(server.publish(target, &event).unwrap());
         assert_eq!(
@@ -593,7 +598,7 @@ mod tests {
             kind: 0,
             opcode: 1,
             id: 1,
-            payload: vec![],
+            payload: crate::wire_json::from_json(0, 1, b"").unwrap(),
         })
         .unwrap()
         .encode()
@@ -605,7 +610,13 @@ mod tests {
         assert_eq!(decoder.pop().unwrap().id, 1);
         let delivered = decoder.pop().unwrap();
         assert_eq!(delivered.kind, 2);
-        assert_eq!(serde_json::from_slice::<serde_json::Value>(&delivered.payload).unwrap(), serde_json::from_slice::<serde_json::Value>(&event.payload).unwrap());
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&crate::wire_json::json_bytes(
+                &delivered.payload
+            ))
+            .unwrap(),
+            serde_json::from_slice::<serde_json::Value>(&crate::wire_json::json_bytes(
+                &event.payload
+            )).unwrap());
         let mut second_reply = vec![0; expected_reply.len()];
         second.read_exact(&mut second_reply).unwrap();
         second.set_nonblocking(true).unwrap();
@@ -634,8 +645,12 @@ mod tests {
             kind: 2,
             opcode: 12,
             id: 0,
-            payload: br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002"}}"#
-                .to_vec(),
+            payload: crate::wire_json::from_json(
+                2,
+                12,
+                br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002"}}"#,
+            )
+            .unwrap(),
         };
         assert_eq!(server.publish_all(&event).unwrap(), 2);
         server.poll(respond).unwrap();
@@ -643,7 +658,7 @@ mod tests {
             kind: 0,
             opcode: 1,
             id: 1,
-            payload: vec![],
+            payload: crate::wire_json::from_json(0, 1, b"").unwrap(),
         })
         .unwrap()
         .encode()
@@ -655,7 +670,13 @@ mod tests {
             let mut decoder = Decoder::default();
             decoder.feed(&bytes).unwrap();
             assert_eq!(decoder.pop().unwrap().id, id);
-            assert_eq!(serde_json::from_slice::<serde_json::Value>(&decoder.pop().unwrap().payload).unwrap(), serde_json::from_slice::<serde_json::Value>(&event.payload).unwrap());
+            assert_eq!(serde_json::from_slice::<serde_json::Value>(&crate::wire_json::json_bytes(
+                    &decoder.pop().unwrap().payload
+                ))
+                .unwrap(),
+                serde_json::from_slice::<serde_json::Value>(&crate::wire_json::json_bytes(
+                    &event.payload
+                )).unwrap());
         }
     }
 
@@ -672,7 +693,12 @@ mod tests {
             kind: 2,
             opcode: 12,
             id: 0,
-            payload: br#"{"schema":1,"event":"thread","data":{}}"#.to_vec(),
+            payload: crate::wire_json::from_json(
+                2,
+                12,
+                br#"{"schema":1,"event":"thread","data":{}}"#,
+            )
+            .unwrap(),
         };
         for _ in 0..MAX_RESPONSES {
             assert!(server.publish(first, &event).unwrap());
@@ -688,11 +714,18 @@ mod tests {
             kind: 2,
             opcode: 12,
             id: 1,
-            payload: vec![],
+            payload: crate::wire_json::from_json(0, 1, b"").unwrap(),
         };
         assert!(server.publish(second, &malformed).is_err());
         malformed.id = 0;
-        malformed.payload = vec![0; MAX_PAYLOAD + 1];
+        malformed.payload = crate::protobuf::MessageBody {
+            choice: Some(crate::protobuf::MessageBodyChoice::Event(
+                crate::protobuf::EventNotification {
+                    event: Some("x".repeat(MAX_PAYLOAD + 1)),
+                    ..Default::default()
+                },
+            )),
+        };
         assert!(server.publish(second, &malformed).is_err());
         assert!(server.has_peer(second));
         server

@@ -19,7 +19,7 @@ pub struct Frame {
     pub kind: u8,
     pub opcode: u8,
     pub id: u32,
-    pub payload: Vec<u8>,
+    pub payload: crate::protobuf::MessageBody,
 }
 impl Frame {
     fn valid(&self) -> bool {
@@ -101,7 +101,7 @@ mod tests {
                 let body = if frame.payload.is_empty() {
                     serde_json::json!({})
                 } else {
-                    serde_json::from_slice(&frame.payload).unwrap()
+                    serde_json::from_slice(&crate::wire_json::json_bytes(&frame.payload)).unwrap()
                 };
                 assert_eq!(body, v["body"], "{}", v["name"]);
                 let encoded = frame.encode().unwrap_or_else(|e| panic!("{}: {e:?}", v["name"]));
@@ -121,7 +121,7 @@ mod tests {
             kind: 0,
             opcode: 1,
             id: 1,
-            payload: vec![],
+            payload: crate::wire_json::from_json(0, 1, b"").unwrap(),
         }
         .encode()
         .unwrap();
@@ -138,5 +138,49 @@ mod tests {
         );
         let mut decoder = Decoder::default();
         assert_eq!(decoder.feed(&[1, 8]), Err(ProtocolError::Oversized));
+    }
+}
+
+impl crate::protobuf::MessageBody {
+    pub fn len(&self) -> usize {
+        prost::Message::encoded_len(self)
+    }
+    pub fn is_empty(&self) -> bool {
+        self.choice.is_none()
+    }
+    pub fn clear(&mut self) {
+        self.choice = None;
+    }
+}
+
+#[cfg(test)]
+mod typed_encoder_tests {
+    use super::*;
+    use crate::protobuf::{EventPayloadChoice,MeasurementValueChoice,MessageBodyChoice,ReadingValueChoice};
+    fn fixture(name:&str)->Frame {
+        let vectors:serde_json::Value=serde_json::from_str(include_str!("../../protocol/matter-wire-vectors.json")).unwrap();
+        let v=vectors.as_array().unwrap().iter().find(|v|v["name"]==name).unwrap();
+        let hex=v["wire"].as_str().unwrap();let bytes:Vec<u8>=(0..hex.len()).step_by(2).map(|i|u8::from_str_radix(&hex[i..i+2],16).unwrap()).collect();
+        let mut decoder=Decoder::default();decoder.feed(&bytes).unwrap();decoder.pop().unwrap()
+    }
+    fn reading(frame:&mut Frame)->&mut crate::protobuf::ReadingValue {
+        let Some(MessageBodyChoice::Event(e))=&mut frame.payload.choice else{panic!("event")};
+        let Some(EventPayloadChoice::Reading(r))=&mut e.data.as_mut().unwrap().choice else{panic!("reading")};
+        r.value.as_mut().unwrap().value.as_mut().unwrap()
+    }
+    #[test]
+    fn generated_outbound_checks_reject_nonfinite_and_oversized_lists(){
+        let mut frame=fixture("measurement-event");
+        let Some(ReadingValueChoice::Measurement(m))=&mut reading(&mut frame).choice else{panic!("measurement")};
+        m.value.as_mut().unwrap().choice=Some(MeasurementValueChoice::Number(f64::NAN));
+        assert_eq!(frame.encode().unwrap_err(),ProtocolError::Malformed);
+        let mut frame=fixture("repeated-512");
+        let Some(ReadingValueChoice::List(list))=&mut reading(&mut frame).choice else{panic!("list")};
+        list.items.push(0);assert_eq!(frame.encode().unwrap_err(),ProtocolError::Malformed);
+    }
+    #[test]
+    fn generated_body_must_match_the_header_before_encoding(){
+        let mut frame=fixture("empty-status");frame.opcode=2;
+        assert_eq!(frame.encode().unwrap_err(),ProtocolError::Malformed);
     }
 }

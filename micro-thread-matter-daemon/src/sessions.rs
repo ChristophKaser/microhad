@@ -518,7 +518,7 @@ mod tests {
         let mut sessions = Sessions::new(&relay);
         let now = Instant::now();
         let id = start(&mut sessions, now);
-        let Request::CommissionStart(request) = Request::decode(
+        let Request::CommissionStart(request) = Request::decode_json(
             3,
             br#"{"schema":1,"discriminator":1,"pin":20202021,"timeout_seconds":30,"country_code":"DE","regulatory_location":"indoor"}"#,
         )

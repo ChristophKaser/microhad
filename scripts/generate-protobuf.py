@@ -131,6 +131,9 @@ fn binary(v:&Value)->Result<Vec<u8>,ProtocolError>{if let Value::Bytes(b)=v{Ok(b
         rs+='],\n'
     rs+='_ => &[],\n} }\n'
     (out/'protobuf.rs').write_text(rs.replace('Result<', 'std::result::Result<'))
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('matter_bindings', ROOT/'scripts/generate-matter-bindings.py')
+    bindings=importlib.util.module_from_spec(spec);spec.loader.exec_module(bindings);bindings.generate(out)
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--check',action='store_true');args=p.parse_args()

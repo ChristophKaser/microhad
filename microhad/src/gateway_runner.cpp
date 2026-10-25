@@ -219,12 +219,12 @@ void GatewayRunner::executeAutomation(const Automation::Action& a) {
     }else if(a.operation=="thermostat") {
         const std::string& field=a.args.fields.find("field")->second.string;
         const std::string& value=a.args.fields.find("value")->second.string;
-        std::string request;
+        MatterProto::MessageBody request;
         const std::map<std::string,Device>& devices=gateway_->devicesForAutomation();
         std::map<std::string,Device>::const_iterator device=devices.find(a.target);
         ok=device!=devices.end()&&thermostatValidateSetting(device->second,field,value,&error);
         if(ok)ok=gateway_->setThermostat(a.target,field,value,&error,&request);
-        if(ok&&!request.empty()) {
+        if(ok&&request.device_command_request.present) {
             pthread_mutex_lock(&mutex_);MatterWorker* matter=automationMatter_;pthread_mutex_unlock(&mutex_);
             uint32_t job=0;
             ok=matter&&matter->submit(11,request,&job,&error);
@@ -388,7 +388,7 @@ void GatewayRunner::execute(Command* command) {
     else if (command->type == NetworkBackup) result = gateway_->exportNetworkBackup(command->address, &error);
     else if (command->type == DeviceConfiguration) result = gateway_->queryDeviceConfiguration(command->address, &error);
     else if (command->type == ThermostatSetting) { std::string value=command->configuration;
-        result = gateway_->setThermostat(command->address, command->name, value, &error, &command->configuration); }
+        result = gateway_->setThermostat(command->address, command->name, value, &error, &command->matterRequest); }
     else if (command->type == ThermostatResult) result=gateway_->thermostatResult(command->matterReading.node,command->matterReading.endpoint,command->name,command->configuration);
     else if (command->type == LightState) result = gateway_->setLightState(command->address, command->name,
                                                                              command->brightnessPercent, &error);
@@ -757,10 +757,10 @@ bool GatewayRunner::queryDeviceConfiguration(const std::string& address, std::st
     return invoke(&command, error);
 }
 bool GatewayRunner::setThermostat(const std::string& address, const std::string& field,
-                                  const std::string& value, std::string* error, std::string* matterRequest) {
+                                  const std::string& value, std::string* error, MatterProto::MessageBody* matterRequest) {
     Command command; command.type = ThermostatSetting; command.address = address;
     command.name = field; command.configuration = value;
-    bool result=invoke(&command,error); if(result && matterRequest)*matterRequest=command.configuration; return result;
+    bool result=invoke(&command,error); if(result && matterRequest)*matterRequest=command.matterRequest; return result;
 }
 bool GatewayRunner::thermostatResult(const std::string& node, unsigned short endpoint, const std::string& field, const std::string& error) {
     Command command; command.type=ThermostatResult; command.matterReading.node=node; command.matterReading.endpoint=endpoint;

@@ -23,6 +23,12 @@ use core::cell::{Cell, RefCell};
 use core::pin::pin;
 use embassy_futures::select::{select, select3, select4, Either};
 use embassy_time::{Duration, Timer};
+use micro_thread_matter_daemon::identity::Identity;
+use micro_thread_matter_daemon::service::IcdCheckInResponder;
+use micro_thread_matter_daemon::store::PrivateStore;
+use micro_thread_matter_daemon::{
+    ble::BleRelay, commissioning as gateway_commissioning, openthread::OpenThread,
+};
 use rs_matter::cert::gen::VALID_FOREVER;
 use rs_matter::cert::{MAX_CERT_TLV_AND_ASN1_LEN, MAX_CERT_TLV_LEN};
 use rs_matter::crypto::{default_crypto, Crypto, CryptoSensitiveRef, Rng};
@@ -57,12 +63,6 @@ use rs_matter::utils::init::InitMaybeUninit;
 use rs_matter::utils::select::Coalesce;
 use rs_matter::{clusters, devices, root_endpoint, Matter, MATTER_PORT};
 use static_cell::StaticCell;
-use micro_thread_matter_daemon::identity::Identity;
-use micro_thread_matter_daemon::service::IcdCheckInResponder;
-use micro_thread_matter_daemon::store::PrivateStore;
-use micro_thread_matter_daemon::{
-    ble::BleRelay, commissioning as gateway_commissioning, openthread::OpenThread,
-};
 
 fn native_test_response(
     peer: u64,
@@ -71,34 +71,52 @@ fn native_test_response(
 ) -> Option<micro_thread_matter_daemon::ipc::Frame> {
     use micro_thread_matter_daemon::control::{DeviceRequest, Request, ThreadRequest};
 
+    use micro_thread_matter_daemon::protobuf as p;
+    let thread_status = |attached, channel| p::ThreadStatus {
+        enabled: Some(true),
+        available: Some(true),
+        configured: Some(attached),
+        attached: Some(attached),
+        state: Some(if attached { "attached" } else { "detached" }.into()),
+        linux_ipv6_or_tun: Some(false),
+        zigbee_channel: channel,
+        dataset_channel: channel,
+    };
     let payload = match Request::decode(request.opcode, &request.payload) {
-        Ok(Request::MatterStatus) => { manager.subscribe_inventory(peer); br#"{"enabled":true,"available":true,"controller_initialized":true,"fabric_ready":true,"state":"running"}"#.to_vec() },
-        Ok(Request::ThreadStatus) | Ok(Request::Thread(ThreadRequest::Status { .. })) => {
-            br#"{"enabled":true,"available":true,"configured":true,"attached":true,"state":"attached","linux_ipv6_or_tun":false}"#.to_vec()
+        Ok(Request::MatterStatus) => { manager.subscribe_inventory(peer);
+            p::MessageBody {
+                choice: Some(p::MessageBodyChoice::Matter(p::MatterStatus {
+                    enabled: Some(true),
+                    available: Some(true),
+                    controller_initialized: Some(true),
+                    fabric_ready: Some(true),
+                    state: Some("running".into()),
+                    ..Default::default()
+                })),
+            }
+        }
+        Ok(Request::ThreadStatus) => p::MessageBody {
+            choice: Some(p::MessageBodyChoice::Thread(thread_status(true, None))),
+        },
+        Ok(Request::Thread(ThreadRequest::Status { .. })) => {
+            micro_thread_matter_daemon::responses::reply::<_, &str>(Ok(thread_status(true, None)))?
         }
         Ok(Request::Thread(ThreadRequest::Observe {
             zigbee_channel,
             zigbee_online,
             ..
         })) => {
-            let valid_channel = zigbee_online && (11..=26).contains(&zigbee_channel);
-            let status = if valid_channel {
-                format!("{{\"enabled\":true,\"available\":true,\"configured\":true,\"attached\":true,\"state\":\"attached\",\"zigbee_channel\":{},\"dataset_channel\":{},\"linux_ipv6_or_tun\":false}}", zigbee_channel, zigbee_channel)
-            } else {
-                r#"{"enabled":true,"available":true,"configured":false,"attached":false,"state":"detached","linux_ipv6_or_tun":false}"#.to_owned()
-            };
-            format!("{{\"schema\":1,\"ok\":true,\"result\":{status}}}").into_bytes()
+            let attached = zigbee_online && (11..=26).contains(&zigbee_channel);
+            micro_thread_matter_daemon::responses::reply::<_, &str>(Ok(thread_status(
+                attached,
+                attached.then_some(zigbee_channel.into()),
+            )))?
         }
         Ok(Request::Device(DeviceRequest::Snapshot {
             cursor, revision, ..
-        })) => {
-            let page = manager.page(cursor, revision);
-            micro_thread_matter_daemon::responses::reply(page).unwrap_or_default()
-        }
-        Ok(_) => micro_thread_matter_daemon::responses::reply::<(), _>(Err("unsupported"))
-            .unwrap_or_default(),
-        Err(_) => micro_thread_matter_daemon::responses::reply::<(), _>(Err("malformed"))
-            .unwrap_or_default(),
+        })) => micro_thread_matter_daemon::responses::reply(manager.page(cursor, revision))?,
+        Ok(_) => micro_thread_matter_daemon::responses::reply::<(), _>(Err("unsupported"))?,
+        Err(_) => micro_thread_matter_daemon::responses::reply::<(), _>(Err("malformed"))?,
     };
     (!payload.is_empty()).then_some(micro_thread_matter_daemon::ipc::Frame {
         kind: 1,
@@ -368,9 +386,9 @@ impl air_quality::ClusterHandler for TestAirQuality {
 }
 #[path="fixtures/thermostat.rs"]
 mod thermostat_fixture;
-use thermostat_fixture::TestThermostat;
 use rs_matter::dm::clusters::decl::thermostat as thermostat_cluster;
 use thermostat_cluster::ClusterHandler as _;
+use thermostat_fixture::TestThermostat;
 
 const APP_ENDPOINT: Endpoint<'static> = Endpoint::new(
     1,
@@ -538,7 +556,8 @@ fn data_model<'a>(
                     |e, c| e == 1 && c == TestLevelControl::CLUSTER.id,
                     Async(level_control::HandlerAdaptor(level)),
                 )
-                .chain(|e,c|e==1 && c==513,Async(thermostat_cluster::HandlerAdaptor(thermostat)))
+                .chain(|e,c|e==1 && c==513,Async(thermostat_cluster::HandlerAdaptor(thermostat)),
+                )
                 .chain(
                     |e, c| e == 1 && c == TestTemperature::CLUSTER.id,
                     Async(temperature_measurement::HandlerAdaptor(temperature)),
@@ -923,9 +942,10 @@ async fn run(
         }
         println!("PASS bounded operational descriptor endpoint and cluster discovery over CASE");
         if std::env::args().any(|arg|arg=="--thermostat") {
-            use micro_thread_matter_daemon::{thermostat as tstat,operations::Value};
+            use micro_thread_matter_daemon::{operations::Value, thermostat as tstat};
             assert!(endpoints[1].servers.contains(&513));
-            for(field,value)in [("occupied_heating_setpoint","21.5"),("occupied_cooling_setpoint","25.5"),("system_mode","1")]{
+            for(field,value)in [("occupied_heating_setpoint","21.5"),("occupied_cooling_setpoint","25.5"),("system_mode","1"),
+            ]{
                 eprintln!("Thermostat fixture: writing {field}");
                 let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,field,value).await?;
                 assert!(matches!(result.value,Value::Thermostat(Some(_))));
@@ -933,12 +953,15 @@ async fn run(
             assert!(tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"occupied_heating_setpoint","30").await.is_err());
             eprintln!("Thermostat fixture: schedules");
             let schedule=r#"{"mode":3,"transitions":[{"time":60,"heat":20,"cool":26},{"time":480,"heat":21,"cool":25}]}"#;
-            let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"schedule_1",schedule).await?;
+            let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"schedule_1",schedule,
+            ).await?;
             assert!(matches!(result.value,Value::ThermostatSchedule(_)));
-            let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"schedule_1","__read__").await?;
+            let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"schedule_1","__read__",
+            ).await?;
             assert!(matches!(result.value,Value::ThermostatSchedule(schedule) if schedule.transitions.len()==2));
             eprintln!("Thermostat fixture: subscription");
-            let subscription=micro_thread_matter_daemon::subscriptions::establish_device_attribute(ctrl_matter,ctrl_crypto,fab,node,1,513,u32::MAX).await?;
+            let subscription=micro_thread_matter_daemon::subscriptions::establish_device_attribute(ctrl_matter,ctrl_crypto,fab,node,1,513,u32::MAX,
+                ).await?;
             assert!(subscription.priming_values.iter().any(|v|v.attribute==65531));
             assert!(subscription.priming_values.iter().any(|v|v.attribute==0));
             // Let the accessory commit its priming report after the SubscribeResponse ACK.
@@ -947,8 +970,10 @@ async fn run(
             thermostat_cluster::ClusterHandler::dataver_changed(&thermostat);
             dm.notify_attr_changed(1,513,0);
             let active=micro_thread_matter_daemon::subscriptions::ReportSubscriptions::default();
-            active.replace(fab.get(),std::iter::once((node,subscription.established.subscription_id)));
-            let report=embassy_time::with_timeout(Duration::from_secs(5),micro_thread_matter_daemon::subscriptions::receive_report(ctrl_matter,active)).await
+            active.replace(fab.get(),std::iter::once((node,subscription.established.subscription_id)),
+            );
+            let report=embassy_time::with_timeout(Duration::from_secs(5),micro_thread_matter_daemon::subscriptions::receive_report(ctrl_matter,active),
+            ).await
                 .map_err(|_|rs_matter::error::ErrorCode::RxTimeout)??;
             assert!(report.values.iter().any(|v|v.cluster==513 && v.attribute==0 && matches!(v.value,Value::Thermostat(None))));
             eprintln!("Thermostat fixture: live report received; reading nullable temperature");
@@ -965,7 +990,8 @@ async fn run(
                 // before the commissioning completion checkpoint was saved.
                 let mut record = [0u8; 18 + micro_thread_matter_daemon::catalog::MAX_NODES * 9];
                 let size = active_store
-                    .get(micro_thread_matter_daemon::catalog::CATALOG_KEY, &mut record)
+                    .get(micro_thread_matter_daemon::catalog::CATALOG_KEY, &mut record,
+                    )
                     .map_err(|_| rs_matter::error::ErrorCode::Failure)?
                     .ok_or(rs_matter::error::ErrorCode::InvalidData)?;
                 if size < 27 || &record[..8] != b"TMNC\x01\0\0\0" {
@@ -986,7 +1012,8 @@ async fn run(
                 let phase_offset = 18 + entry_index * 9 + 8;
                 record[phase_offset] = micro_thread_matter_daemon::catalog::Phase::RecoveryRequired as u8;
                 active_store
-                    .set(micro_thread_matter_daemon::catalog::CATALOG_KEY, Some(&record[..size]))
+                    .set(micro_thread_matter_daemon::catalog::CATALOG_KEY, Some(&record[..size]),
+                    )
                     .map_err(|_| rs_matter::error::ErrorCode::Failure)?;
             }
             let catalog = micro_thread_matter_daemon::catalog::Catalog::open(
@@ -1069,7 +1096,7 @@ async fn run(
                     let body = format!("{{\"schema\":1,\"command\":\"on\",\"node\":\"{node:016x}\",\"endpoint\":1}}");
                     assert!(matches!(
                         manager.prepare(
-                            micro_thread_matter_daemon::control::Request::decode(11, body.as_bytes()).unwrap()
+                            micro_thread_matter_daemon::control::Request::decode_json(11, body.as_bytes()).unwrap()
                         ),
                         Err(micro_thread_matter_daemon::operations::Failure::NotReady)
                     ));
@@ -1091,7 +1118,8 @@ async fn run(
                     manager.poll(true, false, std::time::Instant::now(), context);
                     if std::time::Instant::now() >= next_registration_check {
                         let registered =
-                            micro_thread_matter_daemon::icd::ClientRegistry::open(registry_store.clone())
+                            micro_thread_matter_daemon::icd::ClientRegistry::open(registry_store.clone(),
+                        )
                                 .ok()
                                 .is_some_and(|registry| registry.registration(fab, node).is_some());
                         if registered {
@@ -1189,7 +1217,10 @@ async fn run(
                 );
                 let accepted = manager
                     .submit(
-                        micro_thread_matter_daemon::control::Request::decode(10, body.as_bytes())
+                        micro_thread_matter_daemon::control::Request::decode_json(
+                            10,
+                            body.as_bytes(),
+                        )
                             .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
                         true,
                         false,
@@ -1231,7 +1262,10 @@ async fn run(
                 let body = format!("{{\"schema\":1,\"action\":\"read\",\"node\":\"{node:016x}\",\"endpoint\":1,\"cluster\":{cluster},\"attribute\":0}}");
                 let accepted = manager
                     .submit(
-                        micro_thread_matter_daemon::control::Request::decode(10, body.as_bytes())
+                        micro_thread_matter_daemon::control::Request::decode_json(
+                            10,
+                            body.as_bytes(),
+                        )
                             .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
                         true,
                         false,
@@ -1275,7 +1309,7 @@ async fn run(
             let body = format!("{{\"schema\":1,\"action\":\"read\",\"node\":\"{node:016x}\",\"endpoint\":1,\"cluster\":91,\"attribute\":0}}");
             let accepted = manager
                 .submit(
-                    micro_thread_matter_daemon::control::Request::decode(10, body.as_bytes())
+                    micro_thread_matter_daemon::control::Request::decode_json(10, body.as_bytes())
                         .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
                     true,
                     false,
@@ -1327,7 +1361,10 @@ async fn run(
                 let body = format!("{{\"schema\":1,\"command\":\"{command}\",\"node\":\"{node:016x}\",\"endpoint\":1}}");
                 let accepted = manager
                     .submit(
-                        micro_thread_matter_daemon::control::Request::decode(11, body.as_bytes())
+                        micro_thread_matter_daemon::control::Request::decode_json(
+                            11,
+                            body.as_bytes(),
+                        )
                             .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
                         true,
                         false,
@@ -1374,7 +1411,7 @@ async fn run(
             ] {
                 let accepted = manager
                     .submit(
-                        micro_thread_matter_daemon::control::Request::decode(opcode, body.as_bytes())
+                        micro_thread_matter_daemon::control::Request::decode_json(opcode, body.as_bytes())
                             .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
                         true,
                         false,
@@ -1407,7 +1444,7 @@ async fn run(
             );
             assert!(matches!(
                 manager.prepare(
-                    micro_thread_matter_daemon::control::Request::decode(10, denied_level_read.as_bytes())
+                    micro_thread_matter_daemon::control::Request::decode_json(10, denied_level_read.as_bytes())
                         .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?
                 ),
                 Err(micro_thread_matter_daemon::operations::Failure::Unsupported)
@@ -1417,7 +1454,7 @@ async fn run(
             );
             assert!(matches!(
                 manager.prepare(
-                    micro_thread_matter_daemon::control::Request::decode(11, denied.as_bytes())
+                    micro_thread_matter_daemon::control::Request::decode_json(11, denied.as_bytes())
                         .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?
                 ),
                 Err(micro_thread_matter_daemon::operations::Failure::Unsupported)
@@ -1706,7 +1743,7 @@ async fn run(
                                             native_test_response(peer, request, &mut manager)
                                         })
                                         .unwrap();
-                                        return std::task::Poll::Ready(Vec::new());
+                                        return std::task::Poll::Ready(micro_thread_matter_daemon::protobuf::MessageBody::default());
                                     }
                                 }
                             } else if let (Some((ipc, _)), Some(peer)) =
@@ -1735,7 +1772,7 @@ async fn run(
                             } else {
                                 while let Some(report) = manager.pop_report() {
                                     if report.cluster == cluster {
-                                        return std::task::Poll::Ready(Vec::new());
+                                        return std::task::Poll::Ready(micro_thread_matter_daemon::protobuf::MessageBody::default());
                                     }
                                 }
                             }
@@ -1765,7 +1802,8 @@ async fn run(
                     } else {
                         // Protobuf-to-JSON decoding may reorder object fields.
                         assert_eq!(
-                            serde_json::from_slice::<serde_json::Value>(&payload).unwrap(),
+                            serde_json::from_slice::<serde_json::Value>(&micro_thread_matter_daemon::wire_json::json_bytes(&payload)
+                            ).unwrap(),
                             serde_json::from_slice::<serde_json::Value>(expected).unwrap(),
                         );
                     }
@@ -1808,7 +1846,10 @@ async fn run(
                 assert_eq!(device_matter.with_state(|state| state.fabrics.iter().count()), 2);
                 let body = format!("{{\"schema\":1,\"action\":\"delete\",\"node\":\"{node:016x}\",\"local\":false}}");
                 let accepted = manager.submit(
-                    micro_thread_matter_daemon::control::Request::decode(10, body.as_bytes())
+                    micro_thread_matter_daemon::control::Request::decode_json(
+                            10,
+                            body.as_bytes(),
+                        )
                         .map_err(|_| rs_matter::error::ErrorCode::InvalidData)?,
                     true, false, std::time::Instant::now(),
                 ).map_err(|_| rs_matter::error::ErrorCode::InvalidData)?;
@@ -1816,14 +1857,19 @@ async fn run(
                     manager.poll(true, false, std::time::Instant::now(), context);
                     match manager.job(accepted.job) {
                         Ok(state @ (micro_thread_matter_daemon::devices::JobState::Complete { .. } |
-                            micro_thread_matter_daemon::devices::JobState::Failed { .. })) => std::task::Poll::Ready(state),
+                            micro_thread_matter_daemon::devices::JobState::Failed { .. }),
+                        ) => std::task::Poll::Ready(state),
                         Ok(_) => { context.waker().wake_by_ref(); std::task::Poll::Pending }
                         Err(_) => panic!("deletion job disappeared"),
                     }
                 }).await;
                 match outcome {
-                    micro_thread_matter_daemon::devices::JobState::Complete { result, .. } => assert_eq!(result.cluster, 62),
-                    micro_thread_matter_daemon::devices::JobState::Failed { error, .. } => panic!("deletion failed: {error:?}"),
+                    micro_thread_matter_daemon::devices::JobState::Complete { result, .. } => {
+                        assert_eq!(result.cluster, 62)
+                    }
+                    micro_thread_matter_daemon::devices::JobState::Failed { error, .. } => {
+                        panic!("deletion failed: {error:?}")
+                    }
                     _ => unreachable!(),
                 }
                 assert!(catalog.nodes().iter().all(|entry| entry.id != node));
@@ -2083,7 +2129,7 @@ async fn commission_owned<C: Crypto>(
         .map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
     let mut owner = Controller::new(ble, matter, crypto, identity, store.clone(), fabric)?;
     let mut entropy = OsEntropy::open().map_err(|_| rs_matter::error::ErrorCode::InvalidState)?;
-    let start = Request::decode(
+    let start = Request::decode_json(
         3,
         br#"{"schema":1,"discriminator":3840,"pin":20202021,"timeout_seconds":120,"country_code":"DE","regulatory_location":"indoor"}"#,
     )
@@ -2091,7 +2137,7 @@ async fn commission_owned<C: Crypto>(
     let reply = owner
         .handle(start, 1, &lifecycle, &mut entropy, now)
         .unwrap();
-    let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+    let reply: serde_json::Value = serde_json::from_slice(&micro_thread_matter_daemon::wire_json::json_bytes(&reply)).unwrap();
     assert_eq!(reply["ok"], true);
     let session = reply["result"]["session"].as_str().unwrap();
     // Regression: a prior BLE connection left a PASE session that the
@@ -2100,21 +2146,22 @@ async fn commission_owned<C: Crypto>(
         use rs_matter::transport::session::{ReservedSession, SessionMode};
         let mut stale = ReservedSession::reserve_now(matter, crypto)?;
         stale.update(0, 0, 123, 456, Address::Btp(BtAddr([0xbb; 6])),
-            SessionMode::Pase { fab_idx: 0 }, None, None, None, None)?;
+            SessionMode::Pase { fab_idx: 0 }, None, None, None, None,
+        )?;
         stale.complete();
     }
     let attach =
         format!(r#"{{"schema":1,"session":"{session}","address":"bbbbbbbbbbbb","mtu":247}}"#);
     let reply = owner
         .handle(
-            Request::decode(6, attach.as_bytes()).unwrap(),
+            Request::decode_json(6, attach.as_bytes()).unwrap(),
             1,
             &lifecycle,
             &mut entropy,
             now,
         )
         .unwrap();
-    let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+    let reply: serde_json::Value = serde_json::from_slice(&micro_thread_matter_daemon::wire_json::json_bytes(&reply)).unwrap();
     assert_eq!(reply["ok"], true);
     generation.set(reply["result"]["generation"].as_u64().unwrap());
     let status = format!(r#"{{"schema":1,"session":"{session}"}}"#);
@@ -2129,14 +2176,14 @@ async fn commission_owned<C: Crypto>(
             owner.poll(&lifecycle, now, &mut context);
             let reply = owner
                 .handle(
-                    Request::decode(4, status.as_bytes()).unwrap(),
+                    Request::decode_json(4, status.as_bytes()).unwrap(),
                     1,
                     &lifecycle,
                     &mut entropy,
                     now,
                 )
                 .unwrap();
-            let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+            let reply: serde_json::Value = serde_json::from_slice(&micro_thread_matter_daemon::wire_json::json_bytes(&reply)).unwrap();
             assert_eq!(reply["ok"], true);
             let state = reply["result"]["state"].as_str().unwrap();
             if state == "complete" {
@@ -2230,7 +2277,8 @@ fn main() {
         );
         let trials = 16;
         let elapsed =
-            micro_thread_matter_daemon::icd::profile_unknown_identity_lookup(&crypto, &directory, trials)
+            micro_thread_matter_daemon::icd::profile_unknown_identity_lookup(&crypto, &directory, trials,
+        )
                 .expect("64-key unknown-identity ICD profile");
         println!(
             "PASS ICD unknown-identity lookup clients={} trials={} checks={} elapsed_us={} per_packet_us={}",
@@ -2313,7 +2361,8 @@ impl std::task::Wake for NoopWake {
 }
 
 unsafe extern "C" {
-    fn gatewayOtDiscoveryTestRegister(name: *const core::ffi::c_char, ip: *const u8, port: u16)
+    fn gatewayOtDiscoveryTestRegister(name: *const core::ffi::c_char, ip: *const u8, port: u16,
+    )
         -> i32;
     fn gatewayOtDiscoveryTestRegistered() -> bool;
 }

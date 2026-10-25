@@ -18,7 +18,11 @@ pub mod sessions;
 pub mod store;
 #[cfg(feature = "controller-service")]
 pub mod subscriptions;
+pub mod protobuf { include!("../../protocol/generated/matter_typed.rs"); }
+#[cfg(any(test, feature="controller-probe"))]
+pub mod wire_json;
 mod wire_protobuf;
+#[cfg(any(test,feature="controller-probe"))]
 mod wire_shapes;
 
 #[cfg(feature = "controller-service")]

@@ -15,9 +15,10 @@ Bodies and nested results are typed protobuf messages. Optional scalars preserve
 presence independently of zero and false. Nullable readings and metadata use
 explicit oneof null variants. Session, node, job, and revision IDs use uint64;
 BLE address/data and Thread datasets use bytes. Public HTTP/WebSocket JSON and
-saved configuration formats remain unchanged. Adapters retain hexadecimal IDs
-and bytes at the existing in-process JSON boundaries; JSON is not embedded in
-protobuf messages.
+saved configuration formats remain unchanged. Frames carry generated typed
+messages through both codecs, request dispatch, worker queues and event handling.
+Hexadecimal ID/byte conversion and JSON parsing/rendering happen only at public
+HTTP/phone boundaries and in explicit JSON fixtures, not inside IPC.
 
 Both decoders bound nesting at 16 protobuf message levels and repeated fields
 at 512 entries before allocating them. The 2048-byte envelope limit and stricter
@@ -37,11 +38,17 @@ commits only complete node records.
 
 ## Bindings and builds
 
-The native implementation uses pinned nanopb 0.4.9.1 wire primitives and generated
-schema metadata for IPC, compiled as C99 with the legacy static-assert option.
+The native implementation uses generated owned C++03 message structs with
+direct, numeric-tag nanopb 0.4.9.1 codecs. Optional fields have explicit presence;
+decoding checks duplicates with those presence flags. There is no generic
+value tree or JSON detour in IPC. Nanopb primitives are compiled as C99 with the
+legacy static-assert option.
 The device RAM cache uses checked-in typed nanopb C bindings and callbacks
 that borrow the worker snapshot, with no generic value-tree conversion. Rust uses
-Prost with checked-in typed bindings. Python host fixtures use the same generated
+Prost with checked-in typed bindings, generated outbound bounds checks, and
+strict predecode validation using numeric schema IDs and fixed counters. It
+uses no field-name lookup or per-message hash table. JSON fixture conversion is
+excluded from the production controller-service build. Python host fixtures use the same generated
 schema metadata; generated standard Python protobuf bindings are also supplied.
 The existing `matter-wire-shapes.json` table now serves only JSON/hex boundary
 conversion and action-specific allowlists; protobuf types and tags come from the

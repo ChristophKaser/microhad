@@ -792,7 +792,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     Device& device = target->second;
     Device before = device;
     if (reading.cluster == 513 && isThermostat(device)) {
-        if (!applyMatterThermostat(&device,reading.attribute,reading.unit,reading.textValue,time(0))) { *error="invalid thermostat report"; return false; }
+        if (!(reading.thermostatValue.present?applyMatterThermostat(&device,reading.attribute,reading.thermostatValue.value,time(0)):applyMatterThermostat(&device,reading.attribute,reading.unit,reading.textValue,time(0)))) { *error="invalid thermostat report"; return false; }
     } else if (reading.cluster == 6 && (device.hasLight || device.hasActor)) {
         if (device.hasLight) { device.lightOn = reading.booleanValue; device.lightKnown = true; }
         if (device.hasActor) { device.actorOn = reading.booleanValue; device.actorKnown = true; }

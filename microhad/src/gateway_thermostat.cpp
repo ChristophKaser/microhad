@@ -68,11 +68,11 @@ void Gateway::queueThermostatReadings(const Device& device) {
     }
 }
 bool Gateway::setThermostat(const std::string& address, const std::string& field,
-                            const std::string& value, std::string* error, std::string* matterRequest) {
+                            const std::string& value, std::string* error, MatterProto::MessageBody* matterRequest) {
     std::map<std::string,Device>::iterator it=devices_.find(resolveDeviceId(address));
     if (it==devices_.end() || !isThermostat(it->second)) { *error="device is not a thermostat"; return false; }
     Device& device=it->second; ThermostatState& state=device.thermostat;
-    if (matterRequest) matterRequest->clear();
+    if(matterRequest)*matterRequest=MatterProto::MessageBody();
     if (device.source=="matter") {
         std::vector<unsigned char> encoded;
         bool schedule=field.size()==10 && field.compare(0,9,"schedule_")==0 && field[9]>='0' && field[9]<='6';
@@ -82,9 +82,8 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
             if(schedule) *error="invalid or unsupported thermostat schedule";
             return false;
         }
-        std::ostringstream request; request<<"{\"schema\":1,\"command\":\"thermostat\",\"node\":\""<<device.matterNode<<"\",\"endpoint\":"<<device.matterEndpoint
-            <<",\"field\":\""<<jsonEscape(field)<<"\",\"value\":\""<<jsonEscape(value)<<"\"}";
-        *matterRequest=request.str(); state.pending.insert(field); state.error.clear(); markViewDirty(); return true;
+        MatterProto::DeviceCommandRequest request;request.schema=1;request.command=std::string("thermostat");request.node=strtoull(device.matterNode.c_str(),0,16);request.endpoint=device.matterEndpoint;request.field=field;request.value=value;
+        matterRequest->device_command_request=request; state.pending.insert(field); state.error.clear(); markViewDirty(); return true;
     }
     unsigned char endpoint=0;
     if (!thermostatEndpoint(device,0x0201,&endpoint)) { *error="thermostat interview is incomplete"; return false; }

@@ -37,6 +37,44 @@ struct CompletedWrite {
     write: u32,
 }
 
+impl responses::WireResult for Attached {
+    fn wire_result(&self) -> Option<crate::protobuf::OperationResult> {
+        Some(crate::protobuf::OperationResult {
+            choice: Some(crate::protobuf::OperationResultChoice::BleAttachResult(
+                crate::protobuf::BleAttachResult {
+                    generation: Some(self.generation),
+                },
+            )),
+        })
+    }
+}
+
+impl responses::WireResult for AcceptedIndication {
+    fn wire_result(&self) -> Option<crate::protobuf::OperationResult> {
+        Some(crate::protobuf::OperationResult {
+            choice: Some(crate::protobuf::OperationResultChoice::BleIndicationResult(
+                crate::protobuf::BleIndicationResult {
+                    sequence: Some(self.sequence),
+                },
+            )),
+        })
+    }
+}
+
+impl responses::WireResult for CompletedWrite {
+    fn wire_result(&self) -> Option<crate::protobuf::OperationResult> {
+        Some(crate::protobuf::OperationResult {
+            choice: Some(
+                crate::protobuf::OperationResultChoice::BleWriteCompleteResult(
+                    crate::protobuf::BleWriteCompleteResult {
+                        write: Some(self.write),
+                    },
+                ),
+            ),
+        })
+    }
+}
+
 /// A secure session belongs to one BLE connection, not to its reusable address.
 /// Construct outside the async body so even an unpolled cancelled job cleans up.
 struct BleConnectionSessions<'a> {
@@ -81,7 +119,7 @@ pub struct Controller<'a, C: Crypto> {
     next_node: u64,
     catalog: Catalog,
     peer: Option<u64>,
-    last_snapshot: Vec<u8>,
+    last_snapshot: crate::protobuf::MessageBody,
 }
 impl<'a, C: Crypto + 'a> Controller<'a, C> {
     pub fn new(
@@ -108,7 +146,7 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
             next_node,
             catalog,
             peer: None,
-            last_snapshot: Vec::new(),
+            last_snapshot: crate::protobuf::MessageBody::default(),
         })
     }
     pub fn commissioning_session(&mut self, now: Instant) -> Option<crate::control::Id> {
@@ -131,7 +169,7 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
         lifecycle: &Lifecycle,
         entropy: &mut OsEntropy,
         now: Instant,
-    ) -> Option<Vec<u8>> {
+    ) -> Option<crate::protobuf::MessageBody> {
         match request {
             Request::CommissionStart(request) => {
                 let result = if Self::ready(lifecycle, now) && !self.catalog.legacy_pending() {
@@ -485,7 +523,7 @@ mod tests {
         let mut sessions = Sessions::new(&relay);
         let mut entropy = OsEntropy::open().unwrap();
         let request = || {
-            match Request::decode(3, br#"{"schema":1,"discriminator":3840,"pin":20202021,"timeout_seconds":30,"country_code":"DE","regulatory_location":"indoor"}"#).unwrap() {
+            match Request::decode_json(3, br#"{"schema":1,"discriminator":3840,"pin":20202021,"timeout_seconds":30,"country_code":"DE","regulatory_location":"indoor"}"#).unwrap() {
             Request::CommissionStart(request) => request,
             _ => unreachable!(),
         }
@@ -580,7 +618,7 @@ mod tests {
         let before = std::fs::read(directory.0.join("credentials.bin")).unwrap();
         let body = owner
             .handle(
-                Request::decode(3, start).unwrap(),
+                Request::decode_json(3, start).unwrap(),
                 1,
                 &lifecycle,
                 &mut entropy,
@@ -597,23 +635,23 @@ mod tests {
         let before = std::fs::read(directory.0.join("credentials.bin")).unwrap();
         let body = owner
             .handle(
-                Request::decode(3, start).unwrap(),
+                Request::decode_json(3, start).unwrap(),
                 1,
                 &lifecycle,
                 &mut entropy,
                 now,
             )
             .unwrap();
-        let snapshot: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let snapshot: serde_json::Value = serde_json::from_slice(&crate::wire_json::json_bytes(&body)).unwrap();
         assert_eq!(snapshot["result"]["state"], "waiting_ble");
-        assert!(!String::from_utf8(body).unwrap().contains("20202021"));
+        assert!(!String::from_utf8(crate::wire_json::json_bytes(&body)).unwrap().contains("20202021"));
         let id = snapshot["result"]["session"].as_str().unwrap();
         assert_eq!(format!("{:016x}", owner.commissioning_session(now).unwrap().0), id);
         let status = format!(r#"{{"schema":1,"session":"{id}"}}"#);
         assert_eq!(
             owner
                 .handle(
-                    Request::decode(3, start).unwrap(),
+                    Request::decode_json(3, start).unwrap(),
                     1,
                     &lifecycle,
                     &mut entropy,
@@ -625,7 +663,7 @@ mod tests {
         for _ in 0..10 {
             assert!(owner
                 .handle(
-                    Request::decode(4, status.as_bytes()).unwrap(),
+                    Request::decode_json(4, status.as_bytes()).unwrap(),
                     1,
                     &lifecycle,
                     &mut entropy,
@@ -639,14 +677,14 @@ mod tests {
         );
         let timeout = owner
             .handle(
-                Request::decode(4, status.as_bytes()).unwrap(),
+                Request::decode_json(4, status.as_bytes()).unwrap(),
                 1,
                 &lifecycle,
                 &mut entropy,
                 now + Duration::from_secs(31),
             )
             .unwrap();
-        let timeout: serde_json::Value = serde_json::from_slice(&timeout).unwrap();
+        let timeout: serde_json::Value = serde_json::from_slice(&crate::wire_json::json_bytes(&timeout)).unwrap();
         assert_eq!(timeout["result"]["state"], "timed_out");
         assert_eq!(timeout["result"]["error"], "timeout");
         assert!(owner.commissioning_session(now + Duration::from_secs(31)).is_none());
@@ -656,14 +694,14 @@ mod tests {
             .unwrap();
         let body = owner
             .handle(
-                Request::decode(3, start).unwrap(),
+                Request::decode_json(3, start).unwrap(),
                 1,
                 &lifecycle,
                 &mut entropy,
                 again,
             )
             .unwrap();
-        let snapshot: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let snapshot: serde_json::Value = serde_json::from_slice(&crate::wire_json::json_bytes(&body)).unwrap();
         assert_ne!(snapshot["result"]["session"], id);
         let cancel = format!(
             r#"{{"schema":1,"session":{}}}"#,
@@ -671,7 +709,7 @@ mod tests {
         );
         let first = owner
             .handle(
-                Request::decode(5, cancel.as_bytes()).unwrap(),
+                Request::decode_json(5, cancel.as_bytes()).unwrap(),
                 1,
                 &lifecycle,
                 &mut entropy,
@@ -681,7 +719,7 @@ mod tests {
         assert_eq!(
             owner
                 .handle(
-                    Request::decode(5, cancel.as_bytes()).unwrap(),
+                    Request::decode_json(5, cancel.as_bytes()).unwrap(),
                     1,
                     &lifecycle,
                     &mut entropy,
@@ -690,7 +728,7 @@ mod tests {
                 .unwrap(),
             first
         );
-        let cancelled: serde_json::Value = serde_json::from_slice(&first).unwrap();
+        let cancelled: serde_json::Value = serde_json::from_slice(&crate::wire_json::json_bytes(&first)).unwrap();
         assert_eq!(cancelled["result"]["state"], "cancelled");
         assert_eq!(cancelled["result"]["deadline_remaining_seconds"], 0);
         assert!(owner.commissioning_session(again).is_none());

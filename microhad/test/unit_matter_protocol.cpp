@@ -1,3 +1,4 @@
+#include "matter_json.h"
 #include "matter_protocol.h"
 #include <cassert>
 #include <string>
@@ -13,7 +14,7 @@ void runMatterProtocolUnitTests() {
         for(unsigned int at=0;at<bytes.size()&&valid;++at)valid=decoder.feed(Bytes(1,bytes[at]));
         assert(valid==v.valid);Frame frame;
         if(valid){
-            assert(decoder.pop(&frame));assert(std::string(frame.payload.begin(),frame.payload.end())==v.json);
+            assert(decoder.pop(&frame));assert(MatterWire::jsonBody(frame.kind,frame.opcode,frame.payload)==v.json);
             Bytes encoded;assert(encode(frame,&encoded));Decoder roundtrip;Frame restored;
             assert(roundtrip.feed(encoded)&&roundtrip.pop(&restored));
             assert(restored.kind==frame.kind&&restored.opcode==frame.opcode&&restored.id==frame.id&&restored.payload==frame.payload);
@@ -22,7 +23,7 @@ void runMatterProtocolUnitTests() {
     }
     Frame frame; frame.opcode=7;frame.id=0x12345678UL;
     std::string body="{\"schema\":1,\"session\":\"ffffffffffffffff\",\"generation\":1,\"sequence\":1,\"data\":\"0080ff\"}";
-    frame.payload.assign(body.begin(),body.end());Bytes bytes;
+    assert(MatterWire::parseJson(frame.kind,frame.opcode,body,&frame.payload));Bytes bytes;
     assert(encode(frame,&bytes));
     assert(bytes[2]==0x08 && bytes[3]==3); // Protobuf version field.
     Decoder fragmented;
@@ -35,7 +36,7 @@ void runMatterProtocolUnitTests() {
     bad=bytes;bad.push_back(0);++bad[0];Decoder trailing;assert(!trailing.feed(bad));
     const unsigned char old[]={0,0,1,0,1,0,1,0,0,0};Decoder legacy;assert(!legacy.feed(Bytes(old,old+10)));
     Decoder oversized;assert(!oversized.feed(Bytes(MaxChunk+1,0)));
-    Frame event;event.kind=Frame::Event;event.opcode=12;assert(encode(event,&bytes));
+    Frame event;event.kind=Frame::Event;event.opcode=12;event.payload.event.present=true;assert(encode(event,&bytes));
     Decoder queue;for(unsigned int n=0;n<MaxQueued;++n)assert(queue.feed(bytes));assert(!queue.feed(bytes)&&!queue.pop(&decoded));
-    frame.payload.assign(MaxPayload,'x');assert(!encode(frame,&bytes)&&bytes.empty());
+    frame.payload.ble_indication_request.value.data=std::vector<unsigned char>(MaxPayload,1);assert(!encode(frame,&bytes)&&bytes.empty());
 }

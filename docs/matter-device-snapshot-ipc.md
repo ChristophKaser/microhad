@@ -1,7 +1,7 @@
 # Device snapshot IPC
 
 The private wire format is [protobuf v3](../micro-thread-matter-daemon/docs/matter-ipc-v3.md).
-Examples below use the public/in-process JSON representation: private-wire
+Examples below use the public/fixture JSON representation: private-wire
 node and revision IDs are unsigned 64-bit integers; the JSON representation
 uses sixteen-digit hexadecimal strings. Unknown private-wire fields are skipped
 with safe warnings. The executable is `mthread-matter`.

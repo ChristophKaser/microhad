@@ -3,6 +3,7 @@
 
 #include <deque>
 #include <vector>
+#include "../../protocol/generated/matter_messages.pb.h"
 
 // Private Unix-stream IPC, protobuf version 3. No packet contents are logged here.
 namespace MatterWire {
@@ -16,7 +17,7 @@ struct Frame {
     unsigned char kind;
     unsigned char opcode;
     unsigned long id;
-    Bytes payload;
+    MatterProto::MessageBody payload;
     Frame() : kind(Request), opcode(1), id(0) {}
 };
 bool encode(const Frame& frame, Bytes* bytes);

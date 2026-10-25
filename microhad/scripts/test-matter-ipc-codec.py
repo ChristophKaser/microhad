@@ -33,14 +33,14 @@ def main():
         status_vector = json.loads((ROOT.parent/'protocol/matter-wire-vectors.json').read_text())[0]
         status_bytes = ','.join(str(v) for v in bytes.fromhex(status_vector['wire']))
         driver.write_text('#include <cstdio>\n#include <fstream>\n#include <string>\n#include <cassert>\n#include "matter_protocol.h"\nvoid runMatterProtocolUnitTests();\n'
-                          'void checkStatusEncoding() { MatterWire::Frame frame; frame.opcode=1; frame.id=1; '
+                          'void checkStatusEncoding() { MatterWire::Frame frame; frame.opcode=1; frame.id=1; frame.payload.matter_status_request.present=true; '
                           'MatterWire::Bytes bytes; assert(MatterWire::encode(frame, &bytes)); '
                           'const unsigned char expected[]={' + status_bytes + '}; '
                           'assert(bytes==MatterWire::Bytes(expected, expected+sizeof(expected))); }\n'
                           'int main() { checkStatusEncoding(); runMatterProtocolUnitTests(); puts("PASS Matter IPC codec"); '
                           'std::ifstream status("/proc/self/status"); std::string line; '
                           'while (std::getline(status, line)) if (line.compare(0, 6, "VmHWM:")==0) puts(line.c_str()); return 0; }\n')
-        sources = [str(driver), str(ROOT / 'src/matter_protocol.cpp'), str(ROOT / 'src/matter_protobuf.cpp'), str(ROOT / 'src/protobuf_value.cpp'), str(ROOT / 'src/json_util.cpp'), str(ROOT / 'test/unit_matter_protocol.cpp')]
+        sources = [str(driver), str(ROOT / 'src/matter_protocol.cpp'), str(ROOT / 'src/matter_protobuf.cpp'), str(ROOT / 'src/matter_json.cpp'), str(ROOT / 'src/protobuf_value.cpp'), str(ROOT / 'src/json_util.cpp'), str(ROOT / 'test/unit_matter_protocol.cpp')]
         protobuf_names = ['pb_common', 'pb_encode', 'pb_decode']
         def protobuf_objects(compiler, suffix):
             objects=[]

@@ -93,7 +93,7 @@ public:
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
     bool setThermostat(const std::string& address, const std::string& field,
-                       const std::string& value, std::string* error, std::string* matterRequest = 0);
+                       const std::string& value, std::string* error, MatterProto::MessageBody* matterRequest = 0);
     bool thermostatResult(const std::string& node, unsigned short endpoint, const std::string& field, const std::string& error);
     bool setLightState(const std::string& ieeeAddress, const std::string& state, int brightnessPercent,
                        std::string* error);
@@ -150,6 +150,7 @@ private:
         unsigned short groupId;
         unsigned char sceneId;
         std::string configuration;
+        MatterProto::MessageBody matterRequest;
         bool result;
         bool enabled;
         bool complete;
