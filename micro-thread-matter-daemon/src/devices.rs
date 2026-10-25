@@ -2187,6 +2187,26 @@ mod tests {
     }
 
     #[test]
+    fn identify_requires_online_endpoint_with_identify_server() {
+        use crate::operations::{Action, Failure, Operation};
+        let operation = Operation { node: 2, endpoint: 4, action: Action::Identify };
+        let mut snapshots = vec![Snapshot {
+            node: 2,
+            endpoints: vec![Endpoint { id: 4, servers: vec![6], clients: vec![3], device_types: vec![] }],
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+            online: true, next: Instant::now(), failures: 0,
+        }];
+        assert_eq!(operation.authorize(&snapshots), Err(Failure::Unsupported));
+        snapshots[0].endpoints[0].servers.push(3);
+        assert_eq!(operation.authorize(&snapshots), Ok(()));
+        snapshots[0].online = false;
+        assert_eq!(operation.authorize(&snapshots), Err(Failure::NotReady));
+        snapshots[0].online = true;
+        snapshots[0].endpoints[0].id = 5;
+        assert_eq!(operation.authorize(&snapshots), Err(Failure::NotFound));
+    }
+
+    #[test]
     fn subscription_candidates_follow_advertised_clusters_and_stay_bounded() {
         let now = Instant::now();
         let snapshot = Snapshot {

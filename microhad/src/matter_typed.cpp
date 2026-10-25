@@ -25,7 +25,7 @@ bool reading(const AttributeReading& d,MatterReading* out,bool report){
     if(cluster!=513&&d.attribute.value!=(cluster==47?12U:0U)){ return false; }
     MatterReading r;r.node=MatterWire::hexId(d.node.value);r.endpoint=d.endpoint.value;r.cluster=cluster;r.attribute=d.attribute.value;
     if(cluster==513){if(!thermostatWireValue(d.attribute.value,a)){ return false; }r.thermostatValue=a;r.known=!isNull(v);r.unit=a.type.value;}
-    else if(cluster==6||cluster==69||(!report&&(cluster==30||cluster==56||cluster==62))){if(a.type.value!="bool"||!v.boolean.present){ return false; }r.known=true;r.booleanValue=v.boolean.value;}
+    else if(cluster==6||cluster==69||(!report&&(cluster==3||cluster==30||cluster==56||cluster==62))){if(a.type.value!="bool"||!v.boolean.present){ return false; }r.known=true;r.booleanValue=v.boolean.value;}
     else if(cluster==8||cluster==47){if(a.type.value!="u8"){ return false; }r.known=!isNull(v);if(r.known){if(!v.unsigned_value.present||v.unsigned_value.value>(cluster==47?200U:254U)){ return false; }r.numberValue=v.unsigned_value.value;}}
     else if(cluster==91){
         if(a.type.value!="air_quality"||!v.measurement.present){ return false; }

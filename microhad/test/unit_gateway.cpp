@@ -1225,6 +1225,13 @@ public:
         gateway.devices_[device.ieeeAddress].zigbee.ensure().networkAddress = 0x4321;
         gateway.devices_[device.ieeeAddress].zigbee.ensure().endpoints.erase(gateway.devices_[device.ieeeAddress].zigbee.ensure().endpoints.begin() + 1);
         assert(!gateway.identifyDevice(device.ieeeAddress, &error) && error == "device has no Identify server endpoint");
+        gateway.devices_[device.ieeeAddress].source = "matter";
+        gateway.devices_[device.ieeeAddress].zigbee.ensure().networkAddress = 0xffff;
+        assert(!gateway.identifyDevice(device.ieeeAddress, &error));
+        assert(error == "Identify is not supported for this device source");
+        gateway.online_ = false;
+        assert(!gateway.identifyDevice(device.ieeeAddress, &error));
+        assert(error == "Identify is not supported for this device source");
     }
     static void ezspUpgradeCompatibility() {
         for (int protocol = 8; protocol <= 13; protocol += 5) {

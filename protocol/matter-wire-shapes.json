@@ -255,6 +255,12 @@
     "node": "@id",
     "endpoint": ""
   },
+  "device_command_request:identify": {
+    "schema": "",
+    "command": "",
+    "node": "@id",
+    "endpoint": ""
+  },
   "device_command_request:toggle": {
     "schema": "",
     "command": "",

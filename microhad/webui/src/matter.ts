@@ -120,7 +120,7 @@ export async function matterCall(route: string, fields: Record<string, unknown>,
       !integer(fields.endpoint, 0, 65534) || ![6, 8, 69, 91, 1026, 1029, 1037, 1066].includes(Number(fields.cluster)) || fields.attribute !== 0)) throw new MatterError('malformed')
   if (route.endsWith('/devices/command')) {
     const identityValid = typeof fields.node === 'string' && validSession(fields.node) && integer(fields.endpoint, 0, 65534)
-    const onOff = keys.length === 3 && ['on', 'off', 'toggle'].includes(String(fields.command))
+    const onOff = keys.length === 3 && ['on', 'off', 'toggle', 'identify'].includes(String(fields.command))
     const syncTime = keys.length === 5 && fields.command === 'sync_time' && typeof fields.time_zone === 'string' &&
       fields.time_zone.length > 0 && fields.time_zone.length <= 64 && /^[-+/_A-Za-z0-9]+$/.test(fields.time_zone) &&
       integer(fields.offset_seconds, -50400, 50400)
@@ -385,4 +385,13 @@ export async function matterSubscriptions(node: string, restore: boolean, signal
   } while (cursor < 384)
   if (!health) throw new MatterError('protocol')
   return health
+}
+
+export async function matterIdentify(node: string, endpoint: number, signal: AbortSignal): Promise<void> {
+  const data = object(await matterCall('/api/matter/devices/command', { node, endpoint, command: 'identify' }, signal))
+  if (Object.keys(data).length !== 3 || data.state !== 'complete' || typeof data.job !== 'string' || !/^[0-9a-f]{16}$/.test(data.job)) throw new MatterError('protocol')
+  const result = object(data.result)
+  const value = object(result.value)
+  if (Object.keys(result).length !== 5 || result.node !== node || result.endpoint !== endpoint || result.cluster !== 3 || result.attribute !== 0 ||
+      Object.keys(value).length !== 2 || value.type !== 'bool' || value.value !== true) throw new MatterError('protocol')
 }

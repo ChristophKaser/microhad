@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Device, DeviceConfiguration } from './api'
 import { errorMessage, form, post, textRequest } from './api'
+import { matterIdentify } from './matter'
 import { ClipboardButton, DescriptorList } from './devices'
 
 type DialogCallbacks = { onClose: () => void; onSaved: () => void }
@@ -20,14 +21,20 @@ export function DeviceDetailsDialog({ device, configuration, onClose }: {
   const [reconfiguring, setReconfiguring] = useState(false)
   const [reconfigureResult, setReconfigureResult] = useState('')
   const [reconfigureError, setReconfigureError] = useState('')
-  const canIdentify = device.endpoint_descriptors.some((endpoint) => endpoint.input_clusters.includes(0x0003))
+  const canIdentify = device.source === 'matter'
+    ? (device.matter_endpoint ?? -1) >= 0 && (device.matter_servers ?? []).includes(3)
+    : device.source === 'zigbee' && device.endpoint_descriptors.some((endpoint) => endpoint.input_clusters.includes(0x0003))
   const identify = async () => {
     if (identifying) return
     setIdentifying(true)
     setIdentifyResult('')
     setIdentifyError('')
     try {
-      await post(`/api/devices/${encodeURIComponent(device.id)}/identify`)
+      if (device.source === 'matter') {
+        await matterIdentify(device.matter_node!, device.matter_endpoint!, new AbortController().signal)
+      } else {
+        await post(`/api/devices/${encodeURIComponent(device.id)}/identify`)
+      }
       setIdentifyResult('Identify command queued for 5 seconds.')
     } catch (cause) {
       setIdentifyError(errorMessage(cause))

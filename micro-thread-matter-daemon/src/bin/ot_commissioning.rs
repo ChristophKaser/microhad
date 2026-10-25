@@ -390,11 +390,14 @@ use rs_matter::dm::clusters::decl::thermostat as thermostat_cluster;
 use thermostat_cluster::ClusterHandler as _;
 use thermostat_fixture::TestThermostat;
 
+use rs_matter::dm::clusters::identify::{self, IdentifyClient};
+
 const APP_ENDPOINT: Endpoint<'static> = Endpoint::new(
     1,
     devices!(DEV_TYPE_ON_OFF_LIGHT),
     clusters!(
         desc::DescHandler::CLUSTER,
+        identify::CLUSTER,
         TestOnOffDeviceLogic::CLUSTER,
         TestLevelControl::CLUSTER,
         TestTemperature::CLUSTER,
@@ -416,6 +419,7 @@ const NODE_THERMOSTAT: Node<'static> = Node {
         Endpoint {
             clusters: clusters!(
                 desc::DescHandler::CLUSTER,
+                identify::CLUSTER,
                 TestOnOffDeviceLogic::CLUSTER,
                 TestLevelControl::CLUSTER,
                 TestTemperature::CLUSTER,
@@ -527,6 +531,7 @@ fn data_model<'a>(
     mut rand: impl Rng + Copy,
     on_off: &'a on_off::OnOffHandler<'a, TestOnOffDeviceLogic, on_off::NoLevelControl>,
     level: &'a level_control::LevelControlHandler<'a, TestLevelControl, level_control::NoOnOff>,
+    identify: &'a identify::IdentifyHandler,
     thermostat: &'a TestThermostat,
     temperature: &'a TestTemperature,
     humidity: &'a TestHumidity,
@@ -548,6 +553,8 @@ fn data_model<'a>(
                     |e, c| e == 1 && c == desc::DescHandler::CLUSTER.id,
                     Async(desc::DescHandler::new(Dataver::new_rand(&mut rand)).adapt()),
                 )
+                .chain(|e, c| e == 1 && c == identify::CLUSTER.id,
+                    Async(identify::HandlerAdaptor(identify)))
                 .chain(
                     |e, c| e == 1 && c == TestOnOffDeviceLogic::CLUSTER.id,
                     Async(on_off::HandlerAdaptor(on_off)),
@@ -697,6 +704,7 @@ async fn run(
     let device_buffers = DEVICE_BUFFERS.uninit().init_with(MatterBuffers::init());
     let device_state = DEVICE_STATE.init(InteractionModelState::new(DummyNetworks));
 
+    let identify_handler = identify::IdentifyHandler::new(Dataver::new_rand(&mut rand));
     let on_off_handler = on_off::OnOffHandler::new_standalone(
         Dataver::new_rand(&mut rand),
         1,
@@ -757,6 +765,7 @@ async fn run(
             rand,
             &on_off_handler,
             &level_control_handler,
+            &identify_handler,
             &thermostat,
             &temperature,
             &humidity,
@@ -1404,6 +1413,31 @@ async fn run(
                     _ => unreachable!(),
                 }
             }
+            let identify_request = format!(r#"{{"schema":1,"command":"identify","node":"{node:016x}","endpoint":1}}"#);
+            let accepted = manager.submit(
+                micro_thread_matter_daemon::control::Request::decode_json(11, identify_request.as_bytes()).unwrap(),
+                true, false, std::time::Instant::now(),
+            ).map_err(|_| rs_matter::error::ErrorCode::Failure)?;
+            let outcome = std::future::poll_fn(|context| {
+                manager.poll(true, false, std::time::Instant::now(), context);
+                match manager.job(accepted.job) {
+                    Ok(state @ (micro_thread_matter_daemon::devices::JobState::Complete { .. }
+                        | micro_thread_matter_daemon::devices::JobState::Failed { .. })) => std::task::Poll::Ready(state),
+                    Ok(_) => { context.waker().wake_by_ref(); std::task::Poll::Pending }
+                    Err(_) => panic!("Identify job status lookup failed"),
+                }
+            }).await;
+            match outcome {
+                micro_thread_matter_daemon::devices::JobState::Complete { result, .. } => {
+                    assert_eq!((result.node.0, result.endpoint, result.cluster, result.attribute), (node, 1, 3, 0));
+                    assert!(matches!(result.value, micro_thread_matter_daemon::operations::Value::Bool(true)));
+                }
+                _ => panic!("Identify job failed"),
+            }
+            let remaining = Exchange::initiate(ctrl_matter, &ctrl_crypto, fab, node).await?
+                .identify().identify_time_read(1).await?;
+            assert!(remaining > 0 && remaining <= 5);
+            println!("PASS capability-gated Identify invocation and five-second readback over CASE");
             for (body, opcode, expected) in [
                 (format!("{{\"schema\":1,\"action\":\"read\",\"node\":\"{node:016x}\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}}"), 10, 1),
                 (format!("{{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"{node:016x}\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":0}}"), 11, 124),

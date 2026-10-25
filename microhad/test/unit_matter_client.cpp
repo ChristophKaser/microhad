@@ -194,6 +194,7 @@ void runMatterClientUnitTests() {
     }
     MatterReading deleted;
     assert(MatterChannel::deviceResult("{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"complete\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":0,\"cluster\":62,\"attribute\":0,\"value\":{\"type\":\"bool\",\"value\":true}}}}", "0000000000000001", &deleted) && deleted.cluster == 62);
+    assert(MatterChannel::deviceResult("{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"complete\",\"result\":{\"node\":\"0000000000000002\",\"endpoint\":4,\"cluster\":3,\"attribute\":0,\"value\":{\"type\":\"bool\",\"value\":true}}}}", "0000000000000001", &deleted) && deleted.cluster == 3 && deleted.endpoint == 4 && deleted.booleanValue);
 
     {
         const std::string inventory="{\"schema\":1,\"event\":\"matter_inventory\",\"data\":{\"kind\":\"identity\",\"endpoint_count\":0,\"device\":{\"node\":\"0000000000000002\",\"state\":\"complete\",\"online\":false,\"id\":\"matter:0000000000000001:0000000000000002\",\"endpoint\":null,\"servers\":[],\"clients\":[],\"device_types\":[],\"manufacturer\":\"IKEA of Sweden\",\"model\":\"ALPSTUGA air quality monitor\",\"rssi_dbm\":-72}}}";
@@ -315,6 +316,13 @@ void runMatterClientUnitTests() {
     assert(devicePrepared == levelReadBody);
     assert(MatterChannel::deviceCommandRequest("{\"schema\":1,\"command\":\"toggle\",\"node\":\"0000000000000002\",\"endpoint\":1}", &devicePrepared));
     assert(devicePrepared == commandBody);
+    const std::string identifyBody = "{\"schema\":1,\"command\":\"identify\",\"node\":\"0000000000000002\",\"endpoint\":1}";
+    assert(MatterChannel::deviceCommandRequest(identifyBody, &devicePrepared));
+    assert(devicePrepared == identifyBody);
+    assert(MatterChannel::validRequest(11, identifyBody));
+    MatterProto::MessageBody identifyWire;
+    assert(MatterWire::parseJson(0, 11, identifyBody, &identifyWire));
+
     assert(MatterChannel::deviceCommandRequest("{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":20}", &devicePrepared));
     assert(devicePrepared == levelCommandBody);
     assert(!MatterChannel::deviceCommandRequest("{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":255,\"transition_deciseconds\":20}", &devicePrepared));

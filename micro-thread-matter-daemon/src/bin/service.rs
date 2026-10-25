@@ -259,6 +259,7 @@ fn dispatch<C: Crypto>(
             micro_thread_matter_daemon::control::CommandRequest::On { .. } |
             micro_thread_matter_daemon::control::CommandRequest::Off { .. } |
             micro_thread_matter_daemon::control::CommandRequest::Toggle { .. } |
+            micro_thread_matter_daemon::control::CommandRequest::Identify { .. } |
             micro_thread_matter_daemon::control::CommandRequest::MoveToLevel { .. } |
             micro_thread_matter_daemon::control::CommandRequest::SyncTime { .. }),
         )) => micro_thread_matter_daemon::responses::reply(devices.submit(

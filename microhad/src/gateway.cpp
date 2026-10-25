@@ -2085,6 +2085,9 @@ bool Gateway::endpointForCluster(const Device& device, unsigned short cluster, u
 bool Gateway::identifyDevice(const std::string& ieeeAddress, std::string* error) {
     std::map<std::string, Device>::const_iterator found = devices_.find(resolveDeviceId(ieeeAddress));
     if (found == devices_.end()) { *error = "device is unknown"; return false; }
+    if (found->second.source != "zigbee") {
+        *error = "Identify is not supported for this device source"; return false;
+    }
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
         *error = "Zigbee network is not ready"; return false;
     }

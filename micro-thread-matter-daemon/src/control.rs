@@ -215,6 +215,7 @@ pub enum CommandRequest {
         node: Id,
         endpoint: u16,
     },
+    Identify { schema: Schema, node: Id, endpoint: u16 },
     Toggle {
         schema: Schema,
         node: Id,
@@ -425,7 +426,7 @@ mod tests {
             10,
             r#"{"schema":1,"action":"read","node":"123456789abcdef0","endpoint":1,"cluster":6,"attribute":0}"#,
         );
-        for command in ["on", "off", "toggle"] {
+        for command in ["on", "off", "toggle", "identify"] {
             valid(
                 11,
                 &format!(
@@ -784,6 +785,7 @@ impl Request {
                         node,
                         endpoint,
                     },
+                    Some("identify") if fields == 4 => CommandRequest::Identify { schema: s, node, endpoint },
                     Some("toggle") if fields == 4 => CommandRequest::Toggle {
                         schema: s,
                         node,

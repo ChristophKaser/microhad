@@ -45,6 +45,7 @@ pub enum Action {
     On,
     Off,
     Toggle,
+    Identify,
     MoveToLevel {
         level: u8,
         transition_deciseconds: u16,
@@ -395,6 +396,7 @@ impl Operation {
             Request::Command(CommandRequest::Off { node, endpoint, .. }) => {
                 (node, endpoint, Action::Off)
             }
+            Request::Command(CommandRequest::Identify { node, endpoint, .. }) => (node, endpoint, Action::Identify),
             Request::Command(CommandRequest::Toggle { node, endpoint, .. }) => {
                 (node, endpoint, Action::Toggle)
             }
@@ -452,6 +454,7 @@ impl Operation {
             Action::ReadLevel | Action::MoveToLevel { .. } => 8,
             Action::ReadSensor { cluster } => *cluster,
             Action::Bind { .. } => 59,
+            Action::Identify => 3,
             Action::SyncTime { .. } => 56,
             Action::Thermostat { .. } | Action::ThermostatRead { .. } => 513,
         };
@@ -600,6 +603,12 @@ impl Operation {
             ) {
                 let exchange = Exchange::initiate(matter, &crypto, fabric, self.node).await?;
                 match self.action {
+                    Action::Identify => {
+                        use rs_matter::dm::clusters::decl::identify::IdentifyClient;
+                        exchange.identify().identify(self.endpoint, |request| request.identify_time(5)?.end()).await?;
+                        return Ok(ResultValue { node: Id(self.node), endpoint: self.endpoint, cluster: 3,
+                            attribute: 0, value: Value::Bool(true) });
+                    }
                     Action::On => exchange.on_off().on(self.endpoint).await?,
                     Action::Off => exchange.on_off().off(self.endpoint).await?,
                     Action::Toggle => exchange.on_off().toggle(self.endpoint).await?,
@@ -1026,6 +1035,9 @@ mod tests {
         let decode = |opcode, body: &str| {
             Operation::decode(Request::decode_json(opcode, body.as_bytes()).unwrap())
         };
+        let identify = decode(11, r#"{"schema":1,"command":"identify","node":"0000000000000002","endpoint":1}"#).unwrap();
+        assert!(matches!(identify.action, Action::Identify));
+        assert_eq!(identify.authorize(&[]), Err(Failure::NotFound));
         let level_read = decode(10, r#"{"schema":1,"action":"read","node":"0000000000000002","endpoint":1,"cluster":8,"attribute":0}"#).unwrap();
         assert!(matches!(level_read.action, Action::ReadLevel));
         assert_eq!(level_read.authorize(&[]), Err(Failure::NotFound));
