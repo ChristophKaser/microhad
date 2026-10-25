@@ -48,6 +48,54 @@ const clusterNames: Record<number, string> = {
   2819: 'Appliance Events and Alerts',
   2820: 'Electrical Measurement',
 }
+// Matter infrastructure clusters have their own namespace and names.
+const matterClusterNames: Record<number, string> = {
+  ...clusterNames,
+  0x001D: 'Descriptor',
+  0x001E: 'Binding',
+  0x001F: 'Access Control',
+  0x0025: 'Actions',
+  0x0028: 'Basic Information',
+  0x0029: 'OTA Software Update Provider',
+  0x002A: 'OTA Software Update Requestor',
+  0x002B: 'Localization Configuration',
+  0x002C: 'Time Format Localization',
+  0x002D: 'Unit Localization',
+  0x002E: 'Power Source Configuration',
+  0x002F: 'Power Source',
+  0x0030: 'General Commissioning',
+  0x0031: 'Network Commissioning',
+  0x0032: 'Diagnostic Logs',
+  0x0033: 'General Diagnostics',
+  0x0034: 'Software Diagnostics',
+  0x0035: 'Thread Network Diagnostics',
+  0x0036: 'Wi-Fi Network Diagnostics',
+  0x0037: 'Ethernet Network Diagnostics',
+  0x0038: 'Time Synchronization',
+  0x0039: 'Bridged Device Basic Information',
+  0x003B: 'Switch',
+  0x003C: 'Administrator Commissioning',
+  0x003E: 'Operational Credentials',
+  0x003F: 'Group Key Management',
+  0x0040: 'Fixed Label',
+  0x0041: 'User Label',
+  0x0042: 'Proxy Configuration',
+  0x0043: 'Proxy Discovery',
+  0x0044: 'Proxy Valid',
+  0x0045: 'Boolean State',
+  0x0046: 'ICD Management',
+  0x0050: 'Mode Select',
+  0x005B: 'Air Quality',
+  0x005C: 'Smoke CO Alarm',
+  0x0062: 'Scenes Management',
+  0x0080: 'Boolean State Configuration',
+  0x0081: 'Valve Configuration and Control',
+  0x0090: 'Electrical Power Measurement',
+  0x0091: 'Electrical Energy Measurement',
+  0x0201: 'Thermostat',
+  0x0202: 'Fan Control',
+  0x0204: 'Thermostat User Interface Configuration',
+}
 const timeZones = [
   'UTC', 'Europe/Berlin', 'Europe/London', 'Europe/Paris', 'Europe/Madrid', 'Europe/Rome',
   'Europe/Stockholm', 'Europe/Helsinki', 'Europe/Warsaw', 'Europe/Istanbul',
@@ -214,7 +262,8 @@ export function ClipboardButton({ text }: { text: string }) {
     </button>
   )
 }
-export function DescriptorList({ descriptor }: { descriptor: EndpointDescriptor }) {
+export function DescriptorList({ descriptor, source }: { descriptor: EndpointDescriptor; source?: Device['source'] }) {
+  const names = source === 'matter' ? matterClusterNames : clusterNames
   return (
     <section className="descriptor-row">
       <h3>Endpoint {descriptor.endpoint}</h3>
@@ -227,7 +276,7 @@ export function DescriptorList({ descriptor }: { descriptor: EndpointDescriptor 
           <b>Server / input clusters</b>
           <ul>
             {descriptor.input_clusters.map((id) => (
-              <li key={id}>{namedId(id, clusterNames)}</li>
+              <li key={id}>{namedId(id, names)}</li>
             ))}
             {!descriptor.input_clusters.length && <li>None</li>}
           </ul>
@@ -236,7 +285,7 @@ export function DescriptorList({ descriptor }: { descriptor: EndpointDescriptor 
           <b>Client / output clusters</b>
           <ul>
             {descriptor.output_clusters.map((id) => (
-              <li key={id}>{namedId(id, clusterNames)}</li>
+              <li key={id}>{namedId(id, names)}</li>
             ))}
             {!descriptor.output_clusters.length && <li>None</li>}
           </ul>

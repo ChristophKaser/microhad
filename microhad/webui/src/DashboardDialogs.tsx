@@ -110,7 +110,7 @@ export function DeviceDetailsDialog({ device, configuration, onClose }: {
         <h3>Endpoint descriptors</h3>
         {device.endpoint_descriptors.length ? (
           device.endpoint_descriptors.map((item) => (
-            <DescriptorList key={item.endpoint} descriptor={item} />
+            <DescriptorList key={item.endpoint} descriptor={item} source={device.source} />
           ))
         ) : (
           <p className="muted">No endpoint descriptors have been saved for this device yet.</p>
