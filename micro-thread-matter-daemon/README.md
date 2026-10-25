@@ -223,3 +223,18 @@ are opt-in via `--rollback-dir DIR`; existing backups are preserved.
 Original project code is MIT licensed; upstream components retain their own terms.
 See the repository-wide [third-party inventory](../THIRD_PARTY.md) for attribution,
 notice generation and release requirements.
+
+### Accessory clocks and daylight saving time
+
+The dashboard's time-sync action saves the selected IANA time zone in the
+controller's private store. The Matter service resolves that zone using bundled
+IANA data and sends UTC, the standard offset, and bounded DST intervals to the
+accessory. It refreshes clocks daily, at transitions, and after service startup,
+without requiring an open dashboard. Failed updates retry after one minute,
+backing off to at most one hour. Periodic refreshes do not write to flash.
+
+Accessories with room for multiple DST entries can change their clocks while
+the gateway is offline, until their supplied schedule expires. Single-entry
+accessories require the gateway at the transition. Time-zone rule updates ship
+with service updates. After upgrading from fixed-offset synchronization, sync
+each accessory once to save its zone; prior selections cannot be recovered.

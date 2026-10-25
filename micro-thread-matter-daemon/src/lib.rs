@@ -50,3 +50,6 @@ pub mod openthread;
 // Retain the shared native shim, including symbols referenced by Rust std.
 #[cfg(all(target_arch = "mips", target_env = "uclibc"))]
 extern crate ziggurat_stock_uclibc_compat;
+
+#[cfg(feature = "controller-service")]
+pub mod time_sync;

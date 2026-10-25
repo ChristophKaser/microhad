@@ -625,32 +625,42 @@ impl Operation {
                         let unix = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .map_err(|_| ErrorCode::InvalidData)?;
+                        // The gateway resolves the zone; the browser offset is retained
+                        // only for compatibility with existing IPC clients.
+                        let _ = offset_seconds;
+                        let capacity = exchange.time_synchronization()
+                            .dst_offset_list_max_size_read(self.endpoint).await?;
+                        let schedule = crate::time_sync::schedule(time_zone, unix.as_secs(), capacity.max(1))
+                            .map_err(|_| ErrorCode::InvalidData)?;
+                        let zone = Exchange::initiate(matter, &crypto, fabric, self.node).await?
+                            .time_synchronization().set_time_zone(self.endpoint, |request| {
+                                request.time_zone()?.push()?.offset(schedule.base)?.valid_at(0)?
+                                    .name(Some(time_zone.as_str()))?.end()?.end()?.end()
+                            }).await?;
+                        let requires_dst = zone.response()?.dst_offset_required()?;
+                        zone.complete().await?;
+                        if requires_dst {
+                            if capacity == 0 { return Err(ErrorCode::InvalidData.into()); }
+                            Exchange::initiate(matter, &crypto, fabric, self.node).await?
+                                .time_synchronization().set_dst_offset(self.endpoint, |request| {
+                                    let mut entries = request.dst_offset()?;
+                                    for entry in &schedule.intervals {
+                                        entries = entries.push()?.offset(entry.offset)?.valid_starting(entry.start)?
+                                            .valid_until(Nullable::some(entry.end))?.end()?;
+                                    }
+                                    entries.end()?.end()
+                                }).await?;
+                        }
+                        // Sample UTC after the preceding exchanges so their latency
+                        // does not become accessory clock error.
+                        let unix = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map_err(|_| ErrorCode::InvalidData)?;
                         let seconds = unix.as_secs().checked_sub(MATTER_EPOCH_UNIX_SECONDS)
                             .ok_or(ErrorCode::InvalidData)?;
                         let utc_us = seconds.checked_mul(1_000_000)
                             .and_then(|value| value.checked_add(u64::from(unix.subsec_micros())))
                             .ok_or(ErrorCode::InvalidData)?;
-                        let name = time_zone.as_str();
-                        let zone = exchange.time_synchronization().set_time_zone(self.endpoint, |request| {
-                            // Matter requires the first time-zone entry to be valid from
-                            // the Matter epoch.  A current timestamp is rejected by
-                            // accessories such as ALPSTUGA with CONSTRAINT_ERROR.
-                            request.time_zone()?.push()?.offset(offset_seconds)?.valid_at(0)?
-                                .name(Some(name))?.end()?.end()?.end()
-                        }).await?;
-                        let requires_dst = zone.response()?.dst_offset_required()?;
-                        zone.complete().await?;
-                        if requires_dst {
-                            // ALPSTUGA requires an explicit active DST table entry before
-                            // it applies the time-zone offset.  The UI supplies the
-                            // currently effective offset in SetTimeZone, so this zero
-                            // adjustment keeps that offset unchanged.
-                            Exchange::initiate(matter, &crypto, fabric, self.node).await?
-                                .time_synchronization().set_dst_offset(self.endpoint, |request| {
-                                    request.dst_offset()?.push()?.offset(0)?.valid_starting(0)?
-                                        .valid_until(Nullable::none())?.end()?.end()?.end()
-                                }).await?;
-                        }
                         Exchange::initiate(matter, &crypto, fabric, self.node).await?.time_synchronization().set_utc_time(self.endpoint, |request| {
                             request.utc_time(utc_us)?
                                 .granularity(GranularityEnum::MicrosecondsGranularity)?

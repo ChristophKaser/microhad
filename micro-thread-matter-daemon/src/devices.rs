@@ -119,6 +119,7 @@ struct QueuedOperation {
     deadline: Instant,
 }
 struct ActiveOperation<'a> {
+    time_zone: Option<(u16, String)>,
     id: u64,
     node: u64,
     deleting: bool,
@@ -198,6 +199,7 @@ pub struct Manager<'a, C: Crypto> {
     fabric: NonZeroU8,
     compressed_fabric: u64,
     catalog: Catalog,
+    time_preferences: crate::time_sync::Preferences,
     address_refresh: crate::discovery::RefreshRequests,
     signals: crate::discovery::SignalBook,
     icd_registry: Option<crate::icd::ClientRegistry>,
@@ -288,11 +290,13 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         let icd_registry = crate::icd::ClientRegistry::open(catalog.store())
             .map_err(|_| std::io::Error::other("ICD registry unavailable"))?;
         let registered_nodes = icd_registry.registered_nodes(fabric);
+        let time_preferences = crate::time_sync::Preferences::open(catalog.store())?;
         Ok(Self {
             matter,
             crypto,
             fabric,
             compressed_fabric,
+            time_preferences,
             catalog,
             address_refresh,
             signals,
@@ -663,6 +667,11 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }) {
             return Err(Failure::Busy);
         }
+        if let crate::operations::Action::SyncTime { ref time_zone, .. } = operation.action {
+            if crate::time_sync::zone(time_zone).is_err() { return Err(Failure::Malformed); }
+            self.time_preferences.set(operation.node, operation.endpoint, time_zone, now)
+                .map_err(|_| Failure::Storage)?;
+        }
         let timeout = if matches!(operation.action, crate::operations::Action::Delete { .. }) { 15 } else { 30 };
         let id = self.next_job;
         self.next_job = self.next_job.checked_add(1).unwrap_or(0);
@@ -743,6 +752,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         use crate::operations::Failure;
         // Remove wake credentials first. A failed catalog write retains a visible retryable record.
         if let Some(registry) = &mut self.icd_registry { registry.remove(self.fabric, node).map_err(|_| Failure::Storage)?; }
+        self.time_preferences.remove(node).map_err(|_| Failure::Storage)?;
         self.catalog.remove(node).map_err(|_| Failure::Storage)?;
         self.snapshots.retain(|entry| entry.node != node);
         if self.work.as_ref().is_some_and(|(id, _, _)| *id == node) { self.work = None; }
@@ -986,6 +996,15 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             if let Some(mut result) = completed {
                 let id = active.id;
                 let node = active.node;
+                if let Some((endpoint, name)) = &active.time_zone {
+                    let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs()).unwrap_or(0);
+                    let delay = crate::time_sync::schedule(name, unix, 1).ok()
+                        .map(|s| (s.intervals[0].end / 1_000_000 + crate::time_sync::EPOCH).saturating_sub(unix))
+                        .unwrap_or(60);
+                    self.time_preferences.completed(node, *endpoint, result.is_ok(), now, delay);
+                    if result.is_err() { log::warn!("Matter time synchronization failed: node={:016x} endpoint={}", node, endpoint); }
+                }
                 self.active = None;
                 if result.as_ref().is_ok_and(|value| value.cluster == 62) {
                     result = self.remove_node(node).map(|()| result.unwrap());
@@ -1055,10 +1074,15 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 remaining.as_millis().min(u64::MAX as u128) as u64,
             );
             let deleting = matches!(queued.operation.action, crate::operations::Action::Delete { .. });
+            let time_zone = match &queued.operation.action {
+                crate::operations::Action::SyncTime { time_zone, .. } => Some((queued.operation.endpoint, time_zone.clone())),
+                _ => None,
+            };
             let work = queued
                 .operation
                 .run_for(self.matter, self.crypto, self.fabric, timeout);
             self.active = Some(ActiveOperation {
+                time_zone,
                 id,
                 node: operation_node,
                 deleting,
@@ -1076,6 +1100,26 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
         if self.operations_busy() {
             return;
+        }
+        // Background clock maintenance shares the single operational slot and
+        // never writes persistent state during periodic refreshes.
+        for preference in self.time_preferences.entries.iter().filter(|p| {
+            p.next <= now && self.node_awake(p.node, now) && self.catalog.nodes().iter()
+                .any(|n| n.id == p.node && n.phase == Phase::Complete)
+        }) {
+            let operation = crate::operations::Operation {
+                node: preference.node, endpoint: preference.endpoint,
+                action: crate::operations::Action::SyncTime { time_zone: preference.name.clone(), offset_seconds: 0 },
+            };
+            if operation.authorize(&self.snapshots).is_ok() {
+                self.active = Some(ActiveOperation {
+                    id: 0, node: operation.node, deleting: false,
+                    time_zone: Some((operation.endpoint, preference.name.clone())),
+                    deadline: now + Duration::from_secs(30),
+                    work: Box::pin(operation.run(self.matter, self.crypto, self.fabric)),
+                });
+                return;
+            }
         }
         for node in self
             .catalog
@@ -2247,6 +2291,7 @@ mod tests {
         let mut manager = Manager::new(matter, &crypto, fabric, catalog.clone()).unwrap();
         manager.icd_registry.as_mut().unwrap().install(fabric, 2, 1, [0x42; 16], 7).unwrap();
         manager.registered_nodes.push(2);
+        manager.time_preferences.set(2, 0, "Europe/Berlin", Instant::now()).unwrap();
         let request = || {
             Request::decode_json(
                 10,
@@ -2260,6 +2305,7 @@ mod tests {
         let accepted = manager.submit(request(), false, false, now).unwrap();
         assert!(matches!(manager.job(accepted.job).unwrap(), JobState::Complete { .. }));
         assert!(!manager.registered_nodes.contains(&2));
+        assert!(manager.time_preferences.entries.is_empty());
         assert!(!manager.icd_registry.as_ref().unwrap().is_registered(fabric, 2));
         assert_eq!(catalog.nodes().iter().map(|node| node.id).collect::<Vec<_>>(), vec![3]);
         assert_eq!(manager.submit(request(), false, false, now).unwrap_err(), crate::operations::Failure::NotFound);
@@ -2282,6 +2328,60 @@ mod tests {
         assert_eq!(catalog.nodes().iter().map(|node| node.id).collect::<Vec<_>>(), vec![3]);
         assert!(!crate::icd::ClientRegistry::open(store.clone()).unwrap().is_registered(fabric, 2));
         drop(catalog); drop(store); std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn durable_clock_maintenance_runs_without_dashboard_and_yields_to_commissioning() {
+        use crate::{entropy::OsEntropy, store::PrivateStore};
+        use rs_matter::{
+            crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET},
+            utils::init::InitMaybeUninit,
+        };
+        let directory = std::env::temp_dir().join(format!("matter-clock-maintenance-{}", std::process::id()));
+        let store = PrivateStore::open(&directory).unwrap();
+        let catalog = Catalog::open(store.clone(), 1, 2).unwrap();
+        let reservation = catalog.reserve(2).unwrap();
+        reservation.fabric_installed().unwrap();
+        reservation.thread_provisioned().unwrap();
+        reservation.complete().unwrap();
+        crate::time_sync::Preferences::open(store.clone()).unwrap()
+            .set(2, 0, "Europe/Berlin", Instant::now()).unwrap();
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
+        let mut manager = Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+        let now = Instant::now();
+        manager.inventory_bootstrap_until = now;
+        manager.snapshots.push(Snapshot {
+            node: 2, endpoints: vec![Endpoint { id: 0, servers: vec![56], clients: vec![], device_types: vec![] }],
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+            online: true, next: now + Duration::from_secs(300), failures: 0,
+        });
+        let before = std::fs::read(directory.join("credentials.bin")).unwrap();
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        manager.poll(true, true, now, &mut context);
+        assert!(manager.active.is_none());
+        manager.poll(true, false, now, &mut context);
+        assert!(manager.active.as_ref().is_some_and(|a| a.id == 0 && a.time_zone.is_some()));
+        // Inject a confirmed accessory response without requiring a radio.
+        manager.active.as_mut().unwrap().work = Box::pin(std::future::ready(Ok(crate::operations::ResultValue {
+            node: crate::control::Id(2), endpoint: 0, cluster: 56, attribute: 0,
+            value: crate::operations::Value::Bool(true),
+        })));
+        manager.poll(true, false, now, &mut context);
+        assert!(manager.active.is_none());
+        assert!(manager.time_preferences.entries[0].next > now);
+        assert!(manager.jobs.is_empty());
+        assert_eq!(before, std::fs::read(directory.join("credentials.bin")).unwrap());
+        // An unsuccessful refresh is delayed, not immediately replayed.
+        manager.time_preferences.entries[0].next = now;
+        manager.poll(true, false, now, &mut context);
+        manager.active.as_mut().unwrap().work = Box::pin(std::future::ready(Err(crate::operations::Failure::Unsupported)));
+        manager.poll(true, false, now, &mut context);
+        assert_eq!(manager.time_preferences.entries[0].next.duration_since(now).as_secs(), 60);
+        drop(manager); drop(store);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     // A real network transaction can become ready while a command is pending.
@@ -2320,6 +2420,7 @@ mod tests {
         manager.jobs.push_back(JobRecord { id: 1, state: JobRecordState::Running,
         });
         manager.active = Some(ActiveOperation {
+            time_zone: None,
             id: 1, node: 2, deleting: false, deadline: now + Duration::from_secs(30),
             work: Box::pin(std::future::pending()),
         });
