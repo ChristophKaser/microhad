@@ -21,8 +21,12 @@ std::string textField(const Value& v, const std::string& name) {
     const Value* p=field(v,name); return p && p->type==Value::Text ? p->text : "";
 }
 const char* child(const std::string& shape, const std::string& key) {
-    for(unsigned int n=0;n<sizeof(wireFields)/sizeof(wireFields[0]);++n)
-        if(shape==wireFields[n].shape && key==wireFields[n].name) return wireFields[n].child;
+    unsigned int low=0,high=sizeof(wireFields)/sizeof(wireFields[0]);
+    while(low<high){
+        unsigned int mid=low+(high-low)/2;int order=shape.compare(wireFields[mid].shape);
+        if(!order)order=key.compare(wireFields[mid].name);
+        if(order<0)high=mid;else if(order>0)low=mid+1;else return wireFields[mid].child;
+    }
     return 0;
 }
 std::string shape(const std::string& context,const Value& v,unsigned int kind,unsigned int op,const std::string& event) {
@@ -140,14 +144,14 @@ bool convert(Value* v,const std::string& context,unsigned int kind,unsigned int 
     if(v->type==Value::Array){for(unsigned int n=0;n<v->items.size();++n)if(!convert(&v->items[n],ctx,kind,op,ev,incoming,unknown))return false;}
     if(v->type==Value::Map){
         std::string event=textField(*v,"event");if(event.empty())event=ev;
-        Value out;out.type=Value::Map;
+        unsigned int kept=0;
         for(unsigned int n=0;n<v->items.size();++n){
             const char* next=child(ctx,v->keys[n]);
             if(incoming&&!next){++*unknown;continue;}
             if(!convert(&v->items[n],next?next:"",kind,op,event,incoming,unknown))return false;
-            out.keys.push_back(v->keys[n]);out.items.push_back(v->items[n]);
+            if(kept!=n){v->keys[kept].swap(v->keys[n]);v->items[kept].swap(v->items[n]);}++kept;
         }
-        *v=out;
+        v->keys.resize(kept);v->items.resize(kept);
     }
     return true;
 }
@@ -181,7 +185,7 @@ bool encodeProtobuf(const Frame& frame,Bytes* bytes){
     if(body.type!=Value::Map)return false;
     unsigned int unknown=0;
     if(!convert(&body,"body",frame.kind,frame.opcode,"",false,&unknown)||!Proto::normalize(&body,"MessageBody",frame.kind,frame.opcode,"",false))return false;
-    Value env;env.type=Value::Map;add(&env,"version",3);add(&env,"kind",frame.kind);add(&env,"opcode",frame.opcode);add(&env,"id",frame.id);Proto::add(&env,"body",body);
+    Value env;env.type=Value::Map;add(&env,"version",3);add(&env,"kind",frame.kind);add(&env,"opcode",frame.opcode);add(&env,"id",frame.id);env.keys.push_back("body");env.items.resize(env.items.size()+1);env.items.back().swap(body);
     Bytes buffer;if(!Proto::encode("IpcEnvelope",env,&buffer,MaxPayload))return false;
     bytes->push_back(static_cast<unsigned char>(buffer.size()));bytes->push_back(static_cast<unsigned char>(buffer.size()>>8));bytes->insert(bytes->end(),buffer.begin(),buffer.end());return true;
 }
@@ -194,7 +198,7 @@ bool decodeProtobuf(const Bytes& bytes,Frame* frame){
     std::ostringstream request;request<<Proto::requestName(opcode->u);
     const std::string expected=kind->u==0?request.str():kind->u==2?"event":opcode->u==1?"matter":opcode->u==2?"thread":"reply";
     if(!field(*body,expected))return false;
-    Value converted=*body;bool valid=Proto::normalize(&converted,"MessageBody",frame->kind,frame->opcode,"",true)&&convert(&converted,"body",frame->kind,frame->opcode,"",true,&unknown);
+    Value converted;for(size_t i=0;i<env.keys.size();++i)if(env.keys[i]=="body"){converted.swap(env.items[i]);break;}bool valid=Proto::normalize(&converted,"MessageBody",frame->kind,frame->opcode,"",true)&&convert(&converted,"body",frame->kind,frame->opcode,"",true,&unknown);
     if(unknown)syslog(LOG_WARNING,"Matter IPC opcode %u: ignored %u unknown fields",static_cast<unsigned>(frame->opcode),unknown);
     std::ostringstream out;if(!valid)out<<"!invalid protobuf body";else if(!(frame->kind==0&&frame->opcode<=2&&converted.items.empty()))json(converted,&out);
     std::string result=out.str();frame->payload.assign(result.begin(),result.end());return true;

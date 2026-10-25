@@ -10,10 +10,8 @@ use serde_json::Value as Json;
 use std::collections::HashSet;
 
 fn child(shape: &str, key: &str) -> Option<&'static str> {
-    crate::wire_shapes::FIELDS
-        .iter()
-        .find(|(s, k, _)| *s == shape && *k == key)
-        .map(|(_, _, c)| *c)
+    let fields=crate::wire_shapes::FIELDS;
+    fields.binary_search_by(|(s,k,_)| (*s,*k).cmp(&(shape,key))).ok().map(|i|fields[i].2)
 }
 fn text(value: &Value) -> &str {
     if let Value::Text(s) = value {
@@ -77,23 +75,15 @@ fn to_wire(
     opcode: u8,
     event: &str,
 ) -> Result<Value, ProtocolError> {
-    // Resolve dynamic shapes using field names without losing exact integer values.
-    let probe = match &value {
-        Json::Object(m) => Value::Map(
-            m.keys()
-                .map(|k| {
-                    (
-                        Value::Text(k.clone()),
-                        m[k].as_str()
-                            .map(|s| Value::Text(s.to_owned()))
-                            .unwrap_or(Value::Null),
-                    )
-                })
-                .collect(),
-        ),
-        _ => Value::Null,
+    // Read only the discriminator fields; do not build a second tree to find the shape.
+    let ctx = match context {
+        "body" if kind==0 => {
+            let action=value.get(if opcode==11 {"command"}else{"action"}).and_then(Json::as_str).unwrap_or("");
+            if (9..=11).contains(&opcode)&&!action.is_empty(){format!("{}:{action}",generated::request_name(opcode))}else{generated::request_name(opcode).to_owned()}
+        }
+        "result" if opcode==10 => if value.get("subscriptions").is_some(){"subscription-health"}else if value.get("devices").is_some(){"page"}else{"job"}.into(),
+        _ => shape(context,&Value::Null,kind,opcode,event),
     };
-    let ctx = shape(context, &probe, kind, opcode, event);
     if context == "@id" && !value.is_null() {
         let s = value.as_str().ok_or(ProtocolError::Malformed)?;
         if s.len() != 16
@@ -179,7 +169,10 @@ fn from_wire(
         let Value::Bytes(b) = value else {
             return Err(ProtocolError::Malformed);
         };
-        return Ok(Json::String(b.iter().map(|b| format!("{b:02x}")).collect()));
+        let digits=b"0123456789abcdef";
+        let mut out=String::with_capacity(b.len()*2);
+        for byte in b {out.push(digits[usize::from(byte>>4)] as char);out.push(digits[usize::from(byte&15)] as char);}
+        return Ok(Json::String(out));
     }
     Ok(match value {
         Value::Null => Json::Null,
@@ -236,7 +229,7 @@ fn nfield<'a>(v: &'a Value, key: &str) -> Result<&'a Value, ProtocolError> { fie
 fn normalize(v: Value, msg: &str, kind:u8, op:u8, ev:&str, incoming:bool) -> Result<Value, ProtocolError> {
     let fields=schema(msg);
     if fields.len()==1 && fields[0].repeated && fields[0].name=="items" {
-        let values=if incoming { match field(&v,"items") { Some(Value::Array(a))=>a.clone(),None=>vec![],_=>return Err(ProtocolError::Malformed) } } else { match v { Value::Array(a)=>a,_=>return Err(ProtocolError::Malformed) } };
+        let values=if incoming { match v {Value::Map(mut m)=>match m.iter().position(|(k,_)|text(k)=="items").map(|i|m.remove(i).1){Some(Value::Array(a))=>a,None=>vec![],_=>return Err(ProtocolError::Malformed)},_=>return Err(ProtocolError::Malformed)} } else { match v { Value::Array(a)=>a,_=>return Err(ProtocolError::Malformed) } };
         let f=&fields[0];let values=values.into_iter().map(|x|if f.kind==11 {normalize(x,f.message,kind,op,ev,incoming)}else{Ok(x)}).collect::<Result<Vec<_>,_>>()?;
         return Ok(if incoming { Value::Array(values) } else { Value::Map(vec![(Value::Text("items".into()),Value::Array(values))]) });
     }
@@ -307,14 +300,17 @@ pub fn encode(frame:&Frame)->Result<Vec<u8>,ProtocolError>{
 pub fn decode(bytes:&[u8])->Result<Frame,ProtocolError>{
     if bytes.is_empty()||bytes.len()>MAX_PAYLOAD{return Err(ProtocolError::Malformed)}
     let mut unknown=0;scan(bytes,"IpcEnvelope",0,&mut unknown)?;
-    let env=generated::decode(bytes)?;
+    let mut env=generated::decode(bytes)?;
     let integer=|key|match nfield(&env,key)?{Value::Integer(i)=>u64::try_from(*i).map_err(|_|ProtocolError::Malformed),_=>Err(ProtocolError::Malformed)};
     if integer("version")?!=3{return Err(ProtocolError::Malformed)}
     let kind=u8::try_from(integer("kind")?).map_err(|_|ProtocolError::Malformed)?;let opcode=u8::try_from(integer("opcode")?).map_err(|_|ProtocolError::Malformed)?;let id=u32::try_from(integer("id")?).map_err(|_|ProtocolError::Malformed)?;
     if kind>2||!(1..=12).contains(&opcode)||(kind==2)!=(id==0)||(kind==2)!=(opcode==12){return Err(ProtocolError::Malformed)}
     let wrapped=nfield(&env,"body")?;let key=if kind==0{generated::request_name(opcode).to_owned()}else if kind==2{"event".into()}else if opcode==1{"matter".into()}else if opcode==2{"thread".into()}else{"reply".into()};
     if !has(wrapped,&key){return Err(ProtocolError::Malformed)}
-    let body=normalize(wrapped.clone(),"MessageBody",kind,opcode,"",true)
+    let Value::Map(ref mut fields)=env else {return Err(ProtocolError::Malformed)};
+    let body_index=fields.iter().position(|(key,_)|text(key)=="body").ok_or(ProtocolError::Malformed)?;
+    let body_value=fields.remove(body_index).1;
+    let body=normalize(body_value,"MessageBody",kind,opcode,"",true)
         .and_then(|body| from_wire(body,"body",kind,opcode,"",&mut unknown));
     if unknown>0{warning(opcode,unknown)}
     let payload=match body{Ok(Json::Object(m))if kind==0&&opcode<=2&&m.is_empty()=>vec![],Ok(v)=>serde_json::to_vec(&v).map_err(|_|ProtocolError::Malformed)?,Err(_)=>b"!invalid protobuf body".to_vec()};

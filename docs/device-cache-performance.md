@@ -88,3 +88,58 @@ Protocol messages now use descriptive operation names such as
 names were replaced by `BleAttachResult`, `BleIndicationResult`, and
 `BleWriteCompleteResult`. Framing and protocol version remain v3; no dual-format
 or legacy-name adapter is introduced.
+
+## Host IPC adapter follow-up (2026-10-25)
+The first IPC optimization pass removes whole-subtree copies during native
+normalization/conversion and Rust decoding, replaces full conversion-table
+scans with generated sorted lookups, avoids constructing a Rust discriminator
+probe tree, and formats byte strings into one allocation. The internal JSON
+message boundary still exists; this measures adapter work only, not a complete
+typed-message migration or end-to-end gateway CPU. No device was accessed.
+Host: AMD Ryzen 7 7800X3D, Linux x86_64. Native builds use `-O2`, C++03;
+Rust uses the repository release profile. Results are median process CPU
+microseconds per frame over five samples. Native uses 5,000 iterations per
+sample; Rust uses 3,000. Baseline is `00b6d03`. Inputs are fixed synthetic
+shared protocol vectors, including nested data, maximum BLE/dataset bytes,
+and a 512-item stress case. Encode and decode are measured separately; native
+decode calls the protobuf decoder directly, Rust includes the framing decoder.
+Both revisions use the same driver. Wire equality is checked while encoding;
+semantic and malformed-input checks are supplied by the shared-vector tests.
+| Adapter / message | Encode before → after (µs) | Decode before → after (µs) |
+|---|---:|---:|
+| Native / empty-status | 2.88 → 2.07 | 2.33 → 1.28 |
+| Native / max-ble-bytes | 11.54 → 9.78 | 6.86 → 4.92 |
+| Native / max-dataset-bytes | 11.44 → 9.36 | 7.00 → 4.42 |
+| Native / measurement-event | 26.69 → 16.49 | 18.56 → 8.59 |
+| Native / thermostat-schedule-job | 40.22 → 23.46 | 28.24 → 11.43 |
+| Native / repeated-512 | 395.78 → 107.82 | 393.52 → 111.09 |
+| Rust / empty-status | 0.79 → 0.77 | 0.90 → 0.86 |
+| Rust / max-ble-bytes | 3.88 → 3.89 | 9.41 → 3.61 |
+| Rust / max-dataset-bytes | 4.26 → 3.76 | 10.12 → 3.32 |
+| Rust / measurement-event | 7.16 → 5.70 | 6.82 → 5.26 |
+| Rust / thermostat-schedule-job | 9.70 → 7.52 | 10.51 → 6.93 |
+| Rust / repeated-512 | 52.93 → 52.21 | 53.54 → 43.74 |
+
+Reproduce the native comparison from the final checkout:
+
+```sh
+python3 microhad/scripts/benchmark-matter-ipc.py --revision 00b6d03 --iterations 5000
+python3 microhad/scripts/benchmark-matter-ipc.py --iterations 5000
+```
+
+For Rust, use the same example on each revision (copy the benchmark example
+to the baseline checkout), with no feature changes between runs:
+
+```sh
+source scripts/rust-env.sh
+CARGO_TARGET_DIR="$PWD/build/micro-thread-matter-daemon/target" \
+  cargo +$RUST_TOOLCHAIN run --locked --release \
+  --manifest-path micro-thread-matter-daemon/Cargo.toml \
+  --example benchmark-ipc -- 3000
+```
+
+These small host timings vary with frequency scaling and machine load. The
+large native nested-message improvements and Rust byte-decoding improvement
+are repeatable; small differences such as Rust BLE encoding are noise and
+are not claimed as gains. Production request frequency and MIPS behavior
+require separate measurement.

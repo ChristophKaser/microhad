@@ -13,6 +13,7 @@ struct Value {
     std::vector<Value> items;
     std::vector<std::string> keys;
     Value() : type(Null), u(0), i(0), f(0) {}
+    void swap(Value& other);
 };
 typedef std::vector<unsigned char> Bytes;
 const char* requestName(unsigned opcode);

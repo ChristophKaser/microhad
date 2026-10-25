@@ -102,6 +102,10 @@ bool readMessage(pb_istream_t* stream,const std::string& msg,Value* out,unsigned
 std::string text(const Value& v,const char* name) {const Value* p=field(v,name);return p&&p->type==Value::Text?p->text:"";}
 }
 const char* requestName(unsigned opcode){return opcode<sizeof(protoRequestNames)/sizeof(protoRequestNames[0])?protoRequestNames[opcode]:"";}
+void Value::swap(Value& other) {
+    std::swap(type,other.type);std::swap(u,other.u);std::swap(i,other.i);std::swap(f,other.f);
+    text.swap(other.text);items.swap(other.items);keys.swap(other.keys);
+}
 const char* ackName(unsigned opcode){return opcode<sizeof(protoAckNames)/sizeof(protoAckNames[0])?protoAckNames[opcode]:"";}
 const Value* field(const Value& v,const std::string& key){for(size_t i=0;i<v.keys.size();++i)if(v.keys[i]==key)return &v.items[i];return 0;}
 void add(Value* v,const std::string& key,const Value& item){v->type=Value::Map;v->keys.push_back(key);v->items.push_back(item);}
@@ -115,19 +119,21 @@ bool decode(const std::string& msg,const Bytes& bytes,Value* out,size_t limit,un
     if(bytes.empty()||bytes.size()>limit)return false;
     pb_istream_t stream=pb_istream_from_buffer(&bytes[0],bytes.size());Value v;
     if(!readMessage(&stream,msg,&v,0,unknown))return false;
-    *out=v;return true;
+    out->swap(v);return true;
 }
 bool normalize(Value* v,const std::string& msg,unsigned kind,unsigned op,const std::string& ev,bool incoming) {
-    const ProtoField* first=0;for(unsigned i=0;i<count;++i)if(msg==protoFields[i].message){first=&protoFields[i];break;}
+    unsigned low=0,high=count;
+    while(low<high){unsigned mid=low+(high-low)/2;if(msg.compare(protoFields[protoByTag[mid]].message)>0)low=mid+1;else high=mid;}
+    const ProtoField* first=low<count&&msg==protoFields[protoByTag[low]].message?&protoFields[protoByTag[low]]:0;
     if(!first)return (msg=="MatterStatusRequest"||msg=="ThreadStatusRequest")&&v->type==Value::Map;
     if(first->repeated&&std::strcmp(first->name,"items")==0) {
-        if(incoming){const Value* a=field(*v,"items");Value result;if(a)result=*a;else result.type=Value::Array;for(size_t i=0;i<result.items.size();++i)if(first->type==11&&!normalize(&result.items[i],first->child,kind,op,ev,true))return false;*v=result;return true;}
+        if(incoming){Value result;result.type=Value::Array;for(size_t i=0;i<v->keys.size();++i)if(v->keys[i]=="items"){result.swap(v->items[i]);break;}for(size_t i=0;i<result.items.size();++i)if(first->type==11&&!normalize(&result.items[i],first->child,kind,op,ev,true))return false;v->swap(result);return true;}
         if(v->type!=Value::Array)return false;
-        Value result=*v;for(size_t i=0;i<result.items.size();++i)if(first->type==11&&!normalize(&result.items[i],first->child,kind,op,ev,false))return false;
-        Value wrap;add(&wrap,"items",result);*v=wrap;return true;
+        Value result;result.swap(*v);for(size_t i=0;i<result.items.size();++i)if(first->type==11&&!normalize(&result.items[i],first->child,kind,op,ev,false))return false;
+        Value wrap;wrap.type=Value::Map;wrap.keys.push_back("items");wrap.items.resize(1);wrap.items[0].swap(result);v->swap(wrap);return true;
     }
     if(first->oneof) {
-        if(incoming){if(v->type!=Value::Map||v->items.size()!=1)return false;const ProtoField* f=byName(msg,v->keys[0]);if(!f)return false;Value result=v->items[0];if(v->keys[0]=="null"){if(result.type!=Value::Bool||result.u!=1)return false;result=Value();}else if(f->type==11&&!normalize(&result,f->child,kind,op,ev,true))return false;*v=result;return true;}
+        if(incoming){if(v->type!=Value::Map||v->items.size()!=1)return false;const ProtoField* f=byName(msg,v->keys[0]);if(!f)return false;Value result;result.swap(v->items[0]);if(v->keys[0]=="null"){if(result.type!=Value::Bool||result.u!=1)return false;result=Value();}else if(f->type==11&&!normalize(&result,f->child,kind,op,ev,true))return false;v->swap(result);return true;}
         std::string key;
         if(msg=="MessageBody"){std::ostringstream n;n<<requestName(op);key=kind==0?n.str():kind==2?"event":op==1?"matter":op==2?"thread":"reply";}
         else if(msg=="OperationResult"){std::ostringstream n;n<<ackName(op);key=op<=5?"session":op<=8?n.str():op==9?"thread":field(*v,"subscriptions")?"subscription_health":field(*v,"devices")?"page":"job";}
@@ -136,13 +142,17 @@ bool normalize(Value* v,const std::string& msg,unsigned kind,unsigned op,const s
         else if(msg=="NullableText")key="text";
         else if(msg=="NullableUint"||msg=="NullableInt")key="integer";
         else key=v->type==Value::Bool?"boolean":v->type==Value::Float?"number":v->type==Value::UInt?(msg=="ReadingValue"?"unsigned":"integer"):v->type==Value::Int?"integer":v->type==Value::Text?"text":v->type==Value::Array?"list":"measurement";
-        const ProtoField* f=byName(msg,key);if(!f)return false;Value item=*v;if(key=="null"){item.type=Value::Bool;item.u=1;}else if(f->type==11&&!normalize(&item,f->child,kind,op,ev,false))return false;
-        Value result;add(&result,key,item);*v=result;return true;
+        const ProtoField* f=byName(msg,key);if(!f)return false;Value item;item.swap(*v);if(key=="null"){item.type=Value::Bool;item.u=1;}else if(f->type==11&&!normalize(&item,f->child,kind,op,ev,false))return false;
+        Value result;result.type=Value::Map;result.keys.push_back(key);result.items.resize(1);result.items[0].swap(item);v->swap(result);return true;
     }
     if(v->type!=Value::Map)return false;
     std::string event=text(*v,"event");if(event.empty())event=ev;
-    Value result;result.type=Value::Map;
-    for(size_t i=0;i<v->keys.size();++i){const ProtoField* f=byName(msg,v->keys[i]);if(!f)continue;Value item=v->items[i];if(f->type==11&&!normalize(&item,f->child,kind,op,event,incoming))return false;add(&result,f->name,item);}
-    *v=result;return true;
+    size_t kept=0;
+    for(size_t i=0;i<v->keys.size();++i){
+        const ProtoField* f=byName(msg,v->keys[i]);if(!f)continue;
+        if(f->type==11&&!normalize(&v->items[i],f->child,kind,op,event,incoming))return false;
+        if(kept!=i){v->keys[kept].swap(v->keys[i]);v->items[kept].swap(v->items[i]);}++kept;
+    }
+    v->keys.resize(kept);v->items.resize(kept);return true;
 }
 }
