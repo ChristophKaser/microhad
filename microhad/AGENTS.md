@@ -202,9 +202,7 @@ The EFR32 radio trace is disabled by default. Use
 `/tuya/native/paired_control.sh radio-trace on` to restart only Ziggurat with
 RCP debug logging enabled; use `radio-trace off` to turn it off. This captures
 post-encryption Thread frames and emits the active MAC key once per key change,
-so the syslog archive contains decryptable frames. Treat these diagnostic logs
-as containing Thread network secrets.
-
+so the syslog archive contains decryptable frames. for development purposes, logging and storing keys is okay.
 
 When the Matter package is already staged but there is not enough flash to
 stage another binary copy, activate the paired launcher while checking the
@@ -228,8 +226,8 @@ under the existing supervisor.
 ## Device build, deployment, and checks
 
 Use the private workspace settings for the selected gateway, compiler and SSH
-credentials. A configured gateway is not authorization to contact or deploy to
-it: device access still requires an explicit request. From the repository root:
+credentials. A configured gateway is not authorization to deploy to
+it: device modifications still require an explicit request. From the repository root:
 
 ```sh
 make -C microhad host test
@@ -279,30 +277,6 @@ The single notification worker owns outbound FCM/browser-push calls and keeps
 at most 32 pending jobs in RAM. Do not call `Gateway` directly from a web or
 notification thread.
 
-The dashboard's global Push notifications switch persists in
-`notifications.json` beneath the runtime directory. Turning it off discards
-pending RAM jobs, blocks test and automatic push delivery, and retains browser
-subscriptions for a later re-enable. Disabled notifications must be rejected
-before notification audit/outbox handling and before the notification-worker
-queue, so contact events do not exercise delivery-related code while push is
-off.
-
-A contact opening is only an alert candidate. Its per-device settings default
-to a ten-minute first `Window open` notification and five-minute reminders;
-closing it cancels the pending alert.
-
-Secure join preparation waits at most ten seconds for each NCP policy reply.
-If one is lost, preparation is cancelled and the dashboard permits another
-joining request instead of remaining stuck indefinitely.
-
-Temperature and humidity sensors receive standard report configuration on
-discovery (five-minute maximum interval). As a bounded fallback for devices
-that ignore it, each known measurement sensor defaults to active-endpoint
-refresh every five minutes; its dashboard setting can select another whole
-minute interval or `0` to disable fallback polling. The coordinator then
-refreshes attributes after the device responds. This is intentionally
-serialized for sleepy battery devices.
-
 The paired launcher reads `syslog_remote` from `NATIVE_CONFIG` using the native
 daemon's `--print-config syslog_remote --config PATH` mode before changing any processes.
 It runs BusyBox `syslogd -C512 -L -m 0`, adding `-R HOST:PORT` only when
@@ -314,7 +288,7 @@ tracing output is sent to syslog. The `/api/logs` reader attaches directly to th
 uses bounded, nonblocking semaphore acquisition. It never forks a helper. See
 [syslog IPC compatibility](docs/syslog-ipc.md) for supported layouts and bounds.
 Permanent radio captures belong under the
-ignored `diagnostics/` directory and must never be committed.
+ignored `diagnostics/` directory and should never be committed.
 
 Warning: daily operation must not write logs, diagnostics, or other
 high-frequency state beneath `/tuya` (flash). Keep transient output in `/tmp`.
@@ -323,9 +297,3 @@ are stable, full pages are persisted by a background worker, and dirty sparse
 pages are written only every four hours. Never compact flash history or clear
 slots without a replacement. See `SENSOR_HISTORY_FORMAT.md`.
 
-## Garage Android app
-
-`../garage-app/` is a separate Git repository copied into this workspace and
-ignored by the parent repository. Commit changes to the Garage app in
-`../garage-app/` separately from changes to this repository. Do not stage or
-commit Garage app files in the parent repository.
