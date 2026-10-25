@@ -97,7 +97,48 @@ struct Fixture {
     void event(const std::string& type,double number=1){Automation::Event e;e.data.fields["type"]=Value(type);e.data.fields["value"]=Value(number);e.data.fields["field"]=Value("temperature_celsius");e.data.fields["device_id"]=Value("sensor");e.data.fields["source"]=Value("zigbee");e.data.fields["chain_id"]=Value("7");e.data.fields["chain_depth"]=Value(0.);assert(worker->enqueue(e));}
 };
 void serialization(){Value v;assert(Automation::parse("{\"nested\":{\"s\":\"x\\u00e4\\n\",\"n\":-1.2e3},\"b\":false}",&v));Value again;assert(Automation::parse(Automation::json(v),&again)&&again==v);assert(!Automation::parse("{\"n\":01}",&v));assert(!Automation::parse("{\"n\":1e999}",&v));assert(!Automation::parse("{\"x\":1,\"x\":2}",&v));assert(!Automation::parse("{\"x\":true}garbage",&v));Device d;d.ieeeAddress="0xabc";d.name="Office";d.temperature.setPresent(true);d.temperature.ensure().known=false;assert(!Automation::snapshot(d).fields.count("temperature_celsius"));d.temperature.ensure().known=true;d.temperature.ensure().celsius=0;assert(Automation::snapshot(d).fields["temperature_celsius"].number==0);}
-void sandboxAndValidation(){Fixture f;assert(f.worker->validate("draft.lua","assert(io==nil and os==nil and package==nil and debug==nil and load==nil and loadfile==nil and dofile==nil and coroutine==nil and rawset==nil); assert(events.on and events.off and automation.sleep and events.wait_for)",&f.error));assert(!f.worker->validate("draft.lua","while true do end",&f.error));assert(f.error.find("budget")!=std::string::npos);assert(!f.worker->validate("draft.lua","local x=string.rep('x',1024*1024)",&f.error));assert(!f.worker->validate("draft.lua","automation.after(0,function()end)",&f.error));assert(!f.worker->validate("draft.lua","events.on({type='unsupported'},function()end)",&f.error));assert(!f.worker->validate("draft.lua","events.on({type='device.value',value_below='cold'},function()end)",&f.error));assert(!f.worker->validate("draft.lua","events.on({type='remote.action',endpoint='one'},function()end)",&f.error));assert(!f.worker->validate("draft.lua","automation.cron('* * *',function()end)",&f.error));assert(!f.worker->validate("draft.lua","automation.cron('70 * * * *',function()end)",&f.error));assert(f.worker->validate("draft.lua","persistent.changed=1; shared.changed=1; automation.after(.01,function()error('must not run')end)",&f.error));assert(!regularFile(f.root+"/automations/state/draft.json"));}
+void sharedLuaState(){
+    Fixture f;
+    const std::string first="private_global='first';assert(_G.private_global=='first');events.on({type='device.value'},function()automation.sleep(10);assert(private_global=='first' and automation.script_id()=='first');persistent.done=1 end)";
+    const std::string second="assert(private_global==nil);private_global='second';assert(not pcall(function()math.abs=nil end));events.on({type='device.value'},function()automation.sleep(10);assert(private_global=='second' and math.abs(-2)==2);persistent.done=2 end)";
+    f.save(first,"first.lua");f.save(second,"second.lua");
+    assert(f.status("first").fields["loaded"].boolean&&f.status("second").fields["loaded"].boolean);
+    f.event("device.value");
+    for(unsigned i=0;i<200&&(f.status("first").fields["coroutines"].number!=1||f.status("second").fields["coroutines"].number!=1);++i)usleep(10000);
+    assert(f.worker->waitIdle());
+    assert(f.status("first").fields["coroutines"].number==1);
+    assert(f.status("second").fields["coroutines"].number==1);
+    assert(f.worker->validate("draft.lua","private_global='draft';assert(automation.script_id()=='draft')",&f.error));
+    assert(f.worker->reload("second.lua",&f.error));
+    f.worker->advanceTimeForTests(11);usleep(100000);assert(f.worker->waitIdle());
+    assert(f.state("first").fields["done"].number==1);
+    assert(!regularFile(f.root+"/automations/state/second.json"));
+    f.event("device.value");usleep(100000);f.worker->advanceTimeForTests(11);usleep(100000);
+    assert(f.state("second").fields["done"].number==2);
+    Value all;assert(Automation::parse(f.worker->listJson(),&all));
+    const double before=all.fields["heap_bytes"].number;
+    for(unsigned i=0;i<12;++i)assert(f.worker->reload("second.lua",&f.error));
+    assert(Automation::parse(f.worker->listJson(),&all));
+    assert(all.fields["heap_shared"].boolean&&all.fields["heap_limit_bytes"].number==2097152);
+    assert(all.fields["heap_bytes"].number<before+32768);
+    printf("unit: shared Lua heap %.0f bytes after repeated reloads\n",all.fields["heap_bytes"].number);
+}
+void globalLuaMemoryLimit(){
+    Fixture f;
+    const std::string keep="held=string.rep('x',600000);events.on({type='device.value'},function()automation.sleep(.01);assert(#held==600000);persistent.done=1 end)";
+    f.save(keep,"first.lua");f.save(keep,"second.lua");
+    assert(f.status("first").fields["loaded"].boolean&&f.status("second").fields["loaded"].boolean);
+    assert(!f.worker->validate("draft.lua","held=string.rep('z',900000)",&f.error));
+    f.save("held=string.rep('z',900000)","overflow.lua");
+    assert(!f.status("overflow").fields["loaded"].boolean);
+    f.event("device.value");usleep(150000);assert(f.worker->waitIdle());
+    assert(f.state("first").fields["done"].number==1&&f.state("second").fields["done"].number==1);
+    assert(f.worker->remove("first.lua",&f.error));assert(f.worker->remove("second.lua",&f.error));
+    assert(f.worker->validate("draft.lua","held=string.rep('z',900000)",&f.error));
+    Value all;assert(Automation::parse(f.worker->listJson(),&all));
+    assert(all.fields["heap_bytes"].number<=all.fields["heap_limit_bytes"].number);
+}
+void sandboxAndValidation(){Fixture f;assert(f.worker->validate("draft.lua","assert(io==nil and os==nil and package==nil and debug==nil and load==nil and loadfile==nil and dofile==nil and coroutine==nil and rawset==nil); assert(events.on and events.off and automation.sleep and events.wait_for)",&f.error));assert(!f.worker->validate("draft.lua","while true do end",&f.error));assert(f.error.find("budget")!=std::string::npos);assert(!f.worker->validate("draft.lua","local x=string.rep('x',2*1024*1024)",&f.error));assert(!f.worker->validate("draft.lua","automation.after(0,function()end)",&f.error));assert(!f.worker->validate("draft.lua","events.on({type='unsupported'},function()end)",&f.error));assert(!f.worker->validate("draft.lua","events.on({type='device.value',value_below='cold'},function()end)",&f.error));assert(!f.worker->validate("draft.lua","events.on({type='remote.action',endpoint='one'},function()end)",&f.error));assert(!f.worker->validate("draft.lua","automation.cron('* * *',function()end)",&f.error));assert(!f.worker->validate("draft.lua","automation.cron('70 * * * *',function()end)",&f.error));assert(f.worker->validate("draft.lua","persistent.changed=1; shared.changed=1; automation.after(.01,function()error('must not run')end)",&f.error));assert(!regularFile(f.root+"/automations/state/draft.json"));}
 void errorLocations(){
     Fixture f;
     struct Case {const char* code;const char* message;};
@@ -219,4 +260,4 @@ void callbackBudgetAndQueues(){Fixture f;
     assert(rejected>0);assert(f.worker->waitIdle());usleep(100000);assert(f.worker->logsJson("test.lua").find("limit")!=std::string::npos);assert(f.state().fields["good"].number==1);
 }
 }
-void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();typedSnapshots();thermostatSnapshots();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();callbackBudgetAndQueues();}
+void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();typedSnapshots();thermostatSnapshots();sharedLuaState();globalLuaMemoryLimit();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();callbackBudgetAndQueues();}

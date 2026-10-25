@@ -1,5 +1,5 @@
 -- Deterministic tests of scheduler admission and per-resume accounting.
-local factory = assert(loadfile('automation/runtime.lua'))
+local factory = assert(loadfile('automation/runtime.lua'))()
 local function fixture(used)
   local clock, minute, failures, clock_calls = 0, 0, 0, 0
   local watched={};local latest_handle=0
@@ -143,4 +143,17 @@ do
   assert(before.off==false and env.scenes.get('7').off==true)
   local group,reason=env.scenes.get('missing')
   assert(group==nil and reason=='unknown scene group')
+end
+
+-- Common libraries share one protected basis; script globals and API tables do not.
+do
+  local first=fixture()
+  local second=fixture()
+  assert(first.env~=second.env and first.env._G==first.env and second.env._G==second.env)
+  assert(first.env.math==second.env.math and first.env.string==second.env.string and first.env.table==second.env.table)
+  assert(first.env.events~=second.env.events and first.env.automation~=second.env.automation)
+  first.env.private_global=42
+  assert(second.env.private_global==nil)
+  assert(not pcall(function()first.env.math.abs=nil end))
+  assert(second.env.math.abs(-3)==3)
 end

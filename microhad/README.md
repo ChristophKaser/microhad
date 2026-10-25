@@ -101,6 +101,20 @@ Status/log readers copy immutable record references under short locks and format
 JSON after releasing them. Idle Lua scripts avoid calendar and ready-queue work;
 script status is sampled every 100 ms, with errors and reloads refreshed promptly.
 
+Automation uses one Lua state with a global 2 MiB allocator limit, including
+validation and all coroutine stacks. Standard libraries and the compiled
+scheduler framework are shared; each script has private globals, scheduler
+upvalues, listeners, timers and callback coroutines. Reloading or removing a
+script releases its runtime and collects unreachable Lua objects without
+closing the state used by other scripts. Callback instruction limits still
+apply separately on each resume. A script can exhaust the global budget and
+cause allocations in other scripts to fail until memory is reclaimed.
+`GET /api/automations` reports shared `heap_bytes`, `heap_limit_bytes` and
+`heap_shared: true`; each script's existing `heap_bytes` field also reports the
+shared total, marked by `heap_shared`, and must not be summed across scripts.
+The allocator limit covers Lua requests, excluding libc allocation overhead,
+freed space retained by libc, native C++ state, and the rest of process RSS.
+
 Completed bindings/reporting signatures survive announcements and restarts.
 Reconfiguration is required for new/changed endpoint inputs or an explicit
 leave without rejoin. Use `POST /api/devices/<ieee-address>/reconfigure` to

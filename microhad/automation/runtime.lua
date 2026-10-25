@@ -1,5 +1,14 @@
+local function immutable(value)
+  if type(value) ~= 'table' then return value end
+  local contents = {}
+  for k,v in pairs(value) do contents[k] = immutable(v) end
+  return setmetatable({}, { __index=contents, __newindex=function() error('snapshot is immutable',2) end,
+    __pairs=function() return next, contents, nil end, __len=function() return #contents end, __metatable=false })
+end
+local basis={math=immutable(math),string=immutable(string),table=immutable(table)}
+-- Compile once; each invocation creates private scheduler upvalues and globals.
+return function(host)
 -- Trusted scheduler. Only the returned environment is exposed to author code.
-local host = ...
 local co, unpack, pack = coroutine, table.unpack, table.pack
 local next, pairs, type, error, assert = next, pairs, type, error, assert
 local tasks, listeners, timers = {}, {}, {}
@@ -18,13 +27,6 @@ end
 local function handle()
   serial = serial + 1
   return host.handle(serial)
-end
-local function immutable(value)
-  if type(value) ~= 'table' then return value end
-  local contents = {}
-  for k,v in pairs(value) do contents[k] = immutable(v) end
-  return setmetatable({}, { __index=contents, __newindex=function() error('snapshot is immutable',2) end,
-    __pairs=function() return next, contents, nil end, __len=function() return #contents end, __metatable=false })
 end
 local function count(t) local n=0 for _ in pairs(t) do n=n+1 end return n end
 local function filter(f)
@@ -174,7 +176,7 @@ local function state_proxy(scope,path)
 end
 for _,name in ipairs({'assert','error','ipairs','next','pairs','pcall','select','tonumber','tostring','type','xpcall','rawequal'}) do env[name]=_G[name] end
 env._VERSION=_VERSION;env._G=env
-env.math=immutable(math);env.string=immutable(string);env.table=immutable(table)
+env.math=basis.math;env.string=basis.string;env.table=basis.table
 -- Native string operations do not consume VM ticks; the allocator caps memory.
 env.events=events;env.automation=automation
 env.devices={get=function(target)local v,e=host.device_get(target);return v and immutable(v),e end,
@@ -249,3 +251,5 @@ function runtime.tick()
 end
 function runtime.stats()local suspended=0 for _,t in pairs(tasks)do if t.wait then suspended=suspended+1 end end return count(listeners),count(timers),suspended end
 return runtime
+
+end

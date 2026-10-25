@@ -8,7 +8,7 @@ class GatewayRunner;
 class NotificationWorker;
 class MatterWorker;
 
-/* Owns all Lua states.  No coordinator or HTTP thread is ever allowed to
+/* Owns the shared Lua state and its script coroutines.  No coordinator or HTTP thread is ever allowed to
  * evaluate script code. */
 class AutomationWorker {
 public:
