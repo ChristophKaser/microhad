@@ -1,0 +1,39 @@
+{
+  "repository": "https://github.com/bxparks/acetimec",
+  "revision": "07ef4f1a6efda5a675f3d23e5bbcd6b8eb9e0290",
+  "tzdb": "2025b",
+  "files": {
+    "LICENSE": "ab35429789e9b7a670a967bdf5896ea87fa9d7f2932ce1a7d555d62da127e140",
+    "src/acetimec/common.h": "e0ba64e180d3da4e511ded2476c402cf92e36d9c7e4180863783e1341f48ec2f",
+    "src/acetimec/common.c": "cdc4909a72dfc3b93176d81eb98c3ba3beadcda68f74f2bfd38ce2ae3c0f47ad",
+    "src/acetimec/epoch.h": "e37fffd637f0e2d5f762633b71fbee903a2de8e2e84a4867beacf61ff7d9b256",
+    "src/acetimec/epoch.c": "78a0cb3908b4a2c39adba04624c1c2294dd58e936dab51f3772806d39f91dae8",
+    "src/acetimec/plain_date.h": "0a214e96d66156a795df4ceaf66f1c80ed3862e801445189f2cf8777848327fe",
+    "src/acetimec/plain_date.c": "753677e3780abd9713e5af49c5080f9c055868992c8ca0fc858f11535741bce5",
+    "src/acetimec/plain_date_time.h": "eaf1867f461f81884054ccf42ade56520e532730ef299cbba9869a7cfa01bedd",
+    "src/acetimec/plain_date_time.c": "89be4e5fe1041147b3befcad025e6466091b3ce783db97ce2fdfdbd706124e04",
+    "src/acetimec/plain_time.h": "6012e8141bebae98ab2a41500b80cd7edc2b78c9243a721165415342742ccabf",
+    "src/acetimec/plain_time.c": "79de05a2e39959e13e9330f33c8b575359eb70053853c1564a1dfb634c15a4fb",
+    "src/acetimec/date_tuple.h": "5028405c18569ef6f6629905beb6db7604df33c9eb5b596efd0e62082c1bb77d",
+    "src/acetimec/date_tuple.c": "1dd1301e1612df2453e98767489c9908c5e4ded1a9fa96160251b0d799d9c871",
+    "src/acetimec/transition.h": "531db7d1b3f881dedf90f58384a97d9b2addc1f6317684ad28ab0b9f10a805d8",
+    "src/acetimec/transition.c": "eeda19f06f3a09583b7ea6da456ae958347c1490526fcbcf59f1d8835c60294d",
+    "src/acetimec/zone_processor.h": "5d3e3318c5161395ba00de0c63f597b0fa656e86477eefc541989c70893a00a0",
+    "src/acetimec/zone_processor.c": "cbe0ed548b2589fe29787b33ff45c1037e532f80d63a151b47db03e9d670b96b",
+    "src/zoneinfo/zone_info.h": "1275240ad9293da510325ce18a551eadbc2d70783b400b45290521b85f797dce",
+    "src/zoneinfo/zone_info_high.h": "125035e73b390ccb296ad0bb92e903355fc79b965fe182328b5d1f991d8c698c",
+    "src/zoneinfo/zone_info_mid.h": "e2f642dc20531579ef19a8cbcb04a05fd35f82d498ddbdfa817b7c466e02b7df",
+    "src/zoneinfo/zone_info_utils.h": "6909e1a1171a0e64913018aa3561afb5da64f58184f75d1610a9abdb6d73452c",
+    "src/zoneinfo/zone_info_utils.c": "c8c3aab8ca2f2fe4f6869ed48f644fb0484b23a8cdf3626b1f9cee35a2b0535f",
+    "src/acetimec/string_buffer.h": "d437efd2f80d53980c5ad3b373efe9d505a639744875f0dd16ad8e39826834c3",
+    "src/acetimec/offset_date_time.h": "af6279b6d7d38422317d7ac572e86ac07793cfe976c6318196feacae38fdd059"
+  },
+  "database_inputs": {
+    "zone_infos.c": "1e7d63a1d0a37e39f747844b81f4f19e0029d0a4be5e82d493e6c13792e36c84",
+    "zone_policies.c": "bf79532585f84a9fa9c2aeacf9e681ce6ee80f6a45a0326363285cdec758ae50"
+  },
+  "modified_files": {
+    "src/acetimec/zone_processor.c": "9c85ee56b18e2708c3b10b7f113352877145e2c659dbfe8c2a0fcd5c2b3c546e",
+    "offsets-only.patch": "8a98f037d36f3ac6c73d7fd3bbcec10652f35dbfa10fd0dbb407efbcf3c641f5"
+  }
+}

@@ -40,6 +40,25 @@
     ]
   },
   {
+    "name": "acetimec (restricted TZDB 2025b)",
+    "revision": "07ef4f1a6efda5a675f3d23e5bbcd6b8eb9e0290",
+    "license": "MIT; IANA data public domain",
+    "authors": [
+      "Brian T. Park",
+      "IANA time zone database contributors"
+    ],
+    "texts": [
+      [
+        "LICENSE",
+        "MIT License\n\nCopyright (c) 2022 Brian T. Park\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+      ],
+      [
+        "LICENSE.iana",
+        "Unless specified below, all files in the tz code and data (including\nthis LICENSE file) are in the public domain.\n\nIf the files date.c, newstrftime.3, and strftime.c are present, they\ncontain material derived from BSD and use the BSD 3-clause license.\n"
+      ]
+    ]
+  },
+  {
     "name": "aead 0.6.1",
     "license": "MIT OR Apache-2.0",
     "authors": [

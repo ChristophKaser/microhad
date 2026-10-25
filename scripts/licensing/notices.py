@@ -64,6 +64,10 @@ def inputs():
     paths += git('ls-files', 'patches/*.patch', 'ziggurat/patches/*.patch',
                  'micro-thread-matter-daemon/patches/*.patch').splitlines()
     paths += [str(p.relative_to(ROOT)) for p in sorted((ROOT / 'third-party/nanopb').iterdir()) if p.is_file()]
+    paths += [str(p.relative_to(ROOT)) for p in sorted((ROOT / 'third-party/acetimec').rglob('*')) if p.is_file()]
+    paths += ['config/matter-time-zones.txt', 'micro-thread-matter-daemon/build.rs',
+              'micro-thread-matter-daemon/timezone/bridge.c',
+              'micro-thread-matter-daemon/scripts/generate-acetime-subset.py']
     result = {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in paths}
     for p in SUBMODULES:
         result[p] = git('rev-parse', f'HEAD:{p}')
@@ -146,6 +150,12 @@ def authors(package, name):
 def collect_gateway():
     selected_packages = production_packages()
     records = [{'name': 'nanopb 0.4.9.1', 'revision': 'cad3c18ef15a663e30e3e43e3a752b66378adec1', 'license': 'Zlib', 'authors': ['Petteri Aimonen and nanopb contributors'], 'texts': texts(ROOT / 'third-party/nanopb')}]
+    acetime = ROOT / 'third-party/acetimec'
+    pin = json.loads((acetime / 'UPSTREAM.json').read_text())
+    records.append({'name': 'acetimec (restricted TZDB ' + pin['tzdb'] + ')',
+                    'revision': pin['revision'], 'license': 'MIT; IANA data public domain',
+                    'authors': ['Brian T. Park', 'IANA time zone database contributors'],
+                    'texts': texts(acetime)})
     known_packages = {(p['name'], p['version']) for lock in LOCKS
                       for p in tomllib.loads((ROOT / lock).read_text())['package']}
     if selected_packages - known_packages:

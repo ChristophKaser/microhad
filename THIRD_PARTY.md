@@ -21,6 +21,7 @@ identify the revisions and lockfile hashes used for the shipped gateway notices.
 | Component / upstream | Used by | License and attribution |
 | --- | --- | --- |
 | [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) and nested TF-PSA-Crypto | MicroHAD static TLS/crypto libraries | Apache-2.0 selected from Apache-2.0 OR GPL-2.0-or-later; retain applicable notices and license texts, including bundled third-party material. |
+| [AceTime C](https://github.com/bxparks/acetimec) | Matter accessory clock offsets; restricted 26-zone database | MIT (Brian T. Park); IANA data public domain. Pins, source checksums, and the local offsets-only patch are in `third-party/acetimec/`. |
 | [nanopb](https://github.com/nanopb/nanopb) | MicroHAD protobuf IPC and RAM cache | Zlib; see `third-party/nanopb/LICENSE.txt`. |
 | [Ziggurat](https://github.com/zigpy/ziggurat) | Zigbee stack and shared radio transport | Apache-2.0; local patch series under `ziggurat/patches/` identifies changes. Rust transitive dependencies have their own terms. |
 | [rs-matter](https://github.com/project-chip/rs-matter) | Matter service | Apache-2.0; modified through `micro-thread-matter-daemon/patches/`. RustCrypto, embassy, serde and other transitive dependencies retain their individual terms. |

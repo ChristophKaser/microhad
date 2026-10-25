@@ -1,0 +1,27 @@
+# Supported Matter accessory clock zones. Keep in sync with dashboard choices.
+UTC
+Europe/Berlin
+Europe/London
+Europe/Paris
+Europe/Madrid
+Europe/Rome
+Europe/Stockholm
+Europe/Helsinki
+Europe/Warsaw
+Europe/Istanbul
+America/New_York
+America/Chicago
+America/Denver
+America/Los_Angeles
+America/Toronto
+America/Vancouver
+America/Sao_Paulo
+Asia/Dubai
+Asia/Kolkata
+Asia/Bangkok
+Asia/Singapore
+Asia/Shanghai
+Asia/Tokyo
+Asia/Seoul
+Australia/Sydney
+Pacific/Auckland

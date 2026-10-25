@@ -228,7 +228,8 @@ notice generation and release requirements.
 
 The dashboard's time-sync action saves the selected IANA time zone in the
 controller's private store. The Matter service resolves that zone using bundled
-IANA data and sends UTC, the standard offset, and bounded DST intervals to the
+AceTime C data for the dashboard’s 26 zones and sends UTC, the standard offset,
+and bounded DST intervals to the
 accessory. It refreshes clocks daily, at transitions, and after service startup,
 without requiring an open dashboard. Failed updates retry after one minute,
 backing off to at most one hour. Periodic refreshes do not write to flash.
@@ -238,3 +239,15 @@ the gateway is offline, until their supplied schedule expires. Single-entry
 accessories require the gateway at the transition. Time-zone rule updates ship
 with service updates. After upgrading from fixed-offset synchronization, sync
 each accessory once to save its zone; prior selections cannot be recovered.
+
+Clock scheduling supports UTC dates from 2025-01-01 through 2099-12-31. The
+lookahead is capped at 2100-01-01. Unsupported zone names or dates fail explicitly;
+an unsupported saved zone is named in the startup error. Existing supported
+preferences and IPC requests remain compatible. The processor uses one shared,
+serialized workspace, independent of device count. No libc `TZ` changes or
+32-bit `time_t` conversions are used.
+
+The database is pinned to IANA 2025b and excludes unused zones and display data.
+See [AceTime subset provenance](../third-party/acetimec/README.md) for regeneration
+and offline validation. The half-hour DST test zone is a separate host fixture
+and is excluded from the production service.

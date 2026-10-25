@@ -83,6 +83,12 @@ class Notices(unittest.TestCase):
             (root / 'build/license-crates').mkdir(parents=True)
             (root / 'microhad/webui').mkdir(parents=True)
             (root / 'microhad/webui/package-lock.json').write_text('{"packages":{}}')
+            for vendor in ('nanopb', 'acetimec'):
+                folder = root / 'third-party' / vendor
+                folder.mkdir(parents=True)
+                (folder / 'LICENSE').write_text('Copyright vendor')
+            (root / 'third-party/acetimec/UPSTREAM.json').write_text(
+                '{"revision":"pinned-acetime","tzdb":"2025b"}')
             archive = root / 'build/license-crates/runtime-1.0.0.crate'
             with tarfile.open(archive, 'w') as tf:
                 for name, text in [('Cargo.toml', '[package]\nname="runtime"\nversion="1.0.0"\nlicense="MIT"\nauthors=["Alice"]'),
@@ -102,8 +108,10 @@ class Notices(unittest.TestCase):
                  patch.object(notices, 'production_packages', return_value={('runtime', '1.0.0')}), \
                  patch.object(notices, 'authors', return_value=['Alice']):
                 records = notices.collect_gateway()
-            self.assertEqual([r['name'] for r in records], ['runtime 1.0.0'])
-            self.assertEqual(records[0]['texts'], [('LICENSE', 'Copyright Alice')])
+            self.assertEqual([r['name'] for r in records], [
+                'acetimec (restricted TZDB 2025b)', 'nanopb 0.4.9.1', 'runtime 1.0.0'])
+            self.assertEqual(records[-1]['texts'], [('LICENSE', 'Copyright Alice')])
+            self.assertEqual(records[0]['revision'], 'pinned-acetime')
 
     def test_checked_inventory_is_production_only_and_complete(self):
         records = json.loads((notices.ROOT / 'third-party/gateway-records.json').read_text())

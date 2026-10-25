@@ -1,6 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 fn main() {
+    if env::var_os("CARGO_FEATURE_CONTROLLER_SERVICE").is_some() { build_timezones(); }
     let fields = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
         .join("../config/thermostat-attributes.def");
     println!("cargo:rerun-if-changed={}", fields.display());
@@ -126,4 +127,52 @@ fn main() {
     }
     println!("cargo:rustc-link-lib=rt");
     println!("cargo:rustc-link-arg=-Wl,--wrap=otPlatSettingsGet");
+}
+
+// Keep native timezone compilation on the same toolchain as the rest of the
+// gateway, without adding another build-time Rust dependency.
+fn build_timezones() {
+    use std::process::Command;
+    let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let root = manifest.parent().unwrap();
+    let vendor = root.join("third-party/acetimec");
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let target = env::var("CARGO_CFG_TARGET_ARCH").unwrap() == "mips";
+    let resolve = |key: &str| {
+        let output = Command::new("python3").arg(root.join("scripts/toolchain_config.py"))
+            .arg(key).output().expect("cannot resolve timezone toolchain");
+        assert!(output.status.success(), "invalid shared timezone toolchain configuration");
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    };
+    let compiler = resolve(if target { "TARGET_CC" } else { "HOST_CC" });
+    let archiver = if target { resolve("TARGET_AR") } else { env::var("AR").unwrap_or_else(|_| "ar".into()) };
+    for key in ["HOST_CC", "AR", "TOOLCHAIN", "RSDK_ROOT", "CROSSTOOL_NG_ROOT", "TARGET_PREFIX", "TARGET_CC", "TARGET_AR"] {
+        println!("cargo:rerun-if-env-changed={key}");
+    }
+    println!("cargo:rerun-if-changed={}", root.join("config/toolchains.mk").display());
+    println!("cargo:rerun-if-changed={}", root.join("scripts/toolchain_config.py").display());
+    println!("cargo:rerun-if-changed={}", vendor.display());
+    let sources = ["acetimec/common.c", "acetimec/epoch.c", "acetimec/plain_date.c",
+        "acetimec/plain_date_time.c", "acetimec/plain_time.c", "acetimec/date_tuple.c",
+        "acetimec/transition.c", "acetimec/zone_processor.c", "zoneinfo/zone_info_utils.c"];
+    let mut files: Vec<_> = sources.iter().map(|s| vendor.join("src").join(s)).collect();
+    files.push(vendor.join("zones.c"));
+    files.push(manifest.join("timezone/bridge.c"));
+    let mut objects = Vec::new();
+    for (i, file) in files.iter().enumerate() {
+        println!("cargo:rerun-if-changed={}", file.display());
+        let object = out.join(format!("timezone-{i}.o"));
+        let status = Command::new(&compiler).args(["-std=gnu99", "-DGATEWAY_ACETIME_OFFSETS_ONLY", "-Os", "-ffunction-sections", "-fdata-sections", "-Wall", "-Wextra"])
+            .arg("-I").arg(vendor.join("src")).arg("-I").arg(&vendor)
+            .arg("-c").arg(file).arg("-o").arg(&object).status()
+            .expect("cannot run timezone C compiler");
+        assert!(status.success(), "timezone C compilation failed");
+        objects.push(object);
+    }
+    let archive = out.join("libgateway_timezones.a");
+    let _ = std::fs::remove_file(&archive);
+    assert!(Command::new(archiver).arg("rcs").arg(&archive).args(&objects).status()
+        .expect("cannot archive timezones").success());
+    println!("cargo:rustc-link-search=native={}", out.display());
+    println!("cargo:rustc-link-lib=static=gateway_timezones");
 }

@@ -1,22 +1,56 @@
 //! Durable time-zone intent and bounded Matter DST schedules.
 use crate::store::PrivateStore;
-use chrono::{Offset, TimeZone};
-use chrono_tz::OffsetComponents;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 const KEY: u16 = 0x1004;
 pub const EPOCH: u64 = 946_684_800;
 const DAY: u64 = 86400;
 
-pub fn zone(name: &str) -> Result<chrono_tz::Tz, ()> {
-    name.parse().map_err(|_| ())
+// AceTime uses one mutable transition cache. Keep its layout and allocation in
+// C, and hold this lock for the whole schedule calculation (also in tests).
+static PROCESSOR: Mutex<()> = Mutex::new(());
+const MIN_UNIX: u64 = 1_735_689_600; // 2025-01-01 UTC
+const MAX_UNIX: u64 = 4_102_444_800; // 2100-01-01 UTC, exclusive
+unsafe extern "C" {
+    fn gateway_tz_find(name: *const u8, length: usize) -> i32;
+    fn gateway_tz_offsets(zone: u32, unix: i64, standard: *mut i32, total: *mut i32) -> i32;
 }
-fn offset(zone: chrono_tz::Tz, unix: u64) -> i32 {
-    zone.timestamp_opt(unix as i64, 0)
-        .unwrap()
-        .offset()
-        .fix()
-        .local_minus_utc()
+#[derive(Clone, Copy)]
+pub struct Zone(u32);
+pub fn zone(name: &str) -> Result<Zone, ()> {
+    // Only reads the immutable whitelist; no C processor state is touched.
+    let index = unsafe { gateway_tz_find(name.as_ptr(), name.len()) };
+    if index < 0 {
+        Err(())
+    } else {
+        Ok(Zone(index as u32))
+    }
+}
+struct Processor {
+    _guard: MutexGuard<'static, ()>,
+}
+impl Processor {
+    fn acquire() -> Result<Self, ()> {
+        PROCESSOR
+            .lock()
+            .map(|guard| Self { _guard: guard })
+            .map_err(|_| ())
+    }
+    fn offsets(&self, zone: Zone, unix: u64) -> Result<(i32, i32), ()> {
+        if !(MIN_UNIX..MAX_UNIX).contains(&unix) {
+            return Err(());
+        }
+        let (mut standard, mut total) = (0, 0);
+        // The guard serializes every call that accesses the C workspace. C
+        // validates the index/date and writes both outputs only on success.
+        let status = unsafe { gateway_tz_offsets(zone.0, unix as i64, &mut standard, &mut total) };
+        if status == 0 {
+            Ok((standard, total))
+        } else {
+            Err(())
+        }
+    }
 }
 #[derive(Debug)]
 pub struct Interval {
@@ -33,29 +67,24 @@ pub struct Schedule {
 /// political offset changes without requiring a second TimeZone table slot.
 pub fn schedule(name: &str, now: u64, capacity: u8) -> Result<Schedule, ()> {
     let zone = zone(name)?;
-    if now < EPOCH || now > 253_000_000_000 || capacity == 0 {
+    if !(MIN_UNIX..MAX_UNIX).contains(&now) || capacity == 0 {
         return Err(());
     }
-    let base = zone
-        .timestamp_opt(now as i64, 0)
-        .unwrap()
-        .offset()
-        .base_utc_offset()
-        .num_seconds() as i32;
-    let horizon = now + 730 * DAY;
+    let processor = Processor::acquire()?;
+    let (base, mut current) = processor.offsets(zone, now)?;
+    let horizon = (now + 730 * DAY).min(MAX_UNIX);
     let mut cursor = now;
     let mut start = 0;
-    let mut current = offset(zone, now);
     let mut intervals = Vec::new();
     // IANA civil-time transitions are separated by more than six hours.
     while cursor < horizon && intervals.len() < usize::from(capacity.min(16)) {
         let next = (cursor + 6 * 3600).min(horizon);
-        if offset(zone, next) != current {
+        if processor.offsets(zone, next.min(MAX_UNIX - 1))?.1 != current {
             let mut low = cursor;
             let mut high = next;
             while high - low > 1 {
                 let middle = low + (high - low) / 2;
-                if offset(zone, middle) == current {
+                if processor.offsets(zone, middle)?.1 == current {
                     low = middle;
                 } else {
                     high = middle;
@@ -68,7 +97,7 @@ pub fn schedule(name: &str, now: u64, capacity: u8) -> Result<Schedule, ()> {
                 end: boundary,
             });
             start = boundary;
-            current = offset(zone, high);
+            current = processor.offsets(zone, high)?.1;
             cursor = high;
         } else {
             cursor = next;
@@ -111,7 +140,9 @@ impl Preferences {
                         .iter()
                         .any(|p: &Preference| p.node == node && p.endpoint == endpoint)
                 {
-                    return Err(std::io::Error::other("invalid time-zone preference"));
+                    return Err(std::io::Error::other(format!(
+                        "unsupported or duplicate saved time zone: {name}"
+                    )));
                 }
                 entries.push(Preference {
                     node,
@@ -225,7 +256,18 @@ impl Preferences {
 mod tests {
     use super::*;
     fn unix(s: &str) -> u64 {
-        chrono::DateTime::parse_from_rfc3339(s).unwrap().timestamp() as u64
+        // Tests use the platform's 64-bit UTC parser only on the host.
+        let date = s.strip_suffix('Z').unwrap();
+        let parsed = std::process::Command::new("date")
+            .args(["-u", "-d", date, "+%s"])
+            .output()
+            .unwrap();
+        assert!(parsed.status.success());
+        String::from_utf8(parsed.stdout)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap()
     }
     #[test]
     fn berlin_transitions_and_matter_units() {
@@ -278,9 +320,6 @@ mod tests {
         let south = schedule("Australia/Sydney", now, 2).unwrap();
         assert_eq!(south.intervals[0].offset, 3600);
         assert_eq!(south.intervals[1].offset, 0);
-        let half = schedule("Australia/Lord_Howe", now, 2).unwrap();
-        assert_eq!(half.intervals[0].offset, 1800);
-        assert_eq!(half.intervals[1].offset, 0);
         assert_eq!(
             schedule("Europe/Berlin", now, 1).unwrap().intervals.len(),
             1
@@ -290,6 +329,42 @@ mod tests {
         assert!(schedule("UTC", 0, 2).is_err());
     }
     #[test]
+    fn restricted_names_date_bounds_and_serialized_workspace() {
+        assert!(zone("Europe/Dublin").is_err());
+        assert!(zone("Australia/Lord_Howe").is_err()); // standalone fixture only
+        assert!(zone("Europe/Berlin\0suffix").is_err());
+        assert!(schedule("UTC", MIN_UNIX - 1, 2).is_err());
+        assert!(schedule("UTC", MAX_UNIX, 2).is_err());
+        let last = schedule("UTC", MAX_UNIX - 1, 2).unwrap();
+        assert_eq!(last.intervals[0].end, (MAX_UNIX - EPOCH) * 1_000_000);
+        let workers: Vec<_> = [
+            "Europe/Berlin",
+            "America/New_York",
+            "Asia/Kolkata",
+            "Australia/Sydney",
+        ]
+        .into_iter()
+        .map(|name| {
+            std::thread::spawn(move || {
+                for _ in 0..4 {
+                    let s = schedule(name, 2_145_916_800, 3).unwrap(); // 2038-01-01 UTC
+                    let expected = match name {
+                        "Europe/Berlin" => 3600,
+                        "America/New_York" => -18000,
+                        "Asia/Kolkata" => 19800,
+                        "Australia/Sydney" => 39600,
+                        _ => unreachable!(),
+                    };
+                    assert_eq!(s.base + s.intervals[0].offset, expected);
+                }
+            })
+        })
+        .collect();
+        for worker in workers {
+            worker.join().unwrap();
+        }
+    }
+    #[test]
     fn durable_intent_retry_and_no_periodic_flash_writes() {
         let directory =
             std::env::temp_dir().join(format!("matter-time-preferences-{}", std::process::id()));
@@ -297,6 +372,15 @@ mod tests {
         {
             let store = PrivateStore::open(&directory).unwrap();
             let mut prefs = Preferences::open(store).unwrap();
+            prefs
+                .store
+                .set(KEY, Some(br#"[[2,0,"Europe/Dublin"]]"#))
+                .unwrap();
+            let error = Preferences::open(prefs.store.clone())
+                .err()
+                .unwrap()
+                .to_string();
+            assert!(error.contains("Europe/Dublin"));
             prefs.set(2, 0, "Europe/Berlin", now).unwrap();
             let before = std::fs::read(directory.join("credentials.bin")).unwrap();
             prefs.completed(2, 0, false, now, 86400);

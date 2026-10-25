@@ -1,0 +1,14 @@
+--- a/src/acetimec/zone_processor.c
++++ b/src/acetimec/zone_processor.c
+@@ -705,8 +705,11 @@
+   // Step 4: Generate start and until times.
+   atc_processor_generate_start_until_times(begin, end);
+ 
++  // Local offsets-only build: abbreviations are never exposed by the bridge.
++#ifndef GATEWAY_ACETIME_OFFSETS_ONLY
+   // Step 5: Calc abbreviations.
+   atc_processor_calc_abbreviations(begin, end);
++#endif
+ 
+   return kAtcErrOk;
+ }
