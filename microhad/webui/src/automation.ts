@@ -1,5 +1,6 @@
 import { form, jsonRequest, post } from './api'
 export interface AutomationScript {
+  triggers?: { id: string; label: string }[]
   filename: string; id: string; enabled: boolean; loaded: boolean; generation: number
   loaded_at: number; validated_at: number; last_event_at: number; last_callback_at: number
   listeners: number; timers: number; coroutines: number; error: string

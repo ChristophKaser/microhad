@@ -1059,10 +1059,11 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         const std::string operation = end == std::string::npos ? "" : request.substr(prefix.size(), end-prefix.size());
         const std::string::size_type bodyAt = request.find("\r\n\r\n");
         const std::string body = bodyAt == std::string::npos ? "" : request.substr(bodyAt+4);
-        std::string filename, source, error;
+        std::string filename, source, error, scriptId, triggerId;
         const bool hasFilename = formValue(body, "filename", &filename);
         bool result = false;
-        if (operation == "validate" && hasFilename && formValue(body, "source", &source)) result = automations_->validate(filename, source, &error);
+        if (operation == "trigger" && formValue(body, "script_id", &scriptId) && formValue(body, "trigger_id", &triggerId)) result = automations_->trigger(scriptId, triggerId, &error);
+        else if (operation == "validate" && hasFilename && formValue(body, "source", &source)) result = automations_->validate(filename, source, &error);
         else if (operation == "save" && hasFilename && formValue(body, "source", &source)) { std::string reload; result = automations_->save(filename, source, !formValue(body, "reload", &reload) || reload != "0", &error); }
         else if (operation == "reload" && (!hasFilename || filename == "all")) result = automations_->reload("", &error);
         else if (operation == "reload" && hasFilename) result = automations_->reload(filename, &error);

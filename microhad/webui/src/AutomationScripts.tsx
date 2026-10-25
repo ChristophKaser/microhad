@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { errorMessage, type Device, type SceneGroupSummary } from './api'
+import { AutomationTrigger } from './AutomationTrigger'
 import { useAutomationEditor } from './useAutomationEditor'
 import { automationAction, disabledFilename, listAutomations, readAutomation, readAutomationLogs, validAutomationFilename, visibleAutomationLogs, type AutomationLog, type AutomationScript } from './automation'
 
@@ -101,6 +102,7 @@ export function AutomationScripts({ onDirtyChange, devices = [], groups = [] }: 
         <button className="button danger" disabled={busy || !exists} onClick={() => { if (window.confirm('Delete this script source? Persistent state will be retained.')) void action('delete', { filename: selected }) }}>Delete</button>
       </div>
       {script && <div aria-label="Script status"><p>{script.enabled ? script.loaded ? 'Loaded' : 'Load failed' : 'Disabled'} · generation {script.generation} · {script.listeners} listeners · {script.timers} timers/cron · {script.coroutines} suspended callbacks</p><p>Reload: {timestamp(script.loaded_at)} · Validated: {timestamp(script.validated_at)} · Last event: {timestamp(script.last_event_at)} · Last callback: {timestamp(script.last_callback_at)}</p>{script.error && <p className="form-error">{script.error}</p>}</div>}
+      {!!script?.triggers?.length && <div aria-label="Manual triggers"><h3>Manual triggers</h3>{script.triggers.map(trigger => <AutomationTrigger key={trigger.id} scriptId={script.id} triggerId={trigger.id} label={trigger.label} available={script.enabled && script.loaded} />)}</div>}
       <div className="automation-toolbar">
         <button className="button primary" disabled={busy || !dirty} onClick={() => save(true)}>Save and reload</button>
         {error && <p role="alert" className="automation-error"><strong>Action failed</strong><br />{error}</p>}

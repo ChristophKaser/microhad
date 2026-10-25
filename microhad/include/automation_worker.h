@@ -20,6 +20,7 @@ public:
     void stop();
 
     std::string listJson() const;
+    bool trigger(const std::string& scriptId, const std::string& triggerId, std::string* error);
     bool refresh(std::string* error);
     bool source(const std::string& filename, std::string* value, std::string* error) const;
     bool validate(const std::string& filename, const std::string& value, std::string* error) const;

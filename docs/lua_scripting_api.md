@@ -31,6 +31,34 @@ events.on({ type = "device.added" }, function(event)
 end)
 ```
 
+## Manual triggers
+
+Register a button handler during initialization:
+
+```lua
+triggers.register("evening", "Evening lights", function()
+  scenes.activate("Downstairs", "Evening")
+end)
+```
+
+`triggers.register(id, label, callback)` registers or replaces a handler scoped
+to the current script. IDs must be nonempty strings of at most 192 bytes;
+labels must be nonempty strings of at most 256 bytes. Each script supports
+128 registered triggers. The callback receives no arguments and can sleep or
+wait for events like other automation callbacks. Errors use the usual script logs.
+
+Registered buttons appear under **Manual triggers** on the Automations page.
+To place one on the dashboard, choose **Edit dashboard**, add an **Automation
+trigger** widget, select the trigger, and save the layout.
+
+`triggers.unregister(id)` removes a handler; calling it again is safe.
+Reload, disable, deletion, and daemon restart remove runtime handlers and cancel
+pending callbacks. Saved dashboard buttons remain, showing **Unavailable** until
+the same stable script ID and trigger ID are registered again. Placement survives
+daemon restart. Renaming a label preserves placement; changing either ID does not.
+Unavailable presses are rejected and never replayed. Successful presses confirm
+scheduling, while callback errors are reported in automation logs.
+
 ## Events
 
 ### `events.on(filter, callback)`

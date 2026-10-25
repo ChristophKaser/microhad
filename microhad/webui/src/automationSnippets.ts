@@ -2,6 +2,10 @@
 // accept the same live ID/name completions as hand-written calls.
 export const automationSnippets = [
   {
+    name: 'trigger — Register a dashboard button', tabTrigger: 'trigger',
+    content: 'triggers.register("${1:my_trigger}", "${2:Run automation}", function()\n\t${0:-- Handle the button press.}\nend)',
+  },
+  {
     name: 'listen — Listen for a device change', tabTrigger: 'listen',
     content: 'events.on({ type = "${1:device.changed}", device = "${2:DEVICE_ID}", field = "${3:contact_open}" }, function(${4:event})\n\t${0:-- Handle the event.}\nend)',
   },

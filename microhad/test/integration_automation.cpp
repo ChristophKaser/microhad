@@ -231,6 +231,20 @@ void runAutomationIntegrationTests(){
         std::string externalId;assert(external.saveDevice("1234567890abcdef","Office","192.0.2.1","192.0.2.2","uni","","",inputs,temperatures,relays,30,false,true,false,&externalId,&error));
         AutomationWorker automations(root,&runner,&notifications);assert(automations.start(&error));
         HttpServer server(0,&runner,root,"","",&external,&notifications,0,"",&automations);assert(server.start(&error));int port=server.boundPort();
+        const std::string triggerSource="triggers.register('go','Manual action',function()log('info','manual callback ran')end)";
+        assert(automations.save("manual.lua",triggerSource,true,&error));
+        assert(request(port,"GET","/api/automations").find("Manual action")!=std::string::npos);
+        const std::string dashboard="{\"widgets\":[{\"id\":\"manual-widget\",\"kind\":\"automation_trigger\",\"target\":\"manual:go\",\"script_id\":\"manual\",\"trigger_id\":\"go\",\"label\":\"Manual action\"}]}";
+        assert(request(port,"POST","/api/dashboard/config",dashboard).find("200 OK")!=std::string::npos);
+        assert(request(port,"POST","/api/automations/trigger","script_id=manual&trigger_id=go").find("200 OK")!=std::string::npos);
+        assert(automations.waitIdle());assert(automations.logsJson("manual.lua").find("manual callback ran")!=std::string::npos);
+        assert(automations.setEnabled("manual.lua",false,&error));
+        assert(request(port,"POST","/api/automations/trigger","script_id=manual&trigger_id=go").find("400 Bad Request")!=std::string::npos);
+        assert(request(port,"GET","/api/dashboard/config").find("manual-widget")!=std::string::npos);
+        assert(automations.setEnabled("manual.lua.disabled",true,&error));
+        assert(request(port,"POST","/api/automations/trigger","script_id=manual&trigger_id=go").find("200 OK")!=std::string::npos);
+        assert(automations.remove("manual.lua",&error));
+        assert(request(port,"GET","/api/dashboard/config").find("manual-widget")!=std::string::npos);
         std::string code="persistent.values=0;persistent.changes=0;local catalog=devices.list({source='shelly'});assert(#catalog==3,'catalog size');local sensor;local actor;for _,d in ipairs(catalog)do if d.kind=='temperature'then sensor=d.id end;if d.kind=='relay'then actor=d.id end end;assert(sensor,'sensor');assert(actor,'actor');"
           "events.on({type='device.value',device=sensor,field='temperature_celsius'},function(e)assert(e.device.temperature_celsius==e.value);persistent.values=persistent.values+1;assert(devices.actor(actor,true));end);"
           "events.on({type='device.changed',device=sensor,field='temperature_celsius'},function(e)persistent.changes=persistent.changes+1 end);"

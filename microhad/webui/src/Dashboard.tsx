@@ -6,13 +6,18 @@ import type { ControllerStats } from './api'
 import type { ThreadStatus } from './matter'
 import { DeviceGroups } from './devices'
 import { historyRangeSeconds, historyWindow } from './historyLoader'
+import { listAutomations, type AutomationScript } from './automation'
+import { AutomationTrigger } from './AutomationTrigger'
 import { useHistory } from './useHistory'
 import { historyDeviceId, historyDiscrete, historyLabel, historyTick, historyUnit, historyY } from './history'
 
 export type DashboardWidget = {
   id: string
-  kind: 'gateway' | 'device' | 'group' | 'chart' | 'open_contacts' | 'present_sensors'
+  kind: 'automation_trigger' | 'gateway' | 'device' | 'group' | 'chart' | 'open_contacts' | 'present_sensors'
   target: string
+  script_id?: string
+  trigger_id?: string
+  label?: string
   metric?: number
   range?: 'day' | 'week' | 'all'
 }
@@ -98,6 +103,18 @@ export function Dashboard({ config, editing, devices, groups, status, restarting
   onSettings: (device: Device) => void; onDetails: (device: Device) => void; onHistory: (device: Device) => void; onConnection: (device: Device) => void
   onEdit: () => void; onCancel: () => void; onSave: () => void; saving: boolean; loaded: boolean; configError: string
 }) {
+  const [scripts, setScripts] = useState<AutomationScript[]>([])
+  useEffect(() => {
+    let active = true
+    const refresh = async () => {
+      try { const result = await listAutomations(); if (active) setScripts(result.scripts) }
+      catch { if (active) setScripts([]) }
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 3000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [])
+  const triggers = scripts.filter(script => script.enabled && script.loaded).flatMap(script => (script.triggers ?? []).map(trigger => ({ id: JSON.stringify([script.id, trigger.id]), name: `${trigger.label} (${script.id})`, script_id: script.id, trigger_id: trigger.id, label: trigger.label })))
   const [kind, setKind] = useState<DashboardWidget['kind']>('device')
   const [target, setTarget] = useState('')
   const [metric, setMetric] = useState(1)
@@ -106,17 +123,26 @@ export function Dashboard({ config, editing, devices, groups, status, restarting
   const add = () => {
     const targetless = kind === 'gateway' || kind === 'open_contacts' || kind === 'present_sensors'
     const widget: DashboardWidget = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, kind, target: targetless ? kind : target, ...(kind === 'chart' ? { metric, range: 'day' as const } : {}) }
+    if (kind === 'automation_trigger') {
+      const trigger = triggers.find(item => item.id === target)
+      if (!trigger) return
+      widget.script_id = trigger.script_id; widget.trigger_id = trigger.trigger_id; widget.label = trigger.label
+    }
     updateWidgets([...config.widgets, widget])
     setTarget('')
   }
   return <section className="dashboard-view">
     <div className="dashboard-heading"><div><p className="eyebrow">Your home</p><h2>Dashboard</h2></div>{editing ? <div className="toolbar"><button className="button" disabled={saving} onClick={onCancel}>Cancel</button><button className="button primary" disabled={saving} onClick={onSave}>{saving ? 'Saving…' : 'Save layout'}</button></div> : <button className="button" disabled={!loaded} onClick={onEdit}>{loaded ? 'Edit dashboard' : 'Loading…'}</button>}</div>
     {configError && <p className="error" role="alert">{configError}</p>}
-    {editing && <div className="panel dashboard-editor"><strong>Add a widget</strong><div className="toolbar"><select value={kind} onChange={e => { const next=e.target.value as typeof kind; setKind(next); setTarget('') }}><option value="gateway">Gateway state</option><option value="device">Device card</option><option value="group">Group card</option><option value="chart">Sensor chart</option><option value="open_contacts">Open contact sensors</option><option value="present_sensors">Present presence sensors</option></select>{kind !== 'gateway' && kind !== 'open_contacts' && kind !== 'present_sensors' && <select value={target} onChange={e => { const value=e.target.value; setTarget(value); if(kind==='chart'){ const selectedDevice=devices.find(d=>d.id===value); const first=sensorMetrics.find(m=>selectedDevice && m.available(selectedDevice)); if(first)setMetric(first.id) } }}><option value="">Choose {kind === 'group' ? 'group' : 'device'}</option>{(kind === 'group' ? groups.map(g=>({id:String(g.id),name:g.name})) : devices.map(d=>({id:d.id,name:d.name}))).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select>}{kind === 'chart' && <select value={metric} onChange={e=>setMetric(Number(e.target.value))}>{sensorMetrics.filter(m=>pickedDevice && m.available(pickedDevice)).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select>}<button className="button primary" disabled={(kind !== 'gateway' && kind !== 'open_contacts' && kind !== 'present_sensors' && !target) || (kind==='chart' && !sensorMetrics.some(m=>m.id===metric && pickedDevice && m.available(pickedDevice))) || (kind==='gateway' && config.widgets.some(widget=>widget.kind==='gateway'))} onClick={add}>Add widget</button></div><p className="muted small">Use the arrows on widgets to change their order, then save the layout.</p></div>}
+    {editing && <div className="panel dashboard-editor"><strong>Add a widget</strong><div className="toolbar"><select value={kind} onChange={e => { const next=e.target.value as typeof kind; setKind(next); setTarget('') }}><option value="automation_trigger">Automation trigger</option><option value="gateway">Gateway state</option><option value="device">Device card</option><option value="group">Group card</option><option value="chart">Sensor chart</option><option value="open_contacts">Open contact sensors</option><option value="present_sensors">Present presence sensors</option></select>{kind !== 'gateway' && kind !== 'open_contacts' && kind !== 'present_sensors' && <select value={target} onChange={e => { const value=e.target.value; setTarget(value); if(kind==='chart'){ const selectedDevice=devices.find(d=>d.id===value); const first=sensorMetrics.find(m=>selectedDevice && m.available(selectedDevice)); if(first)setMetric(first.id) } }}><option value="">Choose {kind === 'automation_trigger' ? 'trigger' : kind === 'group' ? 'group' : 'device'}</option>{(kind === 'automation_trigger' ? triggers : kind === 'group' ? groups.map(g=>({id:String(g.id),name:g.name})) : devices.map(d=>({id:d.id,name:d.name}))).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select>}{kind === 'chart' && <select value={metric} onChange={e=>setMetric(Number(e.target.value))}>{sensorMetrics.filter(m=>pickedDevice && m.available(pickedDevice)).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select>}<button className="button primary" disabled={(kind !== 'gateway' && kind !== 'open_contacts' && kind !== 'present_sensors' && !target) || (kind==='chart' && !sensorMetrics.some(m=>m.id===metric && pickedDevice && m.available(pickedDevice))) || (kind==='gateway' && config.widgets.some(widget=>widget.kind==='gateway'))} onClick={add}>Add widget</button></div><p className="muted small">Use the arrows on widgets to change their order, then save the layout.</p></div>}
     <div className="dashboard-grid">{config.widgets.map((widget,index)=>{
       const move=(direction:number)=>{ const next=[...config.widgets]; const swap=index+direction; if(swap<0||swap>=next.length)return; [next[index],next[swap]]=[next[swap],next[index]]; updateWidgets(next) }
       const device=devices.find(d=>d.id===widget.target || d.endpoint_descriptors?.some(endpoint=>endpoint.id===widget.target))
       const controls=editing?<div className="dashboard-widget-actions"><button className="icon-button" aria-label="Move widget up" onClick={()=>move(-1)}>↑</button><button className="icon-button" aria-label="Move widget down" onClick={()=>move(1)}>↓</button><button className="icon-button" aria-label="Remove widget" onClick={()=>updateWidgets(config.widgets.filter(item=>item.id!==widget.id))}>×</button></div>:null
+      if(widget.kind==='automation_trigger') {
+        const trigger=triggers.find(item=>item.script_id===widget.script_id && item.trigger_id===widget.trigger_id)
+        return <div className="dashboard-widget-shell" key={widget.id}>{controls}<article className="dashboard-widget"><h3>{trigger?.label ?? widget.label ?? widget.trigger_id ?? 'Automation trigger'}</h3><p className="muted small">{widget.script_id}</p><AutomationTrigger scriptId={widget.script_id ?? ''} triggerId={widget.trigger_id ?? ''} label={trigger?.label ?? widget.label ?? 'Run'} available={!!trigger} /></article></div>
+      }
       if(widget.kind==='gateway')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<GatewayWidget status={status} deviceCount={devices.length} restarting={restarting} thread={thread} resources={resources}/></div>
       if(widget.kind==='open_contacts')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<DeviceListWidget title="Open contact sensors" empty="No open contact sensors." devices={devices.filter(d=>d.has_contact&&!d.has_water_leak&&!d.contact_trigger_mode&&d.contact_known&&d.contact_open)}/></div>
       if(widget.kind==='present_sensors')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<DeviceListWidget title="Present presence sensors" empty="No present presence sensors." devices={devices.filter(d=>d.has_occupancy&&(d.kind==='presence'||d.kind==='occupancy')&&d.occupied)}/></div>

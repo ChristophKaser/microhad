@@ -11,7 +11,7 @@ return function(host)
 -- Trusted scheduler. Only the returned environment is exposed to author code.
 local co, unpack, pack = coroutine, table.unpack, table.pack
 local next, pairs, type, error, assert = next, pairs, type, error, assert
-local tasks, listeners, timers = {}, {}, {}
+local tasks, listeners, timers, registered = {}, {}, {}, {}
 local serial, last_minute = 0, table.concat(host.calendar(),':')
 local current, initializing, has_cron
 local env = {}
@@ -102,6 +102,17 @@ function events.on(f,fn)
   local h=handle();listeners[h]={filter=f,fn=fn};return h
 end
 function events.off(h) host.handle_id(h);local entry=listeners[h];if entry then listeners[h]=nil;host.watch(entry.filter.type,false)end end
+local triggers={}
+local function trigger_id(id)
+  strict(id,'string','trigger ID');assert(#id>0 and #id<=192,'invalid trigger ID');return id
+end
+function triggers.register(id,label,fn)
+  trigger_id(id);strict(label,'string','trigger label');strict(fn,'function','callback')
+  assert(#label>0 and #label<=256,'invalid trigger label')
+  assert(registered[id] or count(registered)<128,'trigger limit reached')
+  registered[id]={label=label,fn=fn}
+end
+function triggers.unregister(id) registered[trigger_id(id)]=nil end
 local automation={now=host.now,script_id=host.script_id}
 local function timer(seconds,fn,payload,repeating)
   duration(seconds);strict(fn,'function','callback');payload=host.serializable(payload)
@@ -178,7 +189,7 @@ for _,name in ipairs({'assert','error','ipairs','next','pairs','pcall','select',
 env._VERSION=_VERSION;env._G=env
 env.math=basis.math;env.string=basis.string;env.table=basis.table
 -- Native string operations do not consume VM ticks; the allocator caps memory.
-env.events=events;env.automation=automation
+env.events=events;env.automation=automation;env.triggers=triggers
 env.devices={get=function(target)local v,e=host.device_get(target);return v and immutable(v),e end,
   list=function(f)local values=host.device_list(f);for i,v in ipairs(values)do values[i]=immutable(v)end return values end,
   actor=function(target,on)strict(on,'boolean','on');return host.action('actor',target,{on=on})end,
@@ -205,9 +216,19 @@ end
 env.dump=function(value,label)return host.dump(unwrap(value,{}),label)end
 env.persistent=state_proxy('persistent',{});env.shared=state_proxy('shared',{})
 local runtime={env=env}
+function runtime.triggers()
+  local out={} for id,t in pairs(registered) do out[#out+1]={id=id,label=t.label} end
+  table.sort(out,function(a,b)return a.id<b.id end);return out
+end
+function runtime.trigger(id)
+  local t=registered[id]
+  if not t then return 'trigger unavailable' end
+  if not start(t.fn,{}) then return 'callback queue limit reached' end
+  return ''
+end
 function runtime.initialize(fn)
   initializing=true;local h=start(fn,{});resume(h,tasks[h]);initializing=false
-  if host.failed()then listeners={};timers={};tasks={};return false end
+  if host.failed()then listeners={};timers={};tasks={};registered={};return false end
   return true
 end
 function runtime.event(event)

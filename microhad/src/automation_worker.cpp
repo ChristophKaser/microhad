@@ -80,7 +80,7 @@ int failure(lua_State* L,const std::string& message){lua_pushnil(L);lua_pushlstr
 struct AutomationWorker::Impl {
     struct Script;
     typedef std::tr1::shared_ptr<const Value> RecordPtr;
-    struct Request {std::string operation,name,source,error;bool done,result;Request():done(false),result(false){}};
+    struct Request {std::string operation,name,source,error;unsigned long generation;bool done,result;Request():generation(0),done(false),result(false){}};
     struct Transaction {Value persistent,base;Transaction():persistent(Value::object()),base(Value::object()){} };
     struct Script {
         Impl* owner;std::string name,id,error,source,transaction;lua_State* L;int runtime;bool validation,failed,enabled;unsigned long generation,instructions,instructionLimit;double nextStatus;time_t loaded,validated,lastEvent,lastCallback;unsigned listeners,timers,suspended;std::map<std::string,unsigned> watched;std::map<std::string,Transaction> transactions;Value persistent,validationShared;std::string chain;unsigned depth;std::deque<Value> errors;
@@ -95,8 +95,8 @@ struct AutomationWorker::Impl {
         ~ScriptScope(){owner->active=previous;}
     };
     AutomationWorker* api;std::string root,dir;GatewayRunner* gateway;NotificationWorker* notifications;MatterWorker* matter;
-    mutable pthread_mutex_t mutex;pthread_cond_t ready;pthread_t thread;bool running,started,busy,testScanEveryTurn;std::deque<Request*> requests;std::deque<Automation::Event> events;std::map<std::string,Script*> scripts;Value shared;std::map<std::string,RecordPtr> statuses;std::deque<RecordPtr> logs;unsigned long nextLog,dropped;Automation::CatalogPtr catalogState;double testOffset;
-    Impl(AutomationWorker* a,const std::string& r,GatewayRunner* g,NotificationWorker* n):lua(0),factory(LUA_NOREF),heap(0),publishedHeap(0),active(0),api(a),root(r),dir(r+"/automations"),gateway(g),notifications(n),matter(0),running(false),started(false),busy(false),testScanEveryTurn(false),shared(Value::object()),nextLog(0),dropped(0),catalogState(new Automation::Catalog),testOffset(0){pthread_mutex_init(&mutex,0);pthread_cond_init(&ready,0);}
+    mutable pthread_mutex_t mutex;pthread_cond_t ready;pthread_t thread;bool running,started,busy,testScanEveryTurn;std::deque<Request*> requests;std::deque<Automation::Event> events;std::map<std::string,Script*> scripts;Value shared;std::map<std::string,RecordPtr> statuses;std::deque<RecordPtr> logs;unsigned long nextLog,dropped,nextGeneration;Automation::CatalogPtr catalogState;double testOffset;
+    Impl(AutomationWorker* a,const std::string& r,GatewayRunner* g,NotificationWorker* n):lua(0),factory(LUA_NOREF),heap(0),publishedHeap(0),active(0),api(a),root(r),dir(r+"/automations"),gateway(g),notifications(n),matter(0),running(false),started(false),busy(false),testScanEveryTurn(false),shared(Value::object()),nextLog(0),dropped(0),nextGeneration(0),catalogState(new Automation::Catalog),testOffset(0){pthread_mutex_init(&mutex,0);pthread_cond_init(&ready,0);}
     ~Impl(){pthread_cond_destroy(&ready);pthread_mutex_destroy(&mutex);}
     static Script* script(lua_State* L){return static_cast<Script*>(lua_touserdata(L,lua_upvalueindex(1)));}
     // One allocator and budget include libraries, scripts, validation and coroutines.
@@ -320,7 +320,7 @@ struct AutomationWorker::Impl {
     static int invoke(lua_State* L){Invocation* i=static_cast<Invocation*>(lua_touserdata(L,1));lua_rawgeti(L,LUA_REGISTRYINDEX,i->s->runtime);lua_getfield(L,-1,i->method);if(i->argument)push(L,*i->argument);lua_call(L,i->argument?1:0,i->results);return i->results;}
     bool call(Script* s,const char* method,const Value* argument=0){AUTOMATION_PROFILE("auto.runtime");ScriptScope scope(s);if(!s->L)return false;lua_State* L=s->L;int base=lua_gettop(L);Invocation i={s,method,argument,0};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&i);int rc=lua_pcall(L,1,0,0);if(rc!=LUA_OK){const char* msg=lua_tostring(L,-1);error(s,msg?msg:"runtime error",method);}lua_settop(L,base);return rc==LUA_OK;}
     bool initialize(Script* s,const std::string& source){ScriptScope scope(s);if(!create(s))return false;lua_State* L=s->L;lua_rawgeti(L,LUA_REGISTRYINDEX,s->runtime);lua_getfield(L,-1,"initialize");if(luaL_loadbufferx(L,source.data(),source.size(),("@"+s->name).c_str(),"t")!=LUA_OK){error(s,lua_tostring(L,-1),"syntax");lua_settop(L,0);return false;}lua_rawgeti(L,LUA_REGISTRYINDEX,s->runtime);lua_getfield(L,-1,"env");lua_remove(L,-2);lua_setupvalue(L,-2,1);bool ok=lua_pcall(L,1,1,0)==LUA_OK;if(!ok)error(s,lua_tostring(L,-1),"initialization");else ok=lua_toboolean(L,-1)!=0;lua_settop(L,0);return ok;}
-    void status(Script* s,bool force=true){ScriptScope scope(s);const double now=monotonic();if(!force&&now<s->nextStatus)return;s->nextStatus=now+0.1;AUTOMATION_PROFILE("auto.status");Value v=Value::object();if(s->L&&s->enabled){lua_State* L=s->L;Invocation invocation={s,"stats",0,3};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&invocation);if(lua_pcall(L,1,3,0)==LUA_OK){s->listeners=lua_tointeger(L,-3);s->timers=lua_tointeger(L,-2);s->suspended=lua_tointeger(L,-1);}lua_settop(L,0);}v.fields["filename"]=Value(s->name);v.fields["id"]=Value(s->id);v.fields["enabled"]=Value(s->enabled);v.fields["loaded"]=Value(s->L!=0);v.fields["generation"]=Value(static_cast<double>(s->generation));v.fields["loaded_at"]=Value(static_cast<double>(s->loaded));v.fields["validated_at"]=Value(static_cast<double>(s->validated));v.fields["last_event_at"]=Value(static_cast<double>(s->lastEvent));v.fields["last_callback_at"]=Value(static_cast<double>(s->lastCallback));v.fields["error"]=Value(s->error);v.fields["listeners"]=Value(static_cast<double>(s->listeners));v.fields["timers"]=Value(static_cast<double>(s->timers));v.fields["coroutines"]=Value(static_cast<double>(s->suspended));v.fields["heap_shared"]=Value(true);v.fields["heap_limit_bytes"]=Value(static_cast<double>(HeapLimit));v.fields["heap_bytes"]=Value(static_cast<double>(heap));RecordPtr published(new Value(v)),retired;pthread_mutex_lock(&mutex);publishedHeap=heap;retired.swap(statuses[s->id]);statuses[s->id]=published;pthread_mutex_unlock(&mutex);}
+    void status(Script* s,bool force=true){ScriptScope scope(s);const double now=monotonic();if(!force&&now<s->nextStatus)return;s->nextStatus=now+0.1;AUTOMATION_PROFILE("auto.status");Value v=Value::object();v.fields["triggers"]=Value::array();if(s->L&&s->enabled){lua_State* L=s->L;Invocation invocation={s,"stats",0,3};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&invocation);if(lua_pcall(L,1,3,0)==LUA_OK){s->listeners=lua_tointeger(L,-3);s->timers=lua_tointeger(L,-2);s->suspended=lua_tointeger(L,-1);}lua_settop(L,0);Invocation triggers={s,"triggers",0,1};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&triggers);if(lua_pcall(L,1,1,0)==LUA_OK){Value list;if(readValue(L,-1,&list,true)&&list.type==Value::Array)v.fields["triggers"]=list;}lua_settop(L,0);}v.fields["filename"]=Value(s->name);v.fields["id"]=Value(s->id);v.fields["enabled"]=Value(s->enabled);v.fields["loaded"]=Value(s->L!=0);v.fields["generation"]=Value(static_cast<double>(s->generation));v.fields["loaded_at"]=Value(static_cast<double>(s->loaded));v.fields["validated_at"]=Value(static_cast<double>(s->validated));v.fields["last_event_at"]=Value(static_cast<double>(s->lastEvent));v.fields["last_callback_at"]=Value(static_cast<double>(s->lastCallback));v.fields["error"]=Value(s->error);v.fields["listeners"]=Value(static_cast<double>(s->listeners));v.fields["timers"]=Value(static_cast<double>(s->timers));v.fields["coroutines"]=Value(static_cast<double>(s->suspended));v.fields["heap_shared"]=Value(true);v.fields["heap_limit_bytes"]=Value(static_cast<double>(HeapLimit));v.fields["heap_bytes"]=Value(static_cast<double>(heap));RecordPtr published(new Value(v)),retired;pthread_mutex_lock(&mutex);publishedHeap=heap;retired.swap(statuses[s->id]);statuses[s->id]=published;pthread_mutex_unlock(&mutex);}
     void catalog(){AUTOMATION_PROFILE("auto.catalog");if(gateway)catalogState=gateway->acquireAutomationCatalog();}
     void scan(const std::string& force=""){AUTOMATION_PROFILE("auto.scan");
         DIR* entries=opendir(dir.c_str());if(!entries)return;std::map<std::string,std::string> found;std::set<std::string> collisions;dirent* entry;
@@ -328,12 +328,23 @@ struct AutomationWorker::Impl {
         for(std::map<std::string,Script*>::iterator it=scripts.begin();it!=scripts.end();){if(!found.count(it->first)){if(gateway)gateway->automationGeneration(it->first,0);delete it->second;pthread_mutex_lock(&mutex);statuses.erase(it->first);pthread_mutex_unlock(&mutex);scripts.erase(it++);}else ++it;}
         for(std::map<std::string,std::string>::iterator it=found.begin();it!=found.end();++it){std::string source,err;bool readable=readSource(dir+"/"+it->second,&source,&err);Script* old=scripts.count(it->first)?scripts[it->first]:0;bool conflict=collisions.count(it->first)!=0;
             if(old&&old->name==it->second&&old->source==source&&force!="*"&&force!=it->first&&old->enabled==(!disabled(it->second)&&!conflict))continue;
-            unsigned long generation=old?old->generation+1:1;time_t validated=old?old->validated:0;if(gateway)gateway->automationGeneration(it->first,0);delete old;
+            // Never reuse a generation after deleting and recreating a script.
+            unsigned long generation=++nextGeneration;time_t validated=old?old->validated:0;if(gateway)gateway->automationGeneration(it->first,0);delete old;
             Script* s=new Script(this);s->name=it->second;s->id=it->first;s->generation=generation;s->validated=validated;s->source=source;s->enabled=!disabled(s->name)&&!conflict;s->loaded=time(0);scripts[s->id]=s;
             if(conflict)error(s,"both enabled and disabled source exist for this ID","load");else if(!readable)error(s,err,"load");else if(s->enabled){std::string state;if(regular(dir+"/state/"+s->id+".json")){if(!readSource(dir+"/state/"+s->id+".json",&state,&err,131072)||!Automation::parse(state,&s->persistent)||s->persistent.type!=Value::Object){error(s,"invalid persistent checkpoint; reset explicitly to recover","persistent");status(s);continue;}}if(gateway)gateway->automationGeneration(s->id,s->generation);if(!initialize(s,source)){if(gateway)gateway->automationGeneration(s->id,0);release(s);s->listeners=s->timers=s->suspended=0;}else record(s,"info","script loaded",Value::object(),"load");}status(s);
         }
     }
     void process(Request* r){r->result=true;if(r->operation=="validate"){Script candidate(this);candidate.name=r->name;candidate.id=stem(r->name);candidate.validation=true;candidate.validationShared=shared;std::map<std::string,Script*>::iterator live=scripts.find(candidate.id);if(live!=scripts.end())candidate.persistent=live->second->persistent;r->result=initialize(&candidate,r->source);r->error=candidate.error;if(r->result&&live!=scripts.end()){live->second->validated=time(0);status(live->second);}}
+        else if(r->operation=="trigger"){
+            std::map<std::string,Script*>::iterator it=scripts.find(r->name);
+            if(it==scripts.end()||!it->second->L||it->second->generation!=r->generation){r->result=false;r->error="trigger unavailable";return;}
+            Script* s=it->second;ScriptScope scope(s);lua_State* L=s->L;Value id(r->source);
+            Invocation invocation={s,"trigger",&id,1};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&invocation);
+            if(lua_pcall(L,1,1,0)!=LUA_OK)r->error="cannot schedule trigger";
+            else if(lua_isstring(L,-1))r->error=lua_tostring(L,-1);
+            else r->error="invalid trigger result";
+            lua_settop(L,0);r->result=r->error.empty();
+        }
         else if(r->operation=="refresh"){scan();}
         else if(r->operation=="advance"){testOffset+=strtod(r->source.c_str(),0);}
 #ifdef MICROHAD_TESTING
@@ -428,3 +439,13 @@ bool AutomationWorker::waitIdle(unsigned long ms)const{double until=monotonic()+
 void AutomationWorker::advanceTimeForTests(double seconds){Impl::Request r;r.operation="advance";std::ostringstream value;value<<seconds;r.source=value.str();impl_->request(&r);}
 void AutomationWorker::scanEveryTurnForTests(){Impl::Request r;r.operation="scan_each_turn";impl_->request(&r);}
 #endif
+
+bool AutomationWorker::trigger(const std::string& scriptId,const std::string& triggerId,std::string* err){
+    Impl::Request r;r.operation="trigger";r.name=scriptId;r.source=triggerId;
+    pthread_mutex_lock(&impl_->mutex);
+    std::map<std::string,Impl::RecordPtr>::const_iterator it=impl_->statuses.find(scriptId);
+    if(it!=impl_->statuses.end())r.generation=static_cast<unsigned long>(it->second->fields.find("generation")->second.number);
+    pthread_mutex_unlock(&impl_->mutex);
+    if(!r.generation){*err="trigger unavailable";return false;}
+    bool ok=impl_->request(&r);*err=r.error;return ok;
+}

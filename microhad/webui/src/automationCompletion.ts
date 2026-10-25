@@ -4,6 +4,8 @@ export interface Completion { stringStart?: number; delimiter?: string; caption:
 export interface Catalog { devices: Device[]; groups: SceneGroupSummary[] }
 type Spec = [signature: string, returns: string, description: string]
 export const gatewayApi: Record<string, Spec> = {
+  'triggers.register': ['id, label, callback', 'nil', 'Register or replace a manual trigger; dashboard placement survives unload and reload.'],
+  'triggers.unregister': ['id', 'nil', 'Remove a manual trigger handler; saved dashboard buttons remain.'],
   'events.on': ['filter, callback', 'handle', 'Subscribe to matching events; callback receives an immutable event.'],
   'events.off': ['handle', 'nil', 'Remove an event listener.'],
   'events.wait_for': ['filter, timeout', 'event | nil, error', 'Wait inside a callback; timeout is optional seconds.'],
@@ -33,9 +35,9 @@ export const snapshotFields = ['id', 'name', 'source', 'kind', 'online', 'last_s
 export const remoteActions = ['on', 'off', 'toggle', 'move-to-level', 'move', 'step', 'stop', 'arrow_left', 'arrow_right', 'arrow_left_hold', 'arrow_right_hold', 'arrow_left_release', 'arrow_right_release', 'matter_press', 'matter_hold', 'matter_release', 'matter_multi_press']
 const sources = ['zigbee', 'shelly', 'fritz_box', 'matter']
 const keywords = ['and','break','do','else','elseif','end','false','for','function','goto','if','in','local','nil','not','or','repeat','return','then','true','until','while']
-const namespaces = ['events', 'automation', 'devices', 'scenes', 'notify', 'persistent', 'shared', 'math', 'string', 'table']
+const namespaces = ['triggers', 'events', 'automation', 'devices', 'scenes', 'notify', 'persistent', 'shared', 'math', 'string', 'table']
 export const argumentTypes: Record<string, string> = {
-  filter: 'table (optional for devices.list)', callback: 'function', handle: 'handle', timeout: 'number? (seconds)', seconds: 'number (0 < seconds <= 63072000)', payload: 'JSON value?', expression: 'string (five cron fields)', target: 'string (ID or unique name)', field: 'string (thermostat field name)', on: 'boolean', state: 'table {on?: boolean, brightness?: integer 0–100}', group: 'string (ID or unique name)', scene: 'string (ID or unique name)', title: 'string', body: 'string', options: 'table? {device_id?: string, tag?: string}', level: 'string (debug/info/warn/error)', message: 'string', fields: 'JSON value?', value: 'any', label: 'string?',
+  id: 'string (stable trigger ID)', filter: 'table (optional for devices.list)', callback: 'function', handle: 'handle', timeout: 'number? (seconds)', seconds: 'number (0 < seconds <= 63072000)', payload: 'JSON value?', expression: 'string (five cron fields)', target: 'string (ID or unique name)', field: 'string (thermostat field name)', on: 'boolean', state: 'table {on?: boolean, brightness?: integer 0–100}', group: 'string (ID or unique name)', scene: 'string (ID or unique name)', title: 'string', body: 'string', options: 'table? {device_id?: string, tag?: string}', level: 'string (debug/info/warn/error)', message: 'string', fields: 'JSON value?', value: 'any', label: 'string?',
 }
 const globals = ['assert', 'error', 'ipairs', 'next', 'pairs', 'pcall', 'select', 'tonumber', 'tostring', 'type', 'xpcall', 'rawequal', '_VERSION', '_G']
 const standard: Record<string, string[]> = {

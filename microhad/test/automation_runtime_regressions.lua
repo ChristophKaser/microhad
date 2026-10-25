@@ -157,3 +157,27 @@ do
   assert(not pcall(function()first.env.math.abs=nil end))
   assert(second.env.math.abs(-3)==3)
 end
+
+-- Manual triggers use ordinary coroutine admission, with script-local identities.
+do
+  local runtime, advance, failures=fixture()
+  local other=fixture()
+  local fired=0
+  local t=runtime.env.triggers
+  assert(not pcall(t.register,'','Empty',function()end))
+  assert(not pcall(t.register,'id','',function()end))
+  assert(not pcall(t.register,'id','Label',false))
+  t.register('id','First',function()fired=100 end)
+  t.register('id','Second',function()runtime.env.automation.sleep(1);fired=fired+1 end)
+  assert(#runtime.triggers()==1 and runtime.triggers()[1].label=='Second')
+  assert(other.trigger('id')=='trigger unavailable')
+  assert(runtime.trigger('id')=='');runtime.tick();assert(fired==0)
+  advance(1);runtime.tick();assert(fired==1)
+  t.unregister('id');assert(#runtime.triggers()==0)
+  assert(runtime.trigger('id')=='trigger unavailable')
+  t.register('id','Error',function()error('trigger callback error')end)
+  assert(runtime.trigger('id')=='');runtime.tick();assert(failures()==1)
+  t.register('id','Queue',function()end)
+  for _=1,128 do assert(runtime.trigger('id')=='') end
+  assert(runtime.trigger('id')=='callback queue limit reached')
+end

@@ -236,6 +236,32 @@ void acceptedReportSources(){Fixture f;Gateway gateway("/dev/null",115200,f.root
     MatterEndpoint endpoint;endpoint.id="matter:0000000000000001:0000000000000002:0001";endpoint.node="0000000000000002";endpoint.endpoint=1;endpoint.servers.push_back(1026);endpoint.online=true;assert(gateway.reconcileMatterDevices(std::vector<MatterEndpoint>(1,endpoint),&error));MatterReading reading;reading.node=endpoint.node;reading.endpoint=1;reading.cluster=1026;reading.known=true;reading.numberValue=19;assert(gateway.applyMatterReading(reading,&error));assert(gateway.applyMatterReading(reading,&error));reports=gateway.takeAutomationReports();assert(reports.size()==2);assert(Automation::snapshot(reports[0].device).fields["source"].string=="matter");assert(reports[1].field=="temperature_celsius");
     MatterEndpoint remote=endpoint;remote.id="matter:0000000000000001:0000000000000002:0002";remote.endpoint=2;remote.servers.clear();remote.servers.push_back(59);assert(gateway.reconcileMatterDevices(std::vector<MatterEndpoint>(1,remote),&error));MatterButtonEvent press;press.node=remote.node;press.endpoint=remote.endpoint;press.event=0;press.position=1;press.pressCount=2;assert(gateway.applyMatterButtonEvent(press,&error));reports=gateway.takeAutomationReports();assert(reports.size()==1&&reports[0].remoteAction&&reports[0].action=="matter_press"&&reports[0].endpoint==2&&reports[0].position==1&&reports[0].pressCount==2);
 }
+void manualTriggers(){Fixture f;
+    const std::string source="triggers.register('run','Run action',function()automation.sleep(.01);persistent.presses=(persistent.presses or 0)+1 end)";
+    f.save(source);
+    assert(f.worker->listJson().find("Run action")!=std::string::npos);
+    assert(f.worker->validate("draft.lua","triggers.register('draft','Draft trigger',function()end)",&f.error));
+    assert(f.worker->listJson().find("Draft trigger")==std::string::npos);
+    assert(!f.worker->trigger("missing","run",&f.error));
+    assert(!f.worker->trigger("test","missing",&f.error));
+    assert(f.worker->trigger("test","run",&f.error));assert(f.until("presses",1));
+    assert(f.worker->setEnabled("test.lua",false,&f.error));
+    assert(!f.worker->trigger("test","run",&f.error));
+    assert(f.worker->listJson().find("Run action")==std::string::npos);
+    assert(f.worker->setEnabled("test.lua.disabled",true,&f.error));
+    assert(f.worker->trigger("test","run",&f.error));assert(f.until("presses",2));
+    assert(f.worker->reload("test.lua",&f.error));
+    assert(f.worker->trigger("test","run",&f.error));assert(f.until("presses",3));
+    f.worker->stop();assert(f.worker->start(&f.error));assert(f.worker->refresh(&f.error));
+    assert(f.worker->trigger("test","run",&f.error));assert(f.until("presses",4));
+    assert(f.worker->remove("test.lua",&f.error));assert(!f.worker->trigger("test","run",&f.error));
+    f.save(source);assert(f.worker->trigger("test","run",&f.error));assert(f.until("presses",5));
+    f.save("triggers.register('run','Run',function()persistent.canceled=1 end)");
+    // A suspended callback belongs to its loaded runtime and is canceled on reload.
+    f.save("triggers.register('run','Run',function()automation.sleep(60);persistent.canceled=1 end)");
+    assert(f.worker->trigger("test","run",&f.error));assert(f.worker->waitIdle());
+    f.save(source);f.worker->advanceTimeForTests(61);assert(!f.state().fields.count("canceled"));
+}
 void callbackBudgetAndQueues(){Fixture f;
     schedulerRegressions();
     f.worker->scanEveryTurnForTests();
@@ -260,4 +286,4 @@ void callbackBudgetAndQueues(){Fixture f;
     assert(rejected>0);assert(f.worker->waitIdle());usleep(100000);assert(f.worker->logsJson("test.lua").find("limit")!=std::string::npos);assert(f.state().fields["good"].number==1);
 }
 }
-void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();typedSnapshots();thermostatSnapshots();sharedLuaState();globalLuaMemoryLimit();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();callbackBudgetAndQueues();}
+void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();typedSnapshots();thermostatSnapshots();sharedLuaState();globalLuaMemoryLimit();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();manualTriggers();callbackBudgetAndQueues();}

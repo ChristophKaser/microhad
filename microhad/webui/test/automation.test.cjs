@@ -97,3 +97,78 @@ test('editor validates before saving, refreshes directory, protects edits and co
   await click('Reset persistent state'); await click('Delete'); assert.equal(scripts.length, 0); assert(!dirty)
   for (const dispose of cleanup) dispose?.()
 })
+
+
+test('trigger buttons persist through unavailability and recover, and presses guard pending requests', async () => {
+  const states = [], effects = []
+  let cursor = 0, poll, scripts = [], config, request, rejectPress
+  const hooks = {
+    useState(initial) { const at=cursor++; if (!(at in states)) states[at]=initial; return [states[at], value => { states[at]=value }] },
+    useRef(initial) { const at=cursor++; if (!(at in states)) states[at]={current:initial}; return states[at] },
+    useEffect(fn) { effects.push(fn) }, useMemo(fn) { return fn() },
+  }
+  const jsx=(type,props)=>({type,props})
+  const original=Module._load
+  Module._load=function(name,parent,main) {
+    if(name==='react')return hooks
+    if(name==='react/jsx-runtime')return {jsx,jsxs:jsx}
+    if(name==='chart.js')return {Chart:{register(){}}}
+    if(name==='./devices')return {DeviceGroups:()=>null}
+    if(name==='./useHistory')return {useHistory:()=>({samples:[],now:0})}
+    return original.call(this,name,parent,main)
+  }
+  const triggerPath=path.join(build,'AutomationTrigger.js')
+  delete require.cache[require.resolve(triggerPath)]
+  const {AutomationTrigger}=require(triggerPath)
+  const {Dashboard}=require(path.join(build,'Dashboard.js'))
+  Module._load=original
+  const walk=node=>Array.isArray(node)?node.flatMap(walk):node&&typeof node==='object'?[node,...walk(node.props?.children)]:[]
+  const flush=()=>new Promise(resolve=>setImmediate(resolve))
+  global.window={setInterval(fn){poll=fn;return 1},clearInterval(){}}
+  global.fetch=async(url,options)=>{
+    if(url==='/api/automations')return {ok:true,json:async()=>({scripts})}
+    request=[url,Object.fromEntries(new URLSearchParams(options.body))]
+    return new Promise((resolve,reject)=>{rejectPress=reject})
+  }
+  config={widgets:[{id:'saved',kind:'automation_trigger',target:'["office","go"]',script_id:'office',trigger_id:'go',label:'Saved label'}]}
+  const props={config,editing:true,devices:[],groups:[],onConfig:value=>{config=value}}
+  const render=()=>{cursor=0;effects.length=0;return Dashboard({...props,config})}
+  let tree=render();const dispose=effects[0]();await flush()
+  tree=render()
+  let button=walk(tree).find(node=>node.type===AutomationTrigger)
+  assert.equal(button.props.available,false)
+  assert.equal(button.props.label,'Saved label')
+  scripts=[{id:'office',enabled:true,loaded:true,triggers:[{id:'go',label:'Live label'}]}]
+  poll();await flush();tree=render()
+  button=walk(tree).find(node=>node.type===AutomationTrigger)
+  assert.equal(button.props.available,true);assert.equal(button.props.label,'Live label')
+  assert.equal(config.widgets.length,1)
+  walk(tree).find(node=>node.type==='select').props.onChange({target:{value:'automation_trigger'}})
+  tree=render()
+  const picker=walk(tree).filter(node=>node.type==='select')[1]
+  picker.props.onChange({target:{value:JSON.stringify(['office','go'])}})
+  tree=render()
+  walk(tree).find(node=>node.type==='button' && node.props.children==='Add widget').props.onClick()
+  assert.equal(config.widgets.length,2)
+  assert.equal(config.widgets[1].script_id,'office')
+  assert.equal(config.widgets[1].trigger_id,'go')
+  assert.equal(config.widgets[1].label,'Live label')
+  // Widget identity and fallback label survive serialization and a missing script.
+  config=JSON.parse(JSON.stringify(config));scripts=[];poll();await flush();tree=render()
+  assert.equal(walk(tree).find(node=>node.type===AutomationTrigger).props.available,false)
+  assert.equal(config.widgets[0].trigger_id,'go');dispose()
+  // Exercise the rendered button itself, including duplicate suppression and errors.
+  states.length=0;cursor=0
+  let trigger=AutomationTrigger({scriptId:'office',triggerId:'go',label:'Run',available:false})
+  assert.equal(walk(trigger).find(node=>node.type==='button').props.disabled,true)
+  cursor=0;trigger=AutomationTrigger({scriptId:'office',triggerId:'go',label:'Run'})
+  const press=walk(trigger).find(node=>node.type==='button').props.onClick
+  press();const first=request;press();assert.equal(request,first)
+  assert.deepEqual(request,['/api/automations/trigger',{script_id:'office',trigger_id:'go'}])
+  cursor=0;trigger=AutomationTrigger({scriptId:'office',triggerId:'go',label:'Run'})
+  assert.equal(walk(trigger).find(node=>node.type==='button').props.disabled,true)
+  rejectPress(new Error('trigger unavailable'));await flush()
+  cursor=0;trigger=AutomationTrigger({scriptId:'office',triggerId:'go',label:'Run'})
+  assert(walk(trigger).some(node=>node.props?.role==='alert' && node.props.children==='trigger unavailable'))
+  assert.equal(walk(trigger).find(node=>node.type==='button').props.disabled,false)
+})
