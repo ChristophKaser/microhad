@@ -29,9 +29,6 @@ const MAX_QUEUED_REPORT_VALUES: usize = 512;
 const SWITCH_EVENT_ATTRIBUTE: u32 = u32::MAX;
 const ICD_MANAGEMENT_CLUSTER: u32 = 0x0046;
 const MAX_ICD_CANDIDATES: usize = crate::icd::MAX_ICD_CLIENTS * MAX_ENDPOINTS;
-// Allow a short transport/scheduler delay after the publisher's negotiated
-// maximum interval before treating a healthy subscription as lost.
-const SUBSCRIPTION_REPORT_GRACE: Duration = Duration::from_secs(10);
 
 #[derive(Serialize)]
 pub struct Device {
@@ -1183,13 +1180,17 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 subscription.id = None;
             }
             self.sync_report_subscriptions();
+            let icd_endpoint = self.snapshots.iter().find(|snapshot| snapshot.node == key.node)
+                .and_then(|snapshot| snapshot.endpoints.iter()
+                    .find(|endpoint| endpoint.servers.contains(&ICD_MANAGEMENT_CLUSTER)))
+                .map(|endpoint| endpoint.id);
             let work: SubscriptionWork<'a> = if key.cluster == 59 && key.attribute == SWITCH_EVENT_ATTRIBUTE {
-                Box::pin(crate::subscriptions::establish_switch_events(
-                    self.matter, self.crypto, self.fabric, key.node, key.endpoint,
+                Box::pin(crate::subscriptions::establish_switch_events_for_device(
+                    self.matter, self.crypto, self.fabric, key.node, key.endpoint, icd_endpoint,
                     ))
             } else {
                 Box::pin(crate::subscriptions::establish_device_attribute_with_interval(
-                    self.matter, self.crypto, self.fabric, key.node, key.endpoint, key.cluster, key.attribute, max_interval,
+                    self.matter, self.crypto, self.fabric, key.node, key.endpoint, key.cluster, key.attribute, max_interval, icd_endpoint,
                         ),
                     )
                 };
@@ -1229,8 +1230,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                             subscription.failures = 0;
                             subscription.max_interval = established.established.max_int.max(1);
                             subscription.next_retry = now
-                                + Duration::from_secs(u64::from(subscription.max_interval))
-                                + SUBSCRIPTION_REPORT_GRACE;
+                                + crate::subscriptions::report_timeout(self.matter, subscription.max_interval);
                             subscription.unit = established.unit;
                             priming_report = Some(crate::subscriptions::ReceivedReport {
                                 fabric: self.fabric.get(),
@@ -1697,8 +1697,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         // that requires periodic re-subscription. Only re-establish after
         // reports actually stop arriving.
         subscription.next_retry = Instant::now()
-            + Duration::from_secs(u64::from(subscription.max_interval.max(1)))
-            + SUBSCRIPTION_REPORT_GRACE;
+            + crate::subscriptions::report_timeout(self.matter, subscription.max_interval);
         if subscription.key.cluster == 59 && subscription.key.attribute == SWITCH_EVENT_ATTRIBUTE {
             for button in report.buttons {
                 if button.node.0 != subscription.key.node || button.endpoint != subscription.key.endpoint { continue; }

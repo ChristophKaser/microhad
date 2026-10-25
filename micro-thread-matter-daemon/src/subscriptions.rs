@@ -3,6 +3,7 @@ use core::num::NonZeroU8;
 use std::{cell::RefCell, rc::Rc};
 use rs_matter::{
     crypto::Crypto,
+    dm::clusters::icd_mgmt::IcdManagementClient,
     error::{Error, ErrorCode},
     im::{
         client::{ImClient, SubscribeEstablished, SubscribeOutcome},
@@ -15,7 +16,47 @@ use rs_matter::{
 
 pub const MIN_REPORT_INTERVAL_SECONDS: u16 = 1;
 pub const MAX_REPORT_INTERVAL_SECONDS: u16 = 3600;
+
+/// ICD publishers must not be forced to wake to satisfy a nonzero floor.
+pub fn minimum_report_interval(is_icd: bool) -> u16 {
+    if is_icd { 0 } else { MIN_REPORT_INTERVAL_SECONDS }
+}
+
+/// matter.js PeerSubscription: negotiated maximum + twice the maximum
+/// response time. For incoming UDP reports that response time includes the
+/// local MRP retry ladder, 10s processing time and a 5s response buffer.
+pub fn report_timeout(matter: &Matter<'_>, max_interval: u16) -> std::time::Duration {
+    let config = matter.dev_det();
+    report_timeout_with_mrp(max_interval, config.sai.unwrap_or(300), config.sii.unwrap_or(500))
+}
+
+fn report_timeout_with_mrp(max_interval: u16, active_ms: u32, idle_ms: u32) -> std::time::Duration {
+    let retry_ms = rs_matter::transport::mrp::RetransEntry::retransmission_timeout_ms(
+        active_ms, idle_ms, 4000, false,
+    );
+    std::time::Duration::from_secs(u64::from(max_interval.max(1)))
+        + std::time::Duration::from_millis(2 * (retry_ms + 10_000 + 5_000))
+}
 pub const MAX_REPORT_VALUES: usize = 128;
+
+/// Match matter.js PhysicalDeviceProperties: ICDs use their idle duration,
+/// capped only by the uint16 wire limit, with no ceiling jitter.
+fn icd_maximum_interval(idle_seconds: u32) -> u16 {
+    idle_seconds.min(u32::from(u16::MAX)) as u16
+}
+
+async fn interval_bounds<C: Crypto>(
+    matter: &Matter<'_>, crypto: &C, fabric: NonZeroU8, node: u64,
+    icd_endpoint: Option<u16>, default_maximum: u16,
+) -> Result<(u16, u16), Error> {
+    if let Some(endpoint) = icd_endpoint {
+        let idle = Exchange::initiate(matter, crypto, fabric, node).await?
+            .icd_management().idle_mode_duration_read(endpoint).await?;
+        Ok((minimum_report_interval(true), icd_maximum_interval(idle)))
+    } else {
+        Ok((minimum_report_interval(false), default_maximum))
+    }
+}
 
 /// Shared with the report receiver so retired IDs are rejected before ACKing
 /// any chunk. Keys include the authenticated fabric and peer, not just the ID.
@@ -108,13 +149,16 @@ pub async fn establish_device_attribute<C: Crypto>(
     attribute: u32,
 ) -> Result<DeviceSubscription, Error> {
     establish_device_attribute_with_interval(matter, crypto, fabric, node, endpoint, cluster, attribute,
-        MAX_REPORT_INTERVAL_SECONDS).await
+        MAX_REPORT_INTERVAL_SECONDS, None).await
 }
 
 pub async fn establish_device_attribute_with_interval<C: Crypto>(
     matter: &Matter<'_>, crypto: &C, fabric: NonZeroU8, node: u64, endpoint: u16,
-    cluster: u32, attribute: u32, max_interval: u16,
+    cluster: u32, attribute: u32, max_interval: u16, icd_endpoint: Option<u16>,
 ) -> Result<DeviceSubscription, Error> {
+    let (min_interval, max_interval) = interval_bounds(
+        matter, crypto, fabric, node, icd_endpoint, max_interval,
+    ).await?;
     let unit = match cluster {
         1037 | 1066 => Some(
             crate::operations::read_measurement_unit(
@@ -135,7 +179,7 @@ pub async fn establish_device_attribute_with_interval<C: Crypto>(
         .subscribe_with(|builder| {
             builder
                 .keep_subs(true)?
-                .min_int_floor(MIN_REPORT_INTERVAL_SECONDS)?
+                .min_int_floor(min_interval)?
                 .max_int_ceil(max_interval)?
                 .attr_requests_from(core::slice::from_ref(&path))?
                 .fabric_filtered(true)?
@@ -165,11 +209,20 @@ pub async fn establish_device_attribute_with_interval<C: Crypto>(
 pub async fn establish_switch_events<C: Crypto>(
     matter: &Matter<'_>, crypto: &C, fabric: NonZeroU8, node: u64, endpoint: u16,
 ) -> Result<DeviceSubscription, Error> {
+    establish_switch_events_for_device(matter, crypto, fabric, node, endpoint, None).await
+}
+
+pub async fn establish_switch_events_for_device<C: Crypto>(
+    matter: &Matter<'_>, crypto: &C, fabric: NonZeroU8, node: u64, endpoint: u16, icd_endpoint: Option<u16>,
+) -> Result<DeviceSubscription, Error> {
+    let (min_interval, max_interval) = interval_bounds(
+        matter, crypto, fabric, node, icd_endpoint, MAX_REPORT_INTERVAL_SECONDS,
+    ).await?;
     let path = EventPath { endpoint: Some(endpoint), cluster: Some(59), event: None, ..EventPath::default() };
     let chunk = Exchange::initiate(matter, crypto, fabric, node).await?.subscribe_with(|builder| {
         builder.keep_subs(true)?
-            .min_int_floor(MIN_REPORT_INTERVAL_SECONDS)?
-            .max_int_ceil(MAX_REPORT_INTERVAL_SECONDS)?
+            .min_int_floor(min_interval)?
+            .max_int_ceil(max_interval)?
             .event_requests_from(core::slice::from_ref(&path))?
             .fabric_filtered(true)?
             .end()
@@ -318,5 +371,26 @@ mod tests {
         assert!(receiver.accepts(1, 2, 78));
         active.replace(1, core::iter::empty());
         assert!(!receiver.accepts(1, 2, 79));
+    }
+}
+
+#[cfg(test)]
+mod subscription_policy_tests {
+    use super::*;
+
+    #[test]
+    fn icd_floor_and_incoming_report_liveness() {
+        assert_eq!(minimum_report_interval(true), 0);
+        assert_eq!(minimum_report_interval(false), 1);
+        assert_eq!(icd_maximum_interval(120), 120);
+        assert_eq!(icd_maximum_interval(7200), 7200);
+        assert_eq!(icd_maximum_interval(u32::MAX), u16::MAX);
+        let timeout = report_timeout_with_mrp(120, 300, 500);
+        // Allow both response windows, not just a fixed ten-second grace.
+        assert!(timeout > std::time::Duration::from_secs(150));
+        assert!(timeout < std::time::Duration::from_secs(170));
+        assert!(report_timeout_with_mrp(120, 1000, 5000) > timeout);
+        assert_eq!(report_timeout_with_mrp(3600, 300, 500) - timeout,
+                   std::time::Duration::from_secs(3480));
     }
 }
