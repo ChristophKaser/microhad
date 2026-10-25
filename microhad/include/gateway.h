@@ -2,7 +2,7 @@
 #define MICROHAD_ZIGBEE_GATEWAY_H
 
 #include <map>
-#include "thermostat.h"
+#include "device_components.h"
 #include <string>
 #include <vector>
 #include <deque>
@@ -17,16 +17,6 @@
 class ZigguratClient;
 class NotificationWorker;
 class ExternalHttpDeviceWorker;
-
-struct EndpointDescriptor {
-    unsigned char endpoint;
-    unsigned short profileId;
-    unsigned short deviceId;
-    unsigned char deviceVersion;
-    std::vector<unsigned short> inputClusters;
-    std::vector<unsigned short> outputClusters;
-    EndpointDescriptor();
-};
 
 struct MatterEndpoint {
     std::string id;
@@ -80,88 +70,40 @@ struct DeviceValueAlert {
 };
 
 struct Device {
-    TemperatureObservation temperatureObservation;
-    ThermostatState thermostat;
-    std::string source;
-    std::string externalId;
-    std::string component;
-    std::string ieeeAddress;
-    unsigned short networkAddress;
-    std::string name;
-    std::string kind;
-    bool contactOpen;
-    bool hasContact;
-    bool contactKnown;
-    bool hasWaterLeak;
-    bool waterLeakKnown;
-    bool waterDetected;
-    bool hasTemperature;
-    bool temperatureKnown;
-    double temperatureCelsius;
-    bool hasHumidity;
-    bool humidityKnown;
-    double humidityPercent;
-    bool hasAirQuality;
-    bool airQualityKnown;
-    std::string airQuality;
-    bool hasCo2;
-    bool co2Known;
-    double co2Ppm;
-    std::string co2Unit;
-    bool hasPm25;
-    bool pm25Known;
-    double pm25MicrogramsM3;
-    std::string pm25Unit;
-    bool hasOccupancy;
-    bool occupied;
-    bool hasBattery;
-    int batteryPercent;
-    bool hasLight;
-    bool lightOn;
-    bool lightKnown;
-    bool hasBrightness;
-    int brightnessPercent;
-    bool brightnessKnown;
-    bool hasRemote;
-    bool hasActor;
-    bool actorKnown;
-    bool actorOn;
-    bool hasPower;
-    bool powerKnown;
-    double powerWatts;
-    int linkQuality;
-    int matterRssiDbm; /* 1 means unavailable; valid direct Thread RSSI is -128..0 */
-    bool hasWifiSignal;
-    int wifiSignalPercent;
-    long lastSeen;
-    int iasZoneId;
-    bool hasLowTemperatureAlert;
-    bool hasHighTemperatureAlert;
-    double lowTemperatureAlert;
-    double highTemperatureAlert;
-    unsigned long contactInitialAlertMinutes;
-    unsigned long contactReminderAlertMinutes;
-    bool contactTriggerMode;
-    unsigned long contactTriggerCooldownSeconds;
-    long contactTriggerUntil; /* transient status snapshot only; never persisted */
-    unsigned long sensorRefreshIntervalMinutes;
-    std::map<std::string, DeviceValueAlert> valueAlerts;
-    std::string manufacturerName;
-    std::string modelId;
-    std::string softwareBuildId; /* read during interview; persisted for remote binding compatibility */
-    bool initialInterviewComplete;
-    std::string configuredSignature; /* last successfully applied reporting/binding configuration */
-    std::vector<EndpointDescriptor> endpoints;
-    std::string matterState;
-    std::string matterMetadataState;
-    std::string matterNode;
-    int matterEndpoint;
+    ClonePtr<TemperatureState> temperature;
+    ClonePtr<HumidityState> humidity;
+    ClonePtr<ContactState> contact;
+    ClonePtr<WaterLeakState> waterLeak;
+    ClonePtr<AirQualityState> airQuality;
+    ClonePtr<Co2State> co2;
+    ClonePtr<Pm25State> pm25;
+    ClonePtr<OccupancyState> occupancy;
+    ClonePtr<BatteryState> battery;
+    ClonePtr<LightState> light;
+    ClonePtr<BrightnessState> brightness;
+    ClonePtr<RemoteState> remote;
+    ClonePtr<ActorState> actor;
+    ClonePtr<PowerState> power;
+    ClonePtr<WifiSignalState> wifiSignal;
+    ClonePtr<ThermostatState> thermostat;
+    ClonePtr<ZigbeeDeviceState> zigbee;
+    ClonePtr<MatterDeviceState> matter;
+    ClonePtr<ExternalDeviceState> external;
+    std::string source,ieeeAddress,name,kind;
+    std::string manufacturerName,modelId,softwareBuildId;
     bool online;
-    std::vector<unsigned int> matterServers;
-    std::vector<unsigned int> matterClients;
-    std::vector<unsigned int> matterDeviceTypes;
-    std::vector<unsigned char> nodeDescriptor; /* raw 13-byte Zigbee Node Descriptor body */
+    long lastSeen;
+    // User configuration survives capability discovery and temporary removal.
+    bool hasLowTemperatureAlert,hasHighTemperatureAlert;
+    double lowTemperatureAlert,highTemperatureAlert;
+    unsigned long contactInitialAlertMinutes,contactReminderAlertMinutes;
+    bool contactTriggerMode;
+    unsigned long contactTriggerCooldownSeconds,sensorRefreshIntervalMinutes;
+    std::map<std::string,DeviceValueAlert> valueAlerts;
+    std::string thermostatSourceId;
+    unsigned long thermostatStaleMinutes;
     Device();
+    void normalizeComponents();
 };
 
 /* Scene data is controller configuration.  The IDs are also the Zigbee Group

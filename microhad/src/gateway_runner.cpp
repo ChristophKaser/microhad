@@ -230,7 +230,7 @@ void GatewayRunner::executeAutomation(const Automation::Action& a) {
             ok=matter&&matter->submit(11,request,&job,&error);
             if(!ok) {
                 if(error.empty())error="Matter worker unavailable";
-                gateway_->thermostatResult(device->second.matterNode,static_cast<unsigned short>(device->second.matterEndpoint),field,error);
+                gateway_->thermostatResult(device->second.matter.read().node,static_cast<unsigned short>(device->second.matter.read().endpoint),field,error);
             }
         }
     }else if(a.operation=="refresh")ok=gateway_->refreshDevice(a.target,&error);
@@ -302,7 +302,7 @@ void GatewayRunner::publishAutomation(bool force) {
         const Device& live=*inspect[index];const std::string& id=live.ieeeAddress;
         std::map<std::string,Snapshot>::iterator old=automationSnapshots_.find(id);
         Snapshot previous=old==automationSnapshots_.end()?Snapshot():old->second;
-        Device* record=new Device(live);record->contactTriggerUntil=gateway_->contactTriggerUntilForView(id);
+        Device* record=new Device(live);if(record->contact.present())record->contact.ensure().triggerUntil=gateway_->contactTriggerUntilForView(id);
         Automation::DevicePtr immutable(record);
         Snapshot current=Automation::capture(*record,previous,immutable);
         std::map<std::string,Snapshot>::const_iterator published=automationCatalog_->devices.find(id);
@@ -628,7 +628,7 @@ bool GatewayRunner::readHistoryJson(const std::string& address, uint64_t before,
             for (unsigned long index=0;index<devices.size();++index) {
                 const Device& device=devices[index];
                 if (device.source=="matter" && device.ieeeAddress.substr(0,40)==address &&
-                    device.matterEndpoint>=0 &&
+                    device.matter.read().endpoint>=0 &&
                     std::find(historyIds.begin(), historyIds.end(), device.ieeeAddress)==historyIds.end())
                     historyIds.push_back(device.ieeeAddress);
             }

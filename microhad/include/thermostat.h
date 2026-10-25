@@ -26,6 +26,7 @@ struct ThermostatValues {
     ThermostatValues() { for(unsigned i=0;i<ThermostatField::Count;++i) numbers[i]=0; }
     bool count(ThermostatField::Id id) const { return id<ThermostatField::Count && present[id]; }
     double get(ThermostatField::Id id,double fallback) const { return count(id)?numbers[id]:fallback; }
+    double operator[](ThermostatField::Id id) const { return get(id,0); }
     double& operator[](ThermostatField::Id id) { present.set(id); return numbers[id]; }
     void erase(ThermostatField::Id id) { if(id<ThermostatField::Count) present.reset(id); }
     bool operator==(const ThermostatValues& other) const {
@@ -66,14 +67,12 @@ struct ThermostatState {
     bool commandsKnown;
     bool scheduleSupported;
     ThermostatPending pending;
-    std::string sourceId;
-    unsigned long staleMinutes;
     std::string status;
     std::string error;
     long sourceObservedAt;
     long lastForwardAt;
     double lastForwardValue;
-    ThermostatState() : attributesKnown(false), commandsKnown(false), scheduleSupported(false), staleMinutes(90), sourceObservedAt(0), lastForwardAt(0), lastForwardValue(-1) {}
+    ThermostatState() : attributesKnown(false), commandsKnown(false), scheduleSupported(false), sourceObservedAt(0), lastForwardAt(0), lastForwardValue(-1) {}
 };
 struct ThermostatAttribute {
     const char* name;
@@ -92,6 +91,7 @@ const ThermostatAttribute* thermostatAttributes(unsigned long* count);
 const ThermostatAttribute* thermostatAttribute(const std::string& name);
 const ThermostatAttribute* thermostatAttribute(ThermostatField::Id id);
 bool isThermostat(const Device& device);
+bool thermostatProfile(const Device& device);
 double thermostatValue(const Device& device, ThermostatField::Id id, double fallback);
 ThermostatAttribute thermostatDefinition(const Device& device, const ThermostatAttribute& base);
 bool thermostatModeSupported(const Device& device, int mode);

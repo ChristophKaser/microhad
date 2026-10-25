@@ -179,7 +179,7 @@ struct AutomationWorker::Impl {
             if(field=="temperature_source"&&value!="builtin"&&value!="manual") {
                 std::map<std::string,Automation::SnapshotPtr>::const_iterator source=s->owner->catalogState->devices.find(value);
                 if(source==s->owner->catalogState->devices.end()||!source->second->record ||
-                   source->first==d->metadata->id||!source->second->record->hasTemperature||isThermostat(*source->second->record)||
+                   source->first==d->metadata->id||!source->second->record->temperature.present()||isThermostat(*source->second->record)||
                    (source->second->metadata->source=="matter"&&source->second->metadata->matterEndpoint<0))
                     return failure(L,"select a measured temperature sensor endpoint");
             }

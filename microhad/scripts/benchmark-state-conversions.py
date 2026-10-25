@@ -37,6 +37,12 @@ def main():
                    'history': ['sensor_history.cpp', 'gateway.cpp', 'storage.cpp', 'json_util.cpp', 'protobuf_value.cpp'],
                    'logs': ['syslog_log_reader.cpp', 'json_util.cpp']}[args.benchmark]
         driver = {'state': 'benchmark_state_conversions.cpp', 'history': 'benchmark_history_conversions.cpp', 'logs': 'benchmark_log_polling.cpp'}[args.benchmark]
+        driver_path = ROOT/'microhad/test'/driver
+        if args.revision:
+            historical = subprocess.run(['git', '-C', str(ROOT), 'show', args.revision+':microhad/test/'+driver], capture_output=True)
+            if historical.returncode == 0:
+                driver_path = tmp/driver
+                driver_path.write_bytes(historical.stdout)
         objects = []
         flags = ['-DMICROHAD_TESTING']
         if 'struct ThermostatValues' in (source_root/'microhad/include/thermostat.h').read_text():
@@ -51,7 +57,7 @@ def main():
                 subprocess.run([settings()['HOST_CC'], '-O2', '-DPB_C99_STATIC_ASSERT', '-ffunction-sections', '-fdata-sections', '-I'+str(ROOT/'third-party/nanopb'), '-c', str(source), '-o', str(obj)], check=True)
                 objects.append(str(obj))
         subprocess.run([settings()['HOST_CXX'], '-std=gnu++03', '-O2', '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections',
-                        *flags, '-I'+str(source_root/'microhad/include'), '-I'+str(ROOT/'microhad/test'), '-I'+str(ROOT/'third-party/nanopb'), str(ROOT/'microhad/test'/driver),
+                        *flags, '-I'+str(source_root/'microhad/include'), '-I'+str(ROOT/'microhad/test'), '-I'+str(ROOT/'third-party/nanopb'), str(driver_path),
                         *[str(source_root/'microhad/src'/name) for name in sources], *objects, '-lpthread', '-o', str(binary)], check=True)
         samples = {}
         for _ in range(5):

@@ -312,34 +312,34 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
         const Device& device = devices[i];
         output << "    {\"ieee_address\":\"" << jsonEscape(device.ieeeAddress)
                << "\",\"source\":\"" << jsonEscape(device.source)
-               << "\",\"external_id\":\"" << jsonEscape(device.externalId)
-               << "\",\"component\":\"" << jsonEscape(device.component)
-               << "\",\"network_address\":" << device.networkAddress << ",\"name\":\"" << jsonEscape(device.name) << "\",\"kind\":\""
-               << jsonEscape(device.kind) << "\",\"contact_open\":" << (device.contactOpen ? "true" : "false")
-               << ",\"has_contact\":" << (device.hasContact ? "true" : "false")
-               << ",\"contact_known\":" << (device.contactKnown ? "true" : "false")
-               << ",\"has_water_leak\":" << (device.hasWaterLeak ? "true" : "false")
-               << ",\"water_leak_known\":" << (device.waterLeakKnown ? "true" : "false")
-               << ",\"water_detected\":" << (device.waterDetected ? "true" : "false")
-               << ",\"temperature_celsius\":" << device.temperatureCelsius << ",\"has_temperature\":"
-               << (device.hasTemperature ? "true" : "false") << ",\"humidity_percent\":" << device.humidityPercent
-               << ",\"temperature_known\":" << (device.temperatureKnown ? "true" : "false")
-               << ",\"has_humidity\":" << (device.hasHumidity ? "true" : "false") << ",\"occupied\":"
-               << (device.occupied ? "true" : "false") << ",\"has_occupancy\":"
-               << (device.hasOccupancy ? "true" : "false") << ",\"battery_percent\":" << device.batteryPercent
-               << ",\"has_battery\":" << (device.hasBattery ? "true" : "false") << ",\"link_quality\":"
-               << device.linkQuality << ",\"has_wifi_signal\":" << (device.hasWifiSignal ? "true" : "false")
-               << ",\"wifi_signal_percent\":" << device.wifiSignalPercent << ",\"last_seen\":" << device.lastSeen << ",\"ias_zone_id\":" << device.iasZoneId
-               << ",\"has_light\":" << (device.hasLight ? "true" : "false") << ",\"light_on\":"
-               << (device.lightOn ? "true" : "false") << ",\"has_brightness\":"
-               << (device.hasBrightness ? "true" : "false") << ",\"brightness_percent\":" << device.brightnessPercent
-               << ",\"has_remote\":" << (device.hasRemote ? "true" : "false")
-               << ",\"has_actor\":" << (device.hasActor ? "true" : "false")
-               << ",\"actor_known\":" << (device.actorKnown ? "true" : "false")
-               << ",\"actor_on\":" << (device.actorOn ? "true" : "false")
-               << ",\"has_power\":" << (device.hasPower ? "true" : "false")
-               << ",\"power_known\":" << (device.powerKnown ? "true" : "false")
-               << ",\"power_watts\":" << device.powerWatts
+               << "\",\"external_id\":\"" << jsonEscape(device.external.read().externalId)
+               << "\",\"component\":\"" << jsonEscape(device.external.read().component)
+               << "\",\"network_address\":" << device.zigbee.read().networkAddress << ",\"name\":\"" << jsonEscape(device.name) << "\",\"kind\":\""
+               << jsonEscape(device.kind) << "\",\"contact_open\":" << (device.contact.read().open ? "true" : "false")
+               << ",\"has_contact\":" << (device.contact.present() ? "true" : "false")
+               << ",\"contact_known\":" << (device.contact.read().known ? "true" : "false")
+               << ",\"has_water_leak\":" << (device.waterLeak.present() ? "true" : "false")
+               << ",\"water_leak_known\":" << (device.waterLeak.read().known ? "true" : "false")
+               << ",\"water_detected\":" << (device.waterLeak.read().detected ? "true" : "false")
+               << ",\"temperature_celsius\":" << device.temperature.read().celsius << ",\"has_temperature\":"
+               << (device.temperature.present() ? "true" : "false") << ",\"humidity_percent\":" << device.humidity.read().percent
+               << ",\"temperature_known\":" << (device.temperature.read().known ? "true" : "false")
+               << ",\"has_humidity\":" << (device.humidity.present() ? "true" : "false") << ",\"occupied\":"
+               << (device.occupancy.read().occupied ? "true" : "false") << ",\"has_occupancy\":"
+               << (device.occupancy.present() ? "true" : "false") << ",\"battery_percent\":" << device.battery.read().percent
+               << ",\"has_battery\":" << (device.battery.present() ? "true" : "false") << ",\"link_quality\":"
+               << device.zigbee.read().linkQuality << ",\"has_wifi_signal\":" << (device.wifiSignal.present() ? "true" : "false")
+               << ",\"wifi_signal_percent\":" << device.wifiSignal.read().percent << ",\"last_seen\":" << device.lastSeen << ",\"ias_zone_id\":" << device.zigbee.read().iasZoneId
+               << ",\"has_light\":" << (device.light.present() ? "true" : "false") << ",\"light_on\":"
+               << (device.light.read().on ? "true" : "false") << ",\"has_brightness\":"
+               << (device.brightness.present() ? "true" : "false") << ",\"brightness_percent\":" << device.brightness.read().percent
+               << ",\"has_remote\":" << (device.remote.present() ? "true" : "false")
+               << ",\"has_actor\":" << (device.actor.present() ? "true" : "false")
+               << ",\"actor_known\":" << (device.actor.read().known ? "true" : "false")
+               << ",\"actor_on\":" << (device.actor.read().on ? "true" : "false")
+               << ",\"has_power\":" << (device.power.present() ? "true" : "false")
+               << ",\"power_known\":" << (device.power.read().known ? "true" : "false")
+               << ",\"power_watts\":" << device.power.read().watts
                << ",\"has_low_temperature_alert\":"
                << (device.hasLowTemperatureAlert ? "true" : "false") << ",\"low_temperature_alert\":"
                << device.lowTemperatureAlert << ",\"has_high_temperature_alert\":"
@@ -350,21 +350,21 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                << (device.contactTriggerMode ? "true" : "false") << ",\"contact_trigger_cooldown_seconds\":"
                << device.contactTriggerCooldownSeconds << ",\"sensor_refresh_interval_minutes\":"
                << device.sensorRefreshIntervalMinutes
-               << ",\"thermostat_source_id\":\"" << jsonEscape(device.thermostat.sourceId) << "\""
-               << ",\"thermostat_stale_minutes\":" << device.thermostat.staleMinutes
-               << ",\"humidity_known\":" << (device.humidityKnown ? "true" : "false")
-               << ",\"has_air_quality\":" << (device.hasAirQuality ? "true" : "false")
-               << ",\"air_quality_known\":" << (device.airQualityKnown ? "true" : "false")
-               << ",\"air_quality\":\"" << jsonEscape(device.airQuality)
-               << "\",\"has_co2\":" << (device.hasCo2 ? "true" : "false")
-               << ",\"co2_known\":" << (device.co2Known ? "true" : "false")
-               << ",\"co2_ppm\":" << device.co2Ppm << ",\"co2_unit\":\"" << jsonEscape(device.co2Unit)
-               << "\",\"has_pm25\":" << (device.hasPm25 ? "true" : "false")
-               << ",\"pm25_known\":" << (device.pm25Known ? "true" : "false")
-               << ",\"pm25_micrograms_m3\":" << device.pm25MicrogramsM3
-               << ",\"pm25_unit\":\"" << jsonEscape(device.pm25Unit)
-               << "\",\"light_known\":" << (device.lightKnown ? "true" : "false")
-               << ",\"brightness_known\":" << (device.brightnessKnown ? "true" : "false");
+               << ",\"thermostat_source_id\":\"" << jsonEscape(device.thermostatSourceId) << "\""
+               << ",\"thermostat_stale_minutes\":" << device.thermostatStaleMinutes
+               << ",\"humidity_known\":" << (device.humidity.read().known ? "true" : "false")
+               << ",\"has_air_quality\":" << (device.airQuality.present() ? "true" : "false")
+               << ",\"air_quality_known\":" << (device.airQuality.read().known ? "true" : "false")
+               << ",\"air_quality\":\"" << jsonEscape(device.airQuality.read().value)
+               << "\",\"has_co2\":" << (device.co2.present() ? "true" : "false")
+               << ",\"co2_known\":" << (device.co2.read().known ? "true" : "false")
+               << ",\"co2_ppm\":" << device.co2.read().ppm << ",\"co2_unit\":\"" << jsonEscape(device.co2.read().unit)
+               << "\",\"has_pm25\":" << (device.pm25.present() ? "true" : "false")
+               << ",\"pm25_known\":" << (device.pm25.read().known ? "true" : "false")
+               << ",\"pm25_micrograms_m3\":" << device.pm25.read().microgramsM3
+               << ",\"pm25_unit\":\"" << jsonEscape(device.pm25.read().unit)
+               << "\",\"light_known\":" << (device.light.read().known ? "true" : "false")
+               << ",\"brightness_known\":" << (device.brightness.read().known ? "true" : "false");
         for (std::map<std::string, DeviceValueAlert>::const_iterator alert = device.valueAlerts.begin(); alert != device.valueAlerts.end(); ++alert) {
             output << ",\"alert_" << alert->first << "_has_low\":" << (alert->second.hasLow ? "true" : "false")
                    << ",\"alert_" << alert->first << "_low\":" << alert->second.low
@@ -373,21 +373,21 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                    << ",\"alert_" << alert->first << "_hysteresis\":" << alert->second.hysteresis
                    << ",\"alert_" << alert->first << "_unit\":\"" << jsonEscape(alert->second.unit) << '"';
         }
-        output << ",\"initial_interview_complete\":" << (device.initialInterviewComplete ? "true" : "false");
+        output << ",\"initial_interview_complete\":" << (device.zigbee.read().initialInterviewComplete ? "true" : "false");
         output << ",\"manufacturer_name\":\""
                << jsonEscape(device.manufacturerName) << "\",\"model_id\":\"" << jsonEscape(device.modelId)
                << "\",\"software_build_id\":\"" << jsonEscape(device.softwareBuildId)
-               << "\",\"configured_signature\":\"" << jsonEscape(device.configuredSignature)
-               << "\",\"endpoint_descriptors\":\"" << encodeEndpointDescriptors(device.endpoints)
-               << "\",\"node_descriptor\":\"" << hexEncode(device.nodeDescriptor) << '"';
+               << "\",\"configured_signature\":\"" << jsonEscape(device.zigbee.read().configuredSignature)
+               << "\",\"endpoint_descriptors\":\"" << encodeEndpointDescriptors(device.zigbee.read().endpoints)
+               << "\",\"node_descriptor\":\"" << hexEncode(device.zigbee.read().nodeDescriptor) << '"';
         if (device.source == "matter") {
-            output << ",\"matter_state\":\"" << jsonEscape(device.matterState)
-                   << "\",\"matter_metadata_state\":\"" << jsonEscape(device.matterMetadataState) << '"'
-                   << ",\"matter_node\":\"" << jsonEscape(device.matterNode)
-                   << "\",\"matter_endpoint\":" << device.matterEndpoint
-                   << ",\"matter_servers\":\"" << encodeMatterServers(device.matterServers)
-                   << "\",\"matter_clients\":\"" << encodeMatterServers(device.matterClients)
-                   << "\",\"matter_device_types\":\"" << encodeMatterServers(device.matterDeviceTypes) << '"';
+            output << ",\"matter_state\":\"" << jsonEscape(device.matter.read().state)
+                   << "\",\"matter_metadata_state\":\"" << jsonEscape(device.matter.read().metadataState) << '"'
+                   << ",\"matter_node\":\"" << jsonEscape(device.matter.read().node)
+                   << "\",\"matter_endpoint\":" << device.matter.read().endpoint
+                   << ",\"matter_servers\":\"" << encodeMatterServers(device.matter.read().servers)
+                   << "\",\"matter_clients\":\"" << encodeMatterServers(device.matter.read().clients)
+                   << "\",\"matter_device_types\":\"" << encodeMatterServers(device.matter.read().deviceTypes) << '"';
         }
         output << '}';
         output << (i + 1 == devices.size() ? "\n" : ",\n");
@@ -444,7 +444,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             bool duplicate = false;
             for (unsigned long previous = 0; previous < parsedDevices.size(); ++previous) {
                 if (parsedDevices[previous].ieeeAddress == ieeeAddress ||
-                    (networkAddress != 0xffff && parsedDevices[previous].networkAddress == networkAddress)) {
+                    (networkAddress != 0xffff && parsedDevices[previous].zigbee.read().networkAddress == networkAddress)) {
                     duplicate = true;
                     break;
                 }
@@ -455,78 +455,78 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             jsonStringField(line, "source", &device.source);
             if (device.source != "zigbee" && device.source != "shelly" && device.source != "fritz_box" &&
                 device.source != "matter") continue;
-            jsonStringField(line, "external_id", &device.externalId);
-            jsonStringField(line, "component", &device.component);
-            if (addressValue != 0) device.networkAddress = static_cast<unsigned short>(networkAddress);
+            jsonStringField(line, "external_id", &device.external.ensure().externalId);
+            jsonStringField(line, "component", &device.external.ensure().component);
+            if (addressValue != 0) device.zigbee.ensure().networkAddress = static_cast<unsigned short>(networkAddress);
             const char* fields[] = {"name", "kind", "manufacturer_name", "model_id", "software_build_id"};
             std::string* destinations[] = {&device.name, &device.kind, &device.manufacturerName, &device.modelId, &device.softwareBuildId};
             int index;
             for (index = 0; index < 5; ++index) {
                 jsonStringField(line, fields[index], destinations[index]);
             }
-            jsonStringField(line, "configured_signature", &device.configuredSignature);
-            jsonStringField(line, "thermostat_source_id", &device.thermostat.sourceId);
+            jsonStringField(line, "configured_signature", &device.zigbee.ensure().configuredSignature);
+            jsonStringField(line, "thermostat_source_id", &device.thermostatSourceId);
             long staleMinutes = 90;
             if (jsonLongField(line, "thermostat_stale_minutes", &staleMinutes) && staleMinutes >= 5 && staleMinutes <= 1440)
-                device.thermostat.staleMinutes = static_cast<unsigned long>(staleMinutes);
-            device.contactOpen = line.find("\"contact_open\":true") != std::string::npos;
-            device.hasContact = line.find("\"has_contact\":true") != std::string::npos;
-            device.contactKnown = line.find("\"contact_known\":true") != std::string::npos;
-            device.hasWaterLeak = line.find("\"has_water_leak\":true") != std::string::npos;
-            device.waterLeakKnown = line.find("\"water_leak_known\":true") != std::string::npos;
-            device.waterDetected = line.find("\"water_detected\":true") != std::string::npos;
-            device.hasTemperature = line.find("\"has_temperature\":true") != std::string::npos;
-            device.temperatureKnown = line.find("\"temperature_known\":true") != std::string::npos;
-            device.hasHumidity = line.find("\"has_humidity\":true") != std::string::npos;
-            device.humidityKnown = line.find("\"humidity_known\":true") != std::string::npos;
-            device.hasAirQuality = line.find("\"has_air_quality\":true") != std::string::npos;
-            device.airQualityKnown = line.find("\"air_quality_known\":true") != std::string::npos;
-            device.hasCo2 = line.find("\"has_co2\":true") != std::string::npos;
-            device.co2Known = line.find("\"co2_known\":true") != std::string::npos;
-            device.hasPm25 = line.find("\"has_pm25\":true") != std::string::npos;
-            device.pm25Known = line.find("\"pm25_known\":true") != std::string::npos;
-            device.lightKnown = line.find("\"light_known\":true") != std::string::npos;
-            device.brightnessKnown = line.find("\"brightness_known\":true") != std::string::npos;
-            device.hasOccupancy = line.find("\"has_occupancy\":true") != std::string::npos;
-            device.occupied = line.find("\"occupied\":true") != std::string::npos;
-            device.hasBattery = line.find("\"has_battery\":true") != std::string::npos;
-            device.hasWifiSignal = line.find("\"has_wifi_signal\":true") != std::string::npos;
-            device.hasLight = line.find("\"has_light\":true") != std::string::npos;
-            device.lightOn = line.find("\"light_on\":true") != std::string::npos;
-            device.hasBrightness = line.find("\"has_brightness\":true") != std::string::npos;
-            device.hasRemote = line.find("\"has_remote\":true") != std::string::npos;
-            device.hasActor = line.find("\"has_actor\":true") != std::string::npos;
-            device.actorKnown = line.find("\"actor_known\":true") != std::string::npos;
-            device.actorOn = line.find("\"actor_on\":true") != std::string::npos;
-            device.hasPower = line.find("\"has_power\":true") != std::string::npos;
-            device.powerKnown = line.find("\"power_known\":true") != std::string::npos;
+                device.thermostatStaleMinutes = static_cast<unsigned long>(staleMinutes);
+            device.contact.setPresent(line.find("\"has_contact\":true") != std::string::npos);
+            device.waterLeak.setPresent(line.find("\"has_water_leak\":true") != std::string::npos);
+            device.temperature.setPresent(line.find("\"has_temperature\":true") != std::string::npos);
+            device.humidity.setPresent(line.find("\"has_humidity\":true") != std::string::npos);
+            device.airQuality.setPresent(line.find("\"has_air_quality\":true") != std::string::npos);
+            device.co2.setPresent(line.find("\"has_co2\":true") != std::string::npos);
+            device.pm25.setPresent(line.find("\"has_pm25\":true") != std::string::npos);
+            device.occupancy.setPresent(line.find("\"has_occupancy\":true") != std::string::npos);
+            device.battery.setPresent(line.find("\"has_battery\":true") != std::string::npos);
+            device.wifiSignal.setPresent(line.find("\"has_wifi_signal\":true") != std::string::npos);
+            device.light.setPresent(line.find("\"has_light\":true") != std::string::npos);
+            device.brightness.setPresent(line.find("\"has_brightness\":true") != std::string::npos);
+            device.remote.setPresent(line.find("\"has_remote\":true") != std::string::npos);
+            device.actor.setPresent(line.find("\"has_actor\":true") != std::string::npos);
+            device.power.setPresent(line.find("\"has_power\":true") != std::string::npos);
+            if(device.contact.present()) device.contact.ensure().open = line.find("\"contact_open\":true") != std::string::npos;
+            if(device.contact.present()) device.contact.ensure().known = line.find("\"contact_known\":true") != std::string::npos;
+            if(device.waterLeak.present()) device.waterLeak.ensure().known = line.find("\"water_leak_known\":true") != std::string::npos;
+            if(device.waterLeak.present()) device.waterLeak.ensure().detected = line.find("\"water_detected\":true") != std::string::npos;
+            if(device.temperature.present()) device.temperature.ensure().known = line.find("\"temperature_known\":true") != std::string::npos;
+            if(device.humidity.present()) device.humidity.ensure().known = line.find("\"humidity_known\":true") != std::string::npos;
+            if(device.airQuality.present()) device.airQuality.ensure().known = line.find("\"air_quality_known\":true") != std::string::npos;
+            if(device.co2.present()) device.co2.ensure().known = line.find("\"co2_known\":true") != std::string::npos;
+            if(device.pm25.present()) device.pm25.ensure().known = line.find("\"pm25_known\":true") != std::string::npos;
+            if(device.light.present()) device.light.ensure().known = line.find("\"light_known\":true") != std::string::npos;
+            if(device.brightness.present()) device.brightness.ensure().known = line.find("\"brightness_known\":true") != std::string::npos;
+            if(device.occupancy.present()) device.occupancy.ensure().occupied = line.find("\"occupied\":true") != std::string::npos;
+            if(device.light.present()) device.light.ensure().on = line.find("\"light_on\":true") != std::string::npos;
+            if(device.actor.present()) device.actor.ensure().known = line.find("\"actor_known\":true") != std::string::npos;
+            if(device.actor.present()) device.actor.ensure().on = line.find("\"actor_on\":true") != std::string::npos;
+            if(device.power.present()) device.power.ensure().known = line.find("\"power_known\":true") != std::string::npos;
             device.hasLowTemperatureAlert = line.find("\"has_low_temperature_alert\":true") != std::string::npos;
             device.hasHighTemperatureAlert = line.find("\"has_high_temperature_alert\":true") != std::string::npos;
             const char* value;
             value = numericField(line, "temperature_celsius");
-            if (value != 0) device.temperatureCelsius = atof(value);
+            if(device.temperature.present()) if (value != 0) device.temperature.ensure().celsius = atof(value);
             value = numericField(line, "power_watts");
-            if (value != 0) device.powerWatts = atof(value);
+            if(device.power.present()) if (value != 0) device.power.ensure().watts = atof(value);
             value = numericField(line, "battery_percent");
-            if (value != 0) device.batteryPercent = atoi(value);
+            if(device.battery.present()) if (value != 0) device.battery.ensure().percent = atoi(value);
             value = numericField(line, "humidity_percent");
-            if (value != 0) device.humidityPercent = atof(value);
+            if(device.humidity.present()) if (value != 0) device.humidity.ensure().percent = atof(value);
             value = numericField(line, "co2_ppm");
-            if (value != 0) device.co2Ppm = atof(value);
+            if(device.co2.present()) if (value != 0) device.co2.ensure().ppm = atof(value);
             value = numericField(line, "pm25_micrograms_m3");
-            if (value != 0) device.pm25MicrogramsM3 = atof(value);
+            if(device.pm25.present()) if (value != 0) device.pm25.ensure().microgramsM3 = atof(value);
             value = numericField(line, "link_quality");
-            if (value != 0) device.linkQuality = atoi(value);
+            if (value != 0) device.zigbee.ensure().linkQuality = atoi(value);
             value = numericField(line, "wifi_signal_percent");
-            if (value != 0) device.wifiSignalPercent = atoi(value);
+            if(device.wifiSignal.present()) if (value != 0) device.wifiSignal.ensure().percent = atoi(value);
             value = numericField(line, "brightness_percent");
-            if (value != 0) device.brightnessPercent = atoi(value);
+            if(device.brightness.present()) if (value != 0) device.brightness.ensure().percent = atoi(value);
             value = numericField(line, "last_seen");
             if (value != 0) device.lastSeen = atol(value);
             value = numericField(line, "ias_zone_id");
             if (value != 0) {
                 long zoneId = strtol(value, 0, 10);
-                if (zoneId >= -1 && zoneId <= 254) device.iasZoneId = static_cast<int>(zoneId);
+                if (zoneId >= -1 && zoneId <= 254) device.zigbee.ensure().iasZoneId = static_cast<int>(zoneId);
             }
             value = numericField(line, "low_temperature_alert");
             if (value != 0) device.lowTemperatureAlert = atof(value);
@@ -542,32 +542,32 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             value = numericField(line, "sensor_refresh_interval_minutes");
             if (value != 0) device.sensorRefreshIntervalMinutes = strtoul(value, 0, 10);
             value = numericField(line, "matter_endpoint");
-            if (value != 0) device.matterEndpoint = static_cast<int>(strtol(value, 0, 10));
-            jsonStringField(line, "matter_node", &device.matterNode);
-            jsonStringField(line, "matter_state", &device.matterState);
-            if (device.source == "matter" && device.matterState.empty()) device.matterState = "complete";
-            jsonStringField(line, "matter_metadata_state", &device.matterMetadataState);
-            if (device.source == "matter" && device.matterMetadataState != "missing") device.matterMetadataState = "stale";
-            jsonStringField(line, "air_quality", &device.airQuality);
-            jsonStringField(line, "co2_unit", &device.co2Unit);
-            jsonStringField(line, "pm25_unit", &device.pm25Unit);
+            if (value != 0) device.matter.ensure().endpoint = static_cast<int>(strtol(value, 0, 10));
+            jsonStringField(line, "matter_node", &device.matter.ensure().node);
+            jsonStringField(line, "matter_state", &device.matter.ensure().state);
+            if (device.source == "matter" && device.matter.read().state.empty()) device.matter.ensure().state = "complete";
+            jsonStringField(line, "matter_metadata_state", &device.matter.ensure().metadataState);
+            if (device.source == "matter" && device.matter.read().metadataState != "missing") device.matter.ensure().metadataState = "stale";
+            if(device.airQuality.present()) jsonStringField(line, "air_quality", &device.airQuality.ensure().value);
+            if(device.co2.present()) jsonStringField(line, "co2_unit", &device.co2.ensure().unit);
+            if(device.pm25.present()) jsonStringField(line, "pm25_unit", &device.pm25.ensure().unit);
             if (device.source == "matter") {
                 std::string encodedServers;
-                if (device.matterNode.size() != 16 || device.matterEndpoint < -1 ||
+                if (device.matter.read().node.size() != 16 || device.matter.read().endpoint < -1 ||
                     !jsonStringField(line, "matter_servers", &encodedServers) ||
-                    !decodeMatterServers(encodedServers, &device.matterServers)) {
+                    !decodeMatterServers(encodedServers, &device.matter.ensure().servers)) {
                     *error = "invalid Matter endpoint state";
                     return false;
                 }
                 std::string encodedClients;
                 if (jsonStringField(line, "matter_clients", &encodedClients) &&
-                    !decodeMatterServers(encodedClients, &device.matterClients)) {
+                    !decodeMatterServers(encodedClients, &device.matter.ensure().clients)) {
                     *error = "invalid Matter endpoint client clusters";
                     return false;
                 }
                 std::string encodedTypes;
                 if (jsonStringField(line, "matter_device_types", &encodedTypes) &&
-                    !decodeMatterServers(encodedTypes, &device.matterDeviceTypes)) {
+                    !decodeMatterServers(encodedTypes, &device.matter.ensure().deviceTypes)) {
                     *error = "invalid Matter endpoint device types";
                     return false;
                 }
@@ -593,7 +593,7 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             {
                 std::string encodedDescriptors;
                 if (jsonStringField(line, "endpoint_descriptors", &encodedDescriptors) && !encodedDescriptors.empty() &&
-                    !decodeEndpointDescriptors(encodedDescriptors, &device.endpoints)) {
+                    !decodeEndpointDescriptors(encodedDescriptors, &device.zigbee.ensure().endpoints)) {
                     *error = "invalid endpoint descriptor state";
                     return false;
                 }
@@ -601,13 +601,29 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             {
                 std::string encodedNodeDescriptor;
                 if (jsonStringField(line, "node_descriptor", &encodedNodeDescriptor) && !encodedNodeDescriptor.empty() &&
-                    (!hexDecode(encodedNodeDescriptor, &device.nodeDescriptor) || device.nodeDescriptor.size() != 13)) {
+                    (!hexDecode(encodedNodeDescriptor, &device.zigbee.ensure().nodeDescriptor) || device.zigbee.read().nodeDescriptor.size() != 13)) {
                     *error = "invalid node descriptor state";
                     return false;
                 }
             }
-            device.initialInterviewComplete = line.find("\"initial_interview_complete\":") == std::string::npos
-                ? !device.endpoints.empty() : line.find("\"initial_interview_complete\":true") != std::string::npos;
+            device.zigbee.ensure().initialInterviewComplete = line.find("\"initial_interview_complete\":") == std::string::npos
+                ? !device.zigbee.read().endpoints.empty() : line.find("\"initial_interview_complete\":true") != std::string::npos;
+            if(line.find("\"has_temperature\":true")==std::string::npos)device.temperature.reset();
+            if(line.find("\"has_humidity\":true")==std::string::npos)device.humidity.reset();
+            if(line.find("\"has_contact\":true")==std::string::npos)device.contact.reset();
+            if(line.find("\"has_water_leak\":true")==std::string::npos)device.waterLeak.reset();
+            if(line.find("\"has_air_quality\":true")==std::string::npos)device.airQuality.reset();
+            if(line.find("\"has_co2\":true")==std::string::npos)device.co2.reset();
+            if(line.find("\"has_pm25\":true")==std::string::npos)device.pm25.reset();
+            if(line.find("\"has_occupancy\":true")==std::string::npos)device.occupancy.reset();
+            if(line.find("\"has_battery\":true")==std::string::npos)device.battery.reset();
+            if(line.find("\"has_light\":true")==std::string::npos)device.light.reset();
+            if(line.find("\"has_brightness\":true")==std::string::npos)device.brightness.reset();
+            if(line.find("\"has_remote\":true")==std::string::npos)device.remote.reset();
+            if(line.find("\"has_actor\":true")==std::string::npos)device.actor.reset();
+            if(line.find("\"has_power\":true")==std::string::npos)device.power.reset();
+            if(line.find("\"has_wifi_signal\":true")==std::string::npos)device.wifiSignal.reset();
+            device.normalizeComponents();
             parsedDevices.push_back(device);
         }
     }
@@ -634,11 +650,26 @@ template<class T> bool cacheReadArray(const Value* v,std::vector<T>* out,uint64_
 }
 bool cacheDeviceRead(const Value& v,Device* d){
     if(v.type!=Value::Map)return false;
+    {const Value* flag=Proto::field(v,"has_temperature");if(flag && flag->type!=Value::Bool)return false;d->temperature.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_humidity");if(flag && flag->type!=Value::Bool)return false;d->humidity.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_contact");if(flag && flag->type!=Value::Bool)return false;d->contact.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_water_leak");if(flag && flag->type!=Value::Bool)return false;d->waterLeak.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_air_quality");if(flag && flag->type!=Value::Bool)return false;d->airQuality.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_co2");if(flag && flag->type!=Value::Bool)return false;d->co2.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_pm25");if(flag && flag->type!=Value::Bool)return false;d->pm25.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_occupancy");if(flag && flag->type!=Value::Bool)return false;d->occupancy.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_battery");if(flag && flag->type!=Value::Bool)return false;d->battery.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_light");if(flag && flag->type!=Value::Bool)return false;d->light.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_brightness");if(flag && flag->type!=Value::Bool)return false;d->brightness.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_remote");if(flag && flag->type!=Value::Bool)return false;d->remote.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_actor");if(flag && flag->type!=Value::Bool)return false;d->actor.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_power");if(flag && flag->type!=Value::Bool)return false;d->power.setPresent(flag && flag->u);}
+    {const Value* flag=Proto::field(v,"has_wifi_signal");if(flag && flag->type!=Value::Bool)return false;d->wifiSignal.setPresent(flag && flag->u);}
     for(size_t i=0;i<v.keys.size();++i){const std::string& key=v.keys[i];const Value& x=v.items[i];int64_t integer=0;double number=0;
-#define CACHE_TEXT(name,member) if(key==name){if(x.type!=Value::Text||x.text.size()>65536)return false;d->member=x.text;}
-#define CACHE_BOOL(name,member) if(key==name){if(x.type!=Value::Bool)return false;d->member=x.u!=0;}
-#define CACHE_INT(name,member,low,high) if(key==name){if(!cacheInteger(x,low,high,&integer))return false;d->member=integer;}
-#define CACHE_NUMBER(name,member,low,high) if(key==name){if(!cacheDouble(x,low,high,&number))return false;d->member=number;}
+#define CACHE_TEXT(name,read,write,guard) if(key==name){if(x.type!=Value::Text||x.text.size()>65536)return false;const std::string& value=x.text;if(guard){d->write;}}
+#define CACHE_BOOL(name,read,write,guard) if(key==name){if(x.type!=Value::Bool)return false;const bool value=x.u!=0;if(guard){d->write;}}
+#define CACHE_INT(name,read,write,guard,low,high) if(key==name){if(!cacheInteger(x,low,high,&integer))return false;const int64_t value=integer;if(guard){d->write;}}
+#define CACHE_NUMBER(name,read,write,guard,low,high) if(key==name){if(!cacheDouble(x,low,high,&number))return false;const double value=number;if(guard){d->write;}}
 #include "device_cache_fields.inc"
 #undef CACHE_TEXT
 #undef CACHE_BOOL
@@ -646,13 +677,29 @@ bool cacheDeviceRead(const Value& v,Device* d){
 #undef CACHE_NUMBER
     }
     const Value* endpoints=Proto::field(v,"endpoint_descriptors");
-    if(endpoints){if(endpoints->type!=Value::Array||endpoints->items.size()>255)return false;for(size_t i=0;i<endpoints->items.size();++i){const Value& x=endpoints->items[i];EndpointDescriptor e;const char* keys[]={"endpoint","profile_id","device_id","device_version"};unsigned long vals[4];for(unsigned j=0;j<4;++j){const Value* f=Proto::field(x,keys[j]);if(!f||f->type!=Value::UInt||f->u>((j==0||j==3)?255U:65535U))return false;vals[j]=f->u;}e.endpoint=vals[0];e.profileId=vals[1];e.deviceId=vals[2];e.deviceVersion=vals[3];if(!cacheReadArray(Proto::field(x,"input_clusters"),&e.inputClusters,65535,255)||!cacheReadArray(Proto::field(x,"output_clusters"),&e.outputClusters,65535,255))return false;d->endpoints.push_back(e);}}
-    const Value* bytes=Proto::field(v,"node_descriptor");if(bytes){if(bytes->type!=Value::Binary)return false;d->nodeDescriptor.assign(bytes->text.begin(),bytes->text.end());}
-    if(!cacheReadArray(Proto::field(v,"matter_servers"),&d->matterServers,0xffffffffUL,64)||!cacheReadArray(Proto::field(v,"matter_clients"),&d->matterClients,0xffffffffUL,64)||!cacheReadArray(Proto::field(v,"matter_device_types"),&d->matterDeviceTypes,0xffffffffUL,64))return false;
+    if(endpoints){if(endpoints->type!=Value::Array||endpoints->items.size()>255)return false;for(size_t i=0;i<endpoints->items.size();++i){const Value& x=endpoints->items[i];EndpointDescriptor e;const char* keys[]={"endpoint","profile_id","device_id","device_version"};unsigned long vals[4];for(unsigned j=0;j<4;++j){const Value* f=Proto::field(x,keys[j]);if(!f||f->type!=Value::UInt||f->u>((j==0||j==3)?255U:65535U))return false;vals[j]=f->u;}e.endpoint=vals[0];e.profileId=vals[1];e.deviceId=vals[2];e.deviceVersion=vals[3];if(!cacheReadArray(Proto::field(x,"input_clusters"),&e.inputClusters,65535,255)||!cacheReadArray(Proto::field(x,"output_clusters"),&e.outputClusters,65535,255))return false;d->zigbee.ensure().endpoints.push_back(e);}}
+    const Value* bytes=Proto::field(v,"node_descriptor");if(bytes){if(bytes->type!=Value::Binary)return false;d->zigbee.ensure().nodeDescriptor.assign(bytes->text.begin(),bytes->text.end());}
+    if(!cacheReadArray(Proto::field(v,"matter_servers"),&d->matter.ensure().servers,0xffffffffUL,64)||!cacheReadArray(Proto::field(v,"matter_clients"),&d->matter.ensure().clients,0xffffffffUL,64)||!cacheReadArray(Proto::field(v,"matter_device_types"),&d->matter.ensure().deviceTypes,0xffffffffUL,64))return false;
     const Value* alerts=Proto::field(v,"alerts");
     if(alerts){if(alerts->type!=Value::Array||alerts->items.size()>9)return false;for(size_t i=0;i<alerts->items.size();++i){const Value& a=alerts->items[i];const Value* name=Proto::field(a,"name");if(!name||name->type!=Value::Text||d->valueAlerts.count(name->text))return false;static const char* allowed[]={"temperature","humidity","battery","link_quality","wifi_signal","brightness","power","co2","pm25"};bool found=false;for(unsigned j=0;j<9;++j)if(name->text==allowed[j])found=true;if(!found)return false;DeviceValueAlert alert;const Value* low=Proto::field(a,"low_enabled");const Value* high=Proto::field(a,"high_enabled");const Value* l=Proto::field(a,"low");const Value* h=Proto::field(a,"high");const Value* hysteresis=Proto::field(a,"hysteresis");const Value* unit=Proto::field(a,"unit");if(!low||low->type!=Value::Bool||!high||high->type!=Value::Bool||!l||!h||!hysteresis||!unit||unit->type!=Value::Text||!cacheDouble(*l,-1e308,1e308,&alert.low)||!cacheDouble(*h,-1e308,1e308,&alert.high)||!cacheDouble(*hysteresis,0,1e308,&alert.hysteresis))return false;alert.hasLow=low->u;alert.hasHigh=high->u;alert.unit=unit->text;d->valueAlerts[name->text]=alert;}}
+    if(!Proto::field(v,"has_temperature") || !Proto::field(v,"has_temperature")->u)d->temperature.reset();
+    if(!Proto::field(v,"has_humidity") || !Proto::field(v,"has_humidity")->u)d->humidity.reset();
+    if(!Proto::field(v,"has_contact") || !Proto::field(v,"has_contact")->u)d->contact.reset();
+    if(!Proto::field(v,"has_water_leak") || !Proto::field(v,"has_water_leak")->u)d->waterLeak.reset();
+    if(!Proto::field(v,"has_air_quality") || !Proto::field(v,"has_air_quality")->u)d->airQuality.reset();
+    if(!Proto::field(v,"has_co2") || !Proto::field(v,"has_co2")->u)d->co2.reset();
+    if(!Proto::field(v,"has_pm25") || !Proto::field(v,"has_pm25")->u)d->pm25.reset();
+    if(!Proto::field(v,"has_occupancy") || !Proto::field(v,"has_occupancy")->u)d->occupancy.reset();
+    if(!Proto::field(v,"has_battery") || !Proto::field(v,"has_battery")->u)d->battery.reset();
+    if(!Proto::field(v,"has_light") || !Proto::field(v,"has_light")->u)d->light.reset();
+    if(!Proto::field(v,"has_brightness") || !Proto::field(v,"has_brightness")->u)d->brightness.reset();
+    if(!Proto::field(v,"has_remote") || !Proto::field(v,"has_remote")->u)d->remote.reset();
+    if(!Proto::field(v,"has_actor") || !Proto::field(v,"has_actor")->u)d->actor.reset();
+    if(!Proto::field(v,"has_power") || !Proto::field(v,"has_power")->u)d->power.reset();
+    if(!Proto::field(v,"has_wifi_signal") || !Proto::field(v,"has_wifi_signal")->u)d->wifiSignal.reset();
+    d->normalizeComponents();
     if(d->ieeeAddress.empty()||(d->source!="zigbee"&&d->source!="matter"&&d->source!="shelly"&&d->source!="fritz_box"))return false;
-    if(d->source=="matter"){if(d->matterNode.size()!=16)return false;if(d->matterState.empty())d->matterState="complete";if(d->matterMetadataState!="missing")d->matterMetadataState="stale";}
+    if(d->source=="matter"){if(d->matter.read().node.size()!=16)return false;if(d->matter.read().state.empty())d->matter.ensure().state="complete";if(d->matter.read().metadataState!="missing")d->matter.ensure().metadataState="stale";}
     return true;
 }
 typedef bool (*EncodeCallback)(pb_ostream_t*,const pb_field_t*,void* const*);
@@ -684,8 +731,8 @@ bool typedDevices(pb_ostream_t* stream,const pb_field_t* f,void* const* arg){
  const std::vector<Device>& devices=*static_cast<const std::vector<Device>*>(*arg);
  for(size_t i=0;i<devices.size();++i){const Device& d=devices[i];microhad_CachedDevice v=microhad_CachedDevice_init_zero;
 #include "../../protocol/generated/device_cache_encode.inc"
- bindCallback(&v.endpoint_descriptors,typedEndpoints,&d.endpoints);bindCallback(&v.node_descriptor,typedBytes,&d.nodeDescriptor);
- bindCallback(&v.matter_servers,typedUints<unsigned int>,&d.matterServers);bindCallback(&v.matter_clients,typedUints<unsigned int>,&d.matterClients);bindCallback(&v.matter_device_types,typedUints<unsigned int>,&d.matterDeviceTypes);bindCallback(&v.alerts,typedAlerts,&d.valueAlerts);
+ bindCallback(&v.endpoint_descriptors,typedEndpoints,&d.zigbee.read().endpoints);bindCallback(&v.node_descriptor,typedBytes,&d.zigbee.read().nodeDescriptor);
+ bindCallback(&v.matter_servers,typedUints<unsigned int>,&d.matter.read().servers);bindCallback(&v.matter_clients,typedUints<unsigned int>,&d.matter.read().clients);bindCallback(&v.matter_device_types,typedUints<unsigned int>,&d.matter.read().deviceTypes);bindCallback(&v.alerts,typedAlerts,&d.valueAlerts);
  if(!pb_encode_tag_for_field(stream,f)||!pb_encode_submessage(stream,microhad_CachedDevice_fields,&v))return false;
  }return true;
 }
@@ -717,7 +764,7 @@ bool loadDeviceCache(const std::string& filename,std::vector<Device>* devices,st
     pb_istream_t stream=pb_istream_from_buffer(&bytes[0],bytes.size());bool version=false;std::vector<Device> parsed;std::set<std::string> ids;std::set<unsigned short> nodes;
     while(ok&&stream.bytes_left){pb_wire_type_t wt;uint32_t tag;bool eof=false;ok=pb_decode_tag(&stream,&wt,&tag,&eof)&&tag>0;if(!ok)break;
         if(tag==1){uint64_t n;ok=wt==PB_WT_VARINT&&!version&&pb_decode_varint(&stream,&n)&&n==1;version=true;}
-        else if(tag==2){pb_istream_t sub;ok=wt==PB_WT_STRING&&parsed.size()<4096&&pb_make_string_substream(&stream,&sub);if(!ok)break;Proto::Bytes record(sub.bytes_left);ok=!record.empty()&&pb_read(&sub,&record[0],record.size())&&pb_close_string_substream(&stream,&sub);Value v;unsigned unknown=0;Device d;ok=ok&&Proto::decode("CachedDevice",record,&v,cacheLimit,&unknown)&&cacheDeviceRead(v,&d)&&ids.insert(d.ieeeAddress).second;if(ok&&d.source=="zigbee"&&d.networkAddress!=0xffff)ok=nodes.insert(d.networkAddress).second;if(ok)parsed.push_back(d);}
+        else if(tag==2){pb_istream_t sub;ok=wt==PB_WT_STRING&&parsed.size()<4096&&pb_make_string_substream(&stream,&sub);if(!ok)break;Proto::Bytes record(sub.bytes_left);ok=!record.empty()&&pb_read(&sub,&record[0],record.size())&&pb_close_string_substream(&stream,&sub);Value v;unsigned unknown=0;Device d;ok=ok&&Proto::decode("CachedDevice",record,&v,cacheLimit,&unknown)&&cacheDeviceRead(v,&d)&&ids.insert(d.ieeeAddress).second;if(ok&&d.source=="zigbee"&&d.zigbee.read().networkAddress!=0xffff)ok=nodes.insert(d.zigbee.read().networkAddress).second;if(ok)parsed.push_back(d);}
         else ok=pb_skip_field(&stream,wt);
     }
     if(!ok||!version){if(error)*error="invalid device protobuf cache";return false;}devices->swap(parsed);return true;

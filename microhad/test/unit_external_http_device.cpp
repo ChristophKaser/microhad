@@ -90,7 +90,7 @@ void runExternalHttpDeviceWorkerUnitTests() {
         bool foundPresence = false;
         std::string fritzAddress;
         for (unsigned long i = 0; i < devices.size(); ++i) if (devices[i].source == "fritz_box") {
-            foundPresence = devices[i].hasOccupancy && devices[i].occupied && devices[i].hasWifiSignal && devices[i].wifiSignalPercent == 72;
+            foundPresence = devices[i].occupancy.present() && devices[i].occupancy.read().occupied && devices[i].wifiSignal.present() && devices[i].wifiSignal.read().percent == 72;
             fritzAddress = devices[i].ieeeAddress;
         }
         assert(foundPresence);
@@ -106,16 +106,16 @@ void runExternalHttpDeviceWorkerUnitTests() {
         unsigned int channels = 0;
         std::string secondContact;
         for (unsigned long i = 0; i < devices.size(); ++i) {
-            if (devices[i].externalId != "aaaaaaaaaaaaaaaa") continue;
+            if (devices[i].external.read().externalId != "aaaaaaaaaaaaaaaa") continue;
             ++channels;
-            if (devices[i].component == "contact:1") secondContact = devices[i].ieeeAddress;
+            if (devices[i].external.read().component == "contact:1") secondContact = devices[i].ieeeAddress;
         }
         assert(channels == 7 && !secondContact.empty());
         assert(gateway.applyShellyEvent("aaaaaaaaaaaaaaaa", 1, 1, 1, &error));
         devices = gateway.devices();
         bool secondContactOpen = false;
         for (unsigned long i = 0; i < devices.size(); ++i)
-            if (devices[i].ieeeAddress == secondContact) secondContactOpen = devices[i].contactOpen && devices[i].contactKnown;
+            if (devices[i].ieeeAddress == secondContact) secondContactOpen = devices[i].contact.read().open && devices[i].contact.read().known;
         assert(secondContactOpen);
         assert(gateway.removeShelly("1234567890abcdef", &error));
         assert(gateway.devices().size() == 9);

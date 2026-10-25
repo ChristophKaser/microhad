@@ -46,16 +46,16 @@ RemoteSceneBinding::RemoteSceneBinding() : groupId(0), off(false) {}
 Gateway::SceneRetry::SceneRetry() : off(false), inFlight(false), retryRequested(false), sentOff(false), unicast(false), memberIndex(0), sceneId(0), sentSceneId(0),
                                     ezspSequence(0), attempts(0), sentAt(0), retryAt(0) {}
 
-Device::Device() : source("zigbee"), networkAddress(0xffff), kind("generic"), contactOpen(false), hasContact(false), contactKnown(false), hasWaterLeak(false), waterLeakKnown(false), waterDetected(false), hasTemperature(false), temperatureKnown(false),
-                   temperatureCelsius(0), hasHumidity(false), humidityKnown(false), humidityPercent(0), hasAirQuality(false),
-                   airQualityKnown(false), hasCo2(false), co2Known(false), co2Ppm(0), hasPm25(false),
-                   pm25Known(false), pm25MicrogramsM3(0), hasOccupancy(false), occupied(false),
-                   hasBattery(false), batteryPercent(0), hasLight(false), lightOn(false), lightKnown(false), hasBrightness(false),
-                   brightnessPercent(0), brightnessKnown(false), hasRemote(false), hasActor(false), actorKnown(false), actorOn(false), hasPower(false), powerKnown(false), powerWatts(0), linkQuality(0), matterRssiDbm(1), hasWifiSignal(false), wifiSignalPercent(0), lastSeen(0),
-                   iasZoneId(-1), hasLowTemperatureAlert(false), hasHighTemperatureAlert(false), lowTemperatureAlert(0),
-                   highTemperatureAlert(0), contactInitialAlertMinutes(10), contactReminderAlertMinutes(5),
-                   contactTriggerMode(false), contactTriggerCooldownSeconds(60), contactTriggerUntil(0),
-                   sensorRefreshIntervalMinutes(60), initialInterviewComplete(false), matterEndpoint(-1), online(false) {
+Device::Device() : source("zigbee"), kind("generic"), online(false), lastSeen(0),
+    hasLowTemperatureAlert(false),hasHighTemperatureAlert(false),lowTemperatureAlert(0),highTemperatureAlert(0),
+    contactInitialAlertMinutes(10),contactReminderAlertMinutes(5),contactTriggerMode(false),
+    contactTriggerCooldownSeconds(60),sensorRefreshIntervalMinutes(60),thermostatStaleMinutes(90) {}
+
+void Device::normalizeComponents() {
+    if(source.empty() || source=="zigbee") { zigbee.ensure();matter.reset();external.reset(); }
+    else if(source=="matter") { matter.ensure();zigbee.reset(); }
+    else { external.ensure();zigbee.reset();matter.reset(); }
+    if(thermostatProfile(*this))thermostat.ensure();else thermostat.reset();
 }
 
 namespace {
@@ -170,34 +170,22 @@ unsigned long zclValueLength(unsigned char type, const std::vector<unsigned char
 }
 
 void clearVolatileDeviceValues(Device* device) {
-    device->contactOpen = false;
-    device->contactKnown = false;
-    device->temperatureCelsius = 0;
-    device->temperatureKnown = false;
-    device->humidityPercent = 0;
-    device->humidityKnown = false;
-    device->airQuality.clear();
-    device->airQualityKnown = false;
-    device->co2Ppm = 0;
-    device->co2Known = false;
-    device->pm25MicrogramsM3 = 0;
-    device->pm25Known = false;
-    device->lightKnown = false;
-    device->brightnessKnown = false;
-    device->occupied = false;
-    device->hasBattery = false;
-    device->batteryPercent = 0;
-    device->lightOn = false;
-    device->actorOn = false;
-    device->actorKnown = false;
-    device->powerWatts = 0;
-    device->powerKnown = false;
-    if (device->source != "matter") device->hasBrightness = false;
-    device->brightnessPercent = 0;
-    device->linkQuality = 0;
-    device->hasWifiSignal = false;
-    device->wifiSignalPercent = 0;
-    device->lastSeen = 0;
+    if(device->contact.present()){device->contact.ensure().open=false;device->contact.ensure().known=false;}
+    if(device->waterLeak.present()){device->waterLeak.ensure().detected=false;device->waterLeak.ensure().known=false;}
+    if(device->temperature.present()){device->temperature.ensure().celsius=0;device->temperature.ensure().known=false;device->temperature.ensure().observation.at=0;}
+    if(device->humidity.present()){device->humidity.ensure().percent=0;device->humidity.ensure().known=false;}
+    if(device->airQuality.present()){device->airQuality.ensure().value.clear();device->airQuality.ensure().known=false;}
+    if(device->co2.present()){device->co2.ensure().ppm=0;device->co2.ensure().known=false;}
+    if(device->pm25.present()){device->pm25.ensure().microgramsM3=0;device->pm25.ensure().known=false;}
+    if(device->light.present()){device->light.ensure().on=false;device->light.ensure().known=false;}
+    if(device->actor.present()){device->actor.ensure().on=false;device->actor.ensure().known=false;}
+    if(device->power.present()){device->power.ensure().watts=0;device->power.ensure().known=false;}
+    if(device->occupancy.present())device->occupancy.ensure().occupied=false;
+    device->battery.reset();device->wifiSignal.reset();
+    if(device->source!="matter")device->brightness.reset();
+    else if(device->brightness.present()){device->brightness.ensure().percent=0;device->brightness.ensure().known=false;}
+    if(device->zigbee.present())device->zigbee.ensure().linkQuality=0;
+    device->lastSeen=0;
 }
 
 bool endpointDescriptorsEqual(const std::vector<EndpointDescriptor>& left,
@@ -400,16 +388,16 @@ bool Gateway::registerShelly(const std::string& id, const std::string& name, con
         std::string type = colon == std::string::npos ? components[i] : components[i].substr(0, colon);
         int channel = colon == std::string::npos ? 0 : atoi(components[i].c_str() + colon + 1);
         std::map<std::string, Device>::const_iterator existing = devices_.find(shellyAddress(id, type, channel));
-        if (existing != devices_.end() && (existing->second.source != (model == "fritz" ? "fritz_box" : "shelly") || existing->second.externalId != id)) {
+        if (existing != devices_.end() && (existing->second.source != (model == "fritz" ? "fritz_box" : "shelly") || existing->second.external.read().externalId != id)) {
             *error = "Shelly device address conflicts with an existing device"; return false;
         }
     }
     bool changed = false;
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
-        std::string existingComponent = it->second.component;
+        std::string existingComponent = it->second.external.read().component;
         if (existingComponent == "contact" || existingComponent == "temperature" || existingComponent == "relay")
             existingComponent += ":0";
-        if ((it->second.source == "shelly" || it->second.source == "fritz_box") && it->second.externalId == id &&
+        if ((it->second.source == "shelly" || it->second.source == "fritz_box") && it->second.external.read().externalId == id &&
             std::find(components.begin(), components.end(), existingComponent) == components.end()) {
             contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first); nextContactTriggerAt_.erase(it->first);
             devices_.erase(it++); changed = true;
@@ -423,12 +411,12 @@ bool Gateway::registerShelly(const std::string& id, const std::string& name, con
         std::map<std::string, Device>::iterator existing = devices_.find(address);
         if (existing == devices_.end()) {
             Device d;
-            d.ieeeAddress = address; d.source = model == "fritz" ? "fritz_box" : "shelly"; d.externalId = id;
-            d.component = channel == 0 ? type : components[i];
+            d.ieeeAddress = address; d.source = model == "fritz" ? "fritz_box" : "shelly"; d.external.ensure().externalId = id;
+            d.external.ensure().component = channel == 0 ? type : components[i];
             d.name = shellyDefaultName(name, type, channel); d.manufacturerName = model == "fritz" ? "FRITZ!Box" : "Shelly"; d.modelId = model;
             d.kind = type == "plug" ? "smart plug" : type == "presence" ? "presence" : type;
-            d.hasContact = type == "contact"; d.hasOccupancy = type == "presence"; d.hasTemperature = type == "temperature";
-            d.hasActor = type == "relay" || type == "plug"; d.hasPower = type == "plug";
+            d.contact.setPresent(type == "contact"); d.occupancy.setPresent(type == "presence"); d.temperature.setPresent(type == "temperature");
+            d.actor.setPresent(type == "relay" || type == "plug"); d.power.setPresent(type == "plug");
             devices_[address] = d; changed = true;
         } else {
             Device& d = existing->second;
@@ -454,7 +442,7 @@ bool Gateway::registerShelly(const std::string& id, const std::string& name, con
 bool Gateway::removeShelly(const std::string& id, std::string* error) {
     bool changed = false;
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
-        if ((it->second.source == "shelly" || it->second.source == "fritz_box") && it->second.externalId == id) {
+        if ((it->second.source == "shelly" || it->second.source == "fritz_box") && it->second.external.read().externalId == id) {
             contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first); nextContactTriggerAt_.erase(it->first);
             devices_.erase(it++); changed = true;
         } else ++it;
@@ -469,7 +457,7 @@ bool Gateway::reconcileShelly(const std::vector<std::string>& ids, std::string* 
     bool changed = false;
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
         if (it->second.source == "shelly" &&
-            std::find(ids.begin(), ids.end(), it->second.externalId) == ids.end()) {
+            std::find(ids.begin(), ids.end(), it->second.external.read().externalId) == ids.end()) {
             contactOpenedAt_.erase(it->first); nextContactAlertAt_.erase(it->first); nextContactTriggerAt_.erase(it->first);
             devices_.erase(it++); changed = true;
         } else ++it;
@@ -539,12 +527,12 @@ bool Gateway::matterDeletionTarget(const std::string& address, std::string* node
     std::map<std::string, Device>::const_iterator found = devices_.find(address);
     if (found == devices_.end()) found = devices_.find(resolveDeviceId(address));
     if (found == devices_.end() || found->second.source != "matter") { *error = "Matter device not found"; return false; }
-    *node = found->second.matterNode; return true;
+    *node = found->second.matter.read().node; return true;
 }
 bool Gateway::removeMatterNode(const std::string& node, std::string* error) {
     std::vector<std::string> addresses;
     for (std::map<std::string, Device>::const_iterator it = devices_.begin(); it != devices_.end(); ++it)
-        if (it->second.source == "matter" && it->second.matterNode == node) {
+        if (it->second.source == "matter" && it->second.matter.read().node == node) {
             addresses.push_back(it->first); addresses.push_back(it->first.substr(0, 40));
         }
     return removeDeviceRecords(addresses, error);
@@ -552,7 +540,7 @@ bool Gateway::removeMatterNode(const std::string& node, std::string* error) {
 bool Gateway::reconcileMatterNodes(const std::vector<std::string>& nodes, std::string* error) {
     std::vector<std::string> addresses;
     for (std::map<std::string, Device>::const_iterator it = devices_.begin(); it != devices_.end(); ++it)
-        if (it->second.source == "matter" && std::find(nodes.begin(), nodes.end(), it->second.matterNode) == nodes.end()) {
+        if (it->second.source == "matter" && std::find(nodes.begin(), nodes.end(), it->second.matter.read().node) == nodes.end()) {
             addresses.push_back(it->first); addresses.push_back(it->first.substr(0, 40));
         }
     return removeDeviceRecords(addresses, error);
@@ -563,7 +551,7 @@ bool Gateway::deleteDevice(const std::string& address, bool local, std::string* 
     if (found == devices_.end() || found->second.source != "zigbee") { *error = "Zigbee device not found"; return false; }
     std::map<std::string, DeviceDeletion>::iterator previous = deviceDeletions_.find(address);
     if (previous != deviceDeletions_.end() && previous->second.state == "pending") { *error = "Device deletion is already pending"; return false; }
-    if (!local && (!online_ || !networkFormed_ || found->second.networkAddress == 0xffff)) {
+    if (!local && (!online_ || !networkFormed_ || found->second.zigbee.read().networkAddress == 0xffff)) {
         *error = "Device cannot be reached. Retry or delete locally."; return false;
     }
     if (deviceDeletions_.size() >= 32 && previous == deviceDeletions_.end()) {
@@ -573,7 +561,7 @@ bool Gateway::deleteDevice(const std::string& address, bool local, std::string* 
         deviceDeletions_.erase(old);
     }
     DeviceDeletion& operation = deviceDeletions_[address];
-    operation.state = "pending"; operation.error.clear(); operation.node = found->second.networkAddress; operation.deadline = time(0) + 15;
+    operation.state = "pending"; operation.error.clear(); operation.node = found->second.zigbee.read().networkAddress; operation.deadline = time(0) + 15;
     if (local) { completeDeviceDeletion(address); return true; }
     // Stop old discovery and configuration work before asking the node to leave.
     interviews_.erase(operation.node); nextSensorRefreshAt_.erase(operation.node);
@@ -608,8 +596,8 @@ bool Gateway::deviceDeletionStatus(const std::string& address, std::string* json
 std::string Gateway::resolveDeviceId(const std::string& id) const {
     if (id.size() != 40 || id.substr(0,7) != "matter:") return id;
     for (std::map<std::string, Device>::const_iterator it=devices_.begin();it!=devices_.end();++it)
-        if (it->second.source == "matter" && it->first.substr(0,40) == id && it->second.matterEndpoint >= 0 &&
-            (it->second.hasActor || it->second.hasLight || it->second.hasContact || it->second.hasTemperature || it->second.hasRemote)) return it->first;
+        if (it->second.source == "matter" && it->first.substr(0,40) == id && it->second.matter.read().endpoint >= 0 &&
+            (it->second.actor.present() || it->second.light.present() || it->second.contact.present() || it->second.temperature.present() || it->second.remote.present())) return it->first;
     return id;
 }
 
@@ -625,41 +613,41 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         }
         Device device;
         device.source = "matter";
-        device.externalId = endpoint.id;
+        device.external.ensure().externalId = endpoint.id;
         device.ieeeAddress = endpoint.id;
-        device.matterState = endpoint.state;
-        device.matterMetadataState = endpoint.endpoint == 0xffff ? (endpoint.metadataComplete ? "ready" : "missing") : "ready";
-        device.matterNode = endpoint.node;
-        device.matterEndpoint = endpoint.endpoint == 0xffff ? -1 : endpoint.endpoint;
-        device.matterServers = endpoint.servers;
-        device.matterClients = endpoint.clients;
-        device.matterDeviceTypes = endpoint.deviceTypes;
+        device.matter.ensure().state = endpoint.state;
+        device.matter.ensure().metadataState = endpoint.endpoint == 0xffff ? (endpoint.metadataComplete ? "ready" : "missing") : "ready";
+        device.matter.ensure().node = endpoint.node;
+        device.matter.ensure().endpoint = endpoint.endpoint == 0xffff ? -1 : endpoint.endpoint;
+        device.matter.ensure().servers = endpoint.servers;
+        device.matter.ensure().clients = endpoint.clients;
+        device.matter.ensure().deviceTypes = endpoint.deviceTypes;
         device.online = endpoint.online;
-        device.component = "endpoint";
+        device.external.ensure().component = "endpoint";
         device.name = endpoint.servers.end() != std::find(endpoint.servers.begin(), endpoint.servers.end(), 8U)
             ? "Matter dimmable light" : "Matter endpoint";
         device.kind = "Matter device";
-        device.hasLight = std::find(endpoint.servers.begin(), endpoint.servers.end(), 6U) != endpoint.servers.end() &&
-                          std::find(endpoint.servers.begin(), endpoint.servers.end(), 8U) != endpoint.servers.end();
-        device.hasBrightness = device.hasLight;
-        device.hasActor = std::find(endpoint.servers.begin(), endpoint.servers.end(), 6U) != endpoint.servers.end() && !device.hasLight;
-        device.hasContact = std::find(endpoint.servers.begin(), endpoint.servers.end(), 69U) != endpoint.servers.end();
-        device.hasWaterLeak = std::find(endpoint.deviceTypes.begin(), endpoint.deviceTypes.end(), 67U) != endpoint.deviceTypes.end();
-        device.hasRemote = std::find(endpoint.servers.begin(), endpoint.servers.end(), 59U) != endpoint.servers.end();
-        if (device.hasLight) device.kind = "light";
-        else if (device.hasActor) { device.kind = "switch"; device.name = "Matter switch"; }
-        if (device.hasRemote) { device.kind = "remote control"; device.name = "Matter remote"; }
-        else if (device.hasWaterLeak) { device.kind = "water leak"; device.name = "Matter water leak detector"; }
-        else if (device.hasContact) { device.kind = "contact"; device.name = "Matter contact sensor"; }
-        device.hasTemperature = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1026U) != endpoint.servers.end();
-        device.hasHumidity = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1029U) != endpoint.servers.end();
-        device.hasAirQuality = std::find(endpoint.servers.begin(), endpoint.servers.end(), 91U) != endpoint.servers.end();
-        device.hasCo2 = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1037U) != endpoint.servers.end();
-        device.hasPm25 = std::find(endpoint.servers.begin(), endpoint.servers.end(), 1066U) != endpoint.servers.end();
-        if (isThermostat(device)) { device.kind="thermostat"; device.name="Matter thermostat"; device.hasTemperature=true; device.hasLight=false; device.hasActor=false; device.hasBrightness=false; }
+        device.light.setPresent(std::find(endpoint.servers.begin(), endpoint.servers.end(), 6U) != endpoint.servers.end() &&
+                          std::find(endpoint.servers.begin(), endpoint.servers.end(), 8U) != endpoint.servers.end());
+        device.brightness.setPresent(device.light.present());
+        device.actor.setPresent(std::find(endpoint.servers.begin(), endpoint.servers.end(), 6U) != endpoint.servers.end() && !device.light.present());
+        device.contact.setPresent(std::find(endpoint.servers.begin(), endpoint.servers.end(), 69U) != endpoint.servers.end());
+        device.waterLeak.setPresent(std::find(endpoint.deviceTypes.begin(), endpoint.deviceTypes.end(), 67U) != endpoint.deviceTypes.end());
+        device.remote.setPresent(std::find(endpoint.servers.begin(), endpoint.servers.end(), 59U) != endpoint.servers.end());
+        if (device.light.present()) device.kind = "light";
+        else if (device.actor.present()) { device.kind = "switch"; device.name = "Matter switch"; }
+        if (device.remote.present()) { device.kind = "remote control"; device.name = "Matter remote"; }
+        else if (device.waterLeak.present()) { device.kind = "water leak"; device.name = "Matter water leak detector"; }
+        else if (device.contact.present()) { device.kind = "contact"; device.name = "Matter contact sensor"; }
+        device.temperature.setPresent(std::find(endpoint.servers.begin(), endpoint.servers.end(), 1026U) != endpoint.servers.end());
+        device.humidity.setPresent(std::find(endpoint.servers.begin(), endpoint.servers.end(), 1029U) != endpoint.servers.end());
+        device.airQuality.setPresent(std::find(endpoint.servers.begin(), endpoint.servers.end(), 91U) != endpoint.servers.end());
+        device.co2.setPresent(std::find(endpoint.servers.begin(), endpoint.servers.end(), 1037U) != endpoint.servers.end());
+        device.pm25.setPresent(std::find(endpoint.servers.begin(), endpoint.servers.end(), 1066U) != endpoint.servers.end());
+        if (thermostatProfile(device)) { device.thermostat.ensure(); device.kind="thermostat"; device.name="Matter thermostat"; device.temperature.setPresent(true); device.light.setPresent(false); device.actor.setPresent(false); device.brightness.setPresent(false); }
         device.manufacturerName = endpoint.manufacturer;
         device.modelId = endpoint.model;
-        device.matterRssiDbm = endpoint.rssiDbm;
+        device.matter.ensure().rssiDbm = endpoint.rssiDbm;
         device.lastSeen = endpoint.online ? time(0) : 0;
         replacement[endpoint.id] = device;
     }
@@ -677,8 +665,8 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
     for (unsigned long index=0; index<endpoints.size(); ++index) {
         if (!endpoints[index].metadataComplete || endpoints[index].endpoint != 0xffff) continue;
         for (std::map<std::string, Device>::iterator it=devices_.begin(); it!=devices_.end();) {
-            if (it->second.source == "matter" && it->second.matterNode == endpoints[index].node &&
-                it->second.matterEndpoint >= 0 && replacement.find(it->first) == replacement.end()) {
+            if (it->second.source == "matter" && it->second.matter.read().node == endpoints[index].node &&
+                it->second.matter.read().endpoint >= 0 && replacement.find(it->first) == replacement.end()) {
                 devices_.erase(it++); changed = persistentChanged = true;
             } else ++it;
         }
@@ -692,60 +680,49 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         } else {
             Device& current = existing->second;
             Device& fresh = it->second;
-            if (fresh.matterEndpoint < 0 && fresh.matterMetadataState == "missing" && current.matterMetadataState != "missing")
-                fresh.matterMetadataState = "stale";
+            if (fresh.matter.read().endpoint < 0 && fresh.matter.read().metadataState == "missing" && current.matter.read().metadataState != "missing")
+                fresh.matter.ensure().metadataState = "stale";
             const time_t now = time(0);
-            const bool recentlyReported = current.matterEndpoint >= 0 && current.online && current.lastSeen > 0 &&
+            const bool recentlyReported = current.matter.read().endpoint >= 0 && current.online && current.lastSeen > 0 &&
                 now >= current.lastSeen && now - current.lastSeen <= 60;
             fresh.name = current.name;
-            if (current.matterState != fresh.matterState || current.matterNode != fresh.matterNode || current.matterEndpoint != fresh.matterEndpoint ||
-                current.matterServers != fresh.matterServers || current.matterClients != fresh.matterClients || current.matterDeviceTypes != fresh.matterDeviceTypes ||
-                current.manufacturerName != fresh.manufacturerName || current.modelId != fresh.modelId || current.matterRssiDbm != fresh.matterRssiDbm ||
-                current.kind != fresh.kind || current.hasRemote != fresh.hasRemote ||
-                current.name != fresh.name || current.hasLight != fresh.hasLight ||
-                current.hasBrightness != fresh.hasBrightness || current.hasActor != fresh.hasActor ||
-                current.hasContact != fresh.hasContact || current.hasWaterLeak != fresh.hasWaterLeak ||
-                current.hasTemperature != fresh.hasTemperature || current.hasHumidity != fresh.hasHumidity ||
-                current.hasAirQuality != fresh.hasAirQuality || current.hasCo2 != fresh.hasCo2 ||
-                current.hasPm25 != fresh.hasPm25) persistentChanged = true;
-            fresh.lightOn = current.lightOn;
-            fresh.lightKnown = current.lightKnown;
-            fresh.actorOn = current.actorOn;
-            fresh.actorKnown = current.actorKnown;
-            fresh.contactOpen = current.contactOpen;
-            fresh.contactKnown = current.contactKnown;
-            fresh.waterDetected = current.waterDetected;
-            fresh.waterLeakKnown = current.waterLeakKnown;
-            fresh.contactInitialAlertMinutes = current.contactInitialAlertMinutes;
-            fresh.contactReminderAlertMinutes = current.contactReminderAlertMinutes;
-            fresh.contactTriggerMode = current.contactTriggerMode;
-            fresh.contactTriggerCooldownSeconds = current.contactTriggerCooldownSeconds;
-            fresh.brightnessPercent = current.brightnessPercent;
-            fresh.brightnessKnown = current.brightnessKnown;
-            fresh.temperatureCelsius = current.temperatureCelsius;
-            fresh.temperatureKnown = current.temperatureKnown;
-            fresh.temperatureObservation = current.temperatureObservation;
-            fresh.thermostat = current.thermostat;
-            fresh.humidityPercent = current.humidityPercent;
-            fresh.humidityKnown = current.humidityKnown;
-            fresh.airQuality = current.airQuality;
-            fresh.airQualityKnown = current.airQualityKnown;
-            fresh.co2Ppm = current.co2Ppm;
-            fresh.co2Unit = current.co2Unit;
-            fresh.co2Known = current.co2Known;
-            fresh.pm25MicrogramsM3 = current.pm25MicrogramsM3;
-            fresh.pm25Unit = current.pm25Unit;
-            fresh.pm25Known = current.pm25Known;
-            fresh.hasBattery = current.hasBattery;
-            fresh.batteryPercent = current.batteryPercent;
+            if (current.matter.read().state != fresh.matter.read().state || current.matter.read().node != fresh.matter.read().node || current.matter.read().endpoint != fresh.matter.read().endpoint ||
+                current.matter.read().servers != fresh.matter.read().servers || current.matter.read().clients != fresh.matter.read().clients || current.matter.read().deviceTypes != fresh.matter.read().deviceTypes ||
+                current.manufacturerName != fresh.manufacturerName || current.modelId != fresh.modelId || current.matter.read().rssiDbm != fresh.matter.read().rssiDbm ||
+                current.kind != fresh.kind || current.remote.present() != fresh.remote.present() ||
+                current.name != fresh.name || current.light.present() != fresh.light.present() ||
+                current.brightness.present() != fresh.brightness.present() || current.actor.present() != fresh.actor.present() ||
+                current.contact.present() != fresh.contact.present() || current.waterLeak.present() != fresh.waterLeak.present() ||
+                current.temperature.present() != fresh.temperature.present() || current.humidity.present() != fresh.humidity.present() ||
+                current.airQuality.present() != fresh.airQuality.present() || current.co2.present() != fresh.co2.present() ||
+                current.pm25.present() != fresh.pm25.present()) persistentChanged = true;
+            // Discovery owns capability presence; copy values only into retained capabilities.
+            if(fresh.light.present())fresh.light.ensure()=current.light.read();
+            if(fresh.actor.present())fresh.actor.ensure()=current.actor.read();
+            if(fresh.contact.present())fresh.contact.ensure()=current.contact.read();
+            if(fresh.waterLeak.present())fresh.waterLeak.ensure()=current.waterLeak.read();
+            if(fresh.brightness.present())fresh.brightness.ensure()=current.brightness.read();
+            if(fresh.temperature.present())fresh.temperature.ensure()=current.temperature.read();
+            if(fresh.thermostat.present())fresh.thermostat.ensure()=current.thermostat.read();
+            if(fresh.humidity.present())fresh.humidity.ensure()=current.humidity.read();
+            if(fresh.airQuality.present())fresh.airQuality.ensure()=current.airQuality.read();
+            if(fresh.co2.present())fresh.co2.ensure()=current.co2.read();
+            if(fresh.pm25.present())fresh.pm25.ensure()=current.pm25.read();
+            fresh.contactInitialAlertMinutes=current.contactInitialAlertMinutes;
+            fresh.contactReminderAlertMinutes=current.contactReminderAlertMinutes;
+            fresh.contactTriggerMode=current.contactTriggerMode;
+            fresh.contactTriggerCooldownSeconds=current.contactTriggerCooldownSeconds;
+            fresh.thermostatSourceId=current.thermostatSourceId;
+            fresh.thermostatStaleMinutes=current.thermostatStaleMinutes;
+            if(std::find(fresh.matter.read().servers.begin(),fresh.matter.read().servers.end(),47U)!=fresh.matter.read().servers.end())fresh.battery=current.battery;
             if (recentlyReported) {
                 fresh.online = true;
                 fresh.lastSeen = current.lastSeen;
             }
             fresh.valueAlerts = current.valueAlerts;
             if (current.online != fresh.online || current.lastSeen != fresh.lastSeen ||
-                current.matterMetadataState != fresh.matterMetadataState || current.matterState != fresh.matterState || current.name != fresh.name || current.matterServers != fresh.matterServers ||
-                current.matterClients != fresh.matterClients) changed = true;
+                current.matter.read().metadataState != fresh.matter.read().metadataState || current.matter.read().state != fresh.matter.read().state || current.name != fresh.name || current.matter.read().servers != fresh.matter.read().servers ||
+                current.matter.read().clients != fresh.matter.read().clients) changed = true;
             current = fresh;
         }
     }
@@ -776,8 +753,8 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     }
     std::map<std::string, Device>::iterator target = devices_.end();
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end(); ++it) {
-        if (it->second.source == "matter" && it->second.matterNode == reading.node &&
-            it->second.matterEndpoint == static_cast<int>(reading.endpoint)) {
+        if (it->second.source == "matter" && it->second.matter.read().node == reading.node &&
+            it->second.matter.read().endpoint == static_cast<int>(reading.endpoint)) {
             if (target != devices_.end()) {
                 if (error) *error = "ambiguous Matter endpoint";
                 return false;
@@ -793,45 +770,45 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     Device before = device;
     if (reading.cluster == 513 && isThermostat(device)) {
         if (!(reading.thermostatValue.present?applyMatterThermostat(&device,reading.attribute,reading.thermostatValue.value,time(0)):applyMatterThermostat(&device,reading.attribute,reading.unit,reading.textValue,time(0)))) { *error="invalid thermostat report"; return false; }
-    } else if (reading.cluster == 6 && (device.hasLight || device.hasActor)) {
-        if (device.hasLight) { device.lightOn = reading.booleanValue; device.lightKnown = true; }
-        if (device.hasActor) { device.actorOn = reading.booleanValue; device.actorKnown = true; }
-    } else if (reading.cluster == 69 && device.hasWaterLeak) {
-        device.waterDetected = reading.booleanValue;
-        device.waterLeakKnown = reading.known;
-        device.contactOpen = reading.booleanValue;
-        device.contactKnown = reading.known;
-    } else if (reading.cluster == 69 && device.hasContact) {
+    } else if (reading.cluster == 6 && (device.light.present() || device.actor.present())) {
+        if (device.light.present()) { device.light.ensure().on = reading.booleanValue; device.light.ensure().known = true; }
+        if (device.actor.present()) { device.actor.ensure().on = reading.booleanValue; device.actor.ensure().known = true; }
+    } else if (reading.cluster == 69 && device.waterLeak.present()) {
+        device.waterLeak.ensure().detected = reading.booleanValue;
+        device.waterLeak.ensure().known = reading.known;
+        device.contact.ensure().open = reading.booleanValue;
+        device.contact.ensure().known = reading.known;
+    } else if (reading.cluster == 69 && device.contact.present()) {
         // Matter Boolean State defines true as contact made (closed).
-        device.contactOpen = !reading.booleanValue;
-        device.contactKnown = reading.known;
-    } else if (reading.cluster == 8 && device.hasBrightness) {
+        device.contact.ensure().open = !reading.booleanValue;
+        device.contact.ensure().known = reading.known;
+    } else if (reading.cluster == 8 && device.brightness.present()) {
         if (reading.known) {
-            device.brightnessPercent = static_cast<int>((reading.numberValue * 100.0 + 127.0) / 254.0);
-            device.brightnessKnown = true;
-        } else device.brightnessKnown = false;
-    } else if (reading.cluster == 1026 && device.hasTemperature) {
-        if (reading.known) device.temperatureCelsius = reading.numberValue;
-        device.temperatureKnown = reading.known;
-        device.temperatureObservation.at = reading.known ? time(0) : 0;
-    } else if (reading.cluster == 1029 && device.hasHumidity) {
-        if (reading.known) device.humidityPercent = reading.numberValue;
-        device.humidityKnown = reading.known;
-    } else if (reading.cluster == 91 && device.hasAirQuality) {
-        if (reading.known) device.airQuality = reading.textValue;
-        device.airQualityKnown = reading.known;
-    } else if (reading.cluster == 1037 && device.hasCo2) {
-        if (reading.known) device.co2Ppm = reading.numberValue;
-        device.co2Unit = reading.unit;
-        device.co2Known = reading.known;
-    } else if (reading.cluster == 1066 && device.hasPm25) {
-        if (reading.known) device.pm25MicrogramsM3 = reading.numberValue;
-        device.pm25Unit = reading.unit;
-        device.pm25Known = reading.known;
+            device.brightness.ensure().percent = static_cast<int>((reading.numberValue * 100.0 + 127.0) / 254.0);
+            device.brightness.ensure().known = true;
+        } else device.brightness.ensure().known = false;
+    } else if (reading.cluster == 1026 && device.temperature.present()) {
+        if (reading.known) device.temperature.ensure().celsius = reading.numberValue;
+        device.temperature.ensure().known = reading.known;
+        device.temperature.ensure().observation.at = reading.known ? time(0) : 0;
+    } else if (reading.cluster == 1029 && device.humidity.present()) {
+        if (reading.known) device.humidity.ensure().percent = reading.numberValue;
+        device.humidity.ensure().known = reading.known;
+    } else if (reading.cluster == 91 && device.airQuality.present()) {
+        if (reading.known) device.airQuality.ensure().value = reading.textValue;
+        device.airQuality.ensure().known = reading.known;
+    } else if (reading.cluster == 1037 && device.co2.present()) {
+        if (reading.known) device.co2.ensure().ppm = reading.numberValue;
+        device.co2.ensure().unit = reading.unit;
+        device.co2.ensure().known = reading.known;
+    } else if (reading.cluster == 1066 && device.pm25.present()) {
+        if (reading.known) device.pm25.ensure().microgramsM3 = reading.numberValue;
+        device.pm25.ensure().unit = reading.unit;
+        device.pm25.ensure().known = reading.known;
     } else if (reading.cluster == 47 &&
-               std::find(device.matterServers.begin(), device.matterServers.end(), 47U) != device.matterServers.end()) {
-        device.hasBattery = reading.known;
-        device.batteryPercent = reading.known ? static_cast<int>(reading.numberValue) / 2 : 0;
+               std::find(device.matter.read().servers.begin(), device.matter.read().servers.end(), 47U) != device.matter.read().servers.end()) {
+        device.battery.setPresent(reading.known);
+        if(reading.known)device.battery.ensure().percent=static_cast<int>(reading.numberValue)/2;
     } else {
         if (error) *error = "Matter reading is not advertised by endpoint";
         return false;
@@ -843,35 +820,35 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     unsigned char historyMetric=0;double historyNumber=reading.numberValue;
     std::string historyUnit=reading.unit;
     if(reading.known){
-        if(reading.cluster==69&&!device.hasWaterLeak){historyMetric=SensorHistory::Contact;historyNumber=reading.booleanValue?1:0;historyUnit.clear();}
-        else if(reading.cluster==513&&reading.attribute==0&&device.temperatureKnown){historyMetric=SensorHistory::Temperature;historyNumber=device.temperatureCelsius;historyUnit="celsius";}
+        if(reading.cluster==69&&!device.waterLeak.present()){historyMetric=SensorHistory::Contact;historyNumber=reading.booleanValue?1:0;historyUnit.clear();}
+        else if(reading.cluster==513&&reading.attribute==0&&device.temperature.read().known){historyMetric=SensorHistory::Temperature;historyNumber=device.temperature.read().celsius;historyUnit="celsius";}
         else if(reading.cluster==1026)historyMetric=SensorHistory::Temperature;
         else if(reading.cluster==1029)historyMetric=SensorHistory::Humidity;
-        else if(reading.cluster==91)history_.appendValue(device.externalId,SensorHistory::AirQuality,reading.textValue,"",time(0));
+        else if(reading.cluster==91)history_.appendValue(device.external.read().externalId,SensorHistory::AirQuality,reading.textValue,"",time(0));
         else if(reading.cluster==1037)historyMetric=SensorHistory::CarbonDioxide;
         else if(reading.cluster==1066)historyMetric=SensorHistory::Pm25;
-        else if(reading.cluster==47){historyMetric=SensorHistory::Battery;historyNumber=device.batteryPercent;historyUnit="percent";}
-        if(historyMetric)history_.appendNumeric(device.externalId,historyMetric,historyNumber,historyUnit,time(0));
+        else if(reading.cluster==47){historyMetric=SensorHistory::Battery;historyNumber=device.battery.read().percent;historyUnit="percent";}
+        if(historyMetric)history_.appendNumeric(device.external.read().externalId,historyMetric,historyNumber,historyUnit,time(0));
     }
     if (reading.cluster == 69 && reading.known &&
-        (!before.contactKnown || before.contactOpen != device.contactOpen)) {
-        updateContactAlert(device.ieeeAddress, before.contactOpen, before.contactKnown);
+        (!before.contact.read().known || before.contact.read().open != device.contact.read().open)) {
+        updateContactAlert(device.ieeeAddress, before.contact.read().open, before.contact.read().known);
     }
     updateValueAlerts(device, before);
-    automationReport(device, reading.cluster==1026?"temperature_celsius":reading.cluster==1029?"humidity_percent":reading.cluster==69?(device.hasWaterLeak?"water_detected":"contact_open"):reading.cluster==8?"brightness_percent":reading.cluster==6?(device.hasActor?"actor_on":"light_on"):reading.cluster==47?"battery_percent":reading.cluster==91?"air_quality":reading.cluster==1037?"co2_ppm":reading.cluster==1066?"pm25_micrograms_m3":"temperature_celsius");
+    automationReport(device, reading.cluster==1026?"temperature_celsius":reading.cluster==1029?"humidity_percent":reading.cluster==69?(device.waterLeak.present()?"water_detected":"contact_open"):reading.cluster==8?"brightness_percent":reading.cluster==6?(device.actor.present()?"actor_on":"light_on"):reading.cluster==47?"battery_percent":reading.cluster==91?"air_quality":reading.cluster==1037?"co2_ppm":reading.cluster==1066?"pm25_micrograms_m3":"temperature_celsius");
     markDeviceDirty(device.ieeeAddress);
-    bool volatileChanged = before.lightKnown != device.lightKnown || before.lightOn != device.lightOn ||
-        before.actorKnown != device.actorKnown || before.actorOn != device.actorOn ||
-        before.contactKnown != device.contactKnown || before.contactOpen != device.contactOpen ||
-        before.waterLeakKnown != device.waterLeakKnown || before.waterDetected != device.waterDetected ||
-        before.brightnessKnown != device.brightnessKnown || before.brightnessPercent != device.brightnessPercent ||
-        before.temperatureKnown != device.temperatureKnown || before.temperatureCelsius != device.temperatureCelsius ||
-        before.humidityKnown != device.humidityKnown || before.humidityPercent != device.humidityPercent ||
-        before.airQualityKnown != device.airQualityKnown || before.airQuality != device.airQuality ||
-        before.co2Known != device.co2Known || before.co2Ppm != device.co2Ppm || before.co2Unit != device.co2Unit ||
-        before.pm25Known != device.pm25Known || before.pm25MicrogramsM3 != device.pm25MicrogramsM3 ||
-        before.pm25Unit != device.pm25Unit ||
-        before.hasBattery != device.hasBattery || before.batteryPercent != device.batteryPercent;
+    bool volatileChanged = before.light.read().known != device.light.read().known || before.light.read().on != device.light.read().on ||
+        before.actor.read().known != device.actor.read().known || before.actor.read().on != device.actor.read().on ||
+        before.contact.read().known != device.contact.read().known || before.contact.read().open != device.contact.read().open ||
+        before.waterLeak.read().known != device.waterLeak.read().known || before.waterLeak.read().detected != device.waterLeak.read().detected ||
+        before.brightness.read().known != device.brightness.read().known || before.brightness.read().percent != device.brightness.read().percent ||
+        before.temperature.read().known != device.temperature.read().known || before.temperature.read().celsius != device.temperature.read().celsius ||
+        before.humidity.read().known != device.humidity.read().known || before.humidity.read().percent != device.humidity.read().percent ||
+        before.airQuality.read().known != device.airQuality.read().known || before.airQuality.read().value != device.airQuality.read().value ||
+        before.co2.read().known != device.co2.read().known || before.co2.read().ppm != device.co2.read().ppm || before.co2.read().unit != device.co2.read().unit ||
+        before.pm25.read().known != device.pm25.read().known || before.pm25.read().microgramsM3 != device.pm25.read().microgramsM3 ||
+        before.pm25.read().unit != device.pm25.read().unit ||
+        before.battery.present() != device.battery.present() || before.battery.read().percent != device.battery.read().percent;
     if (volatileChanged) saveState(device.ieeeAddress);
     return true;
 }
@@ -884,8 +861,8 @@ bool Gateway::applyMatterButtonEvent(const MatterButtonEvent& event, std::string
         return false;
     }
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end(); ++it) {
-        if (it->second.source != "matter" || it->second.matterNode != event.node ||
-            it->second.matterEndpoint != static_cast<int>(event.endpoint) || !it->second.hasRemote) continue;
+        if (it->second.source != "matter" || it->second.matter.read().node != event.node ||
+            it->second.matter.read().endpoint != static_cast<int>(event.endpoint) || !it->second.remote.present()) continue;
         it->second.lastSeen = time(0);
         it->second.online = true;
         if (!logMatterButtonEvent(event)) {
@@ -913,8 +890,8 @@ bool Gateway::logMatterButtonEvent(const MatterButtonEvent& event) {
     }
     std::map<std::string, Device>::const_iterator device = devices_.end();
     for (std::map<std::string, Device>::const_iterator it = devices_.begin(); it != devices_.end(); ++it) {
-        if (it->second.source == "matter" && it->second.matterNode == event.node &&
-            it->second.matterEndpoint == static_cast<int>(event.endpoint) && it->second.hasRemote) {
+        if (it->second.source == "matter" && it->second.matter.read().node == event.node &&
+            it->second.matter.read().endpoint == static_cast<int>(event.endpoint) && it->second.remote.present()) {
             device = it;
             break;
         }
@@ -936,7 +913,7 @@ bool Gateway::reconcileFritzClients(const std::vector<std::string>& ids, std::st
     (void)error;
     bool changed = false;
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end();) {
-        if (it->second.source == "fritz_box" && std::find(ids.begin(), ids.end(), it->second.externalId) == ids.end()) {
+        if (it->second.source == "fritz_box" && std::find(ids.begin(), ids.end(), it->second.external.read().externalId) == ids.end()) {
             devices_.erase(it++); changed = true;
         } else ++it;
     }
@@ -950,43 +927,43 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, int channelInd
     if (!*component) { *error = "invalid Shelly event"; return false; }
     std::map<std::string, Device>::iterator it = devices_.find(shellyAddress(id, component, channelIndex));
     if (metric == 3 && it == devices_.end()) it = devices_.find(shellyAddress(id, "plug", 0));
-    if (it == devices_.end() || it->second.source != "shelly" || it->second.externalId != id) {
+    if (it == devices_.end() || it->second.source != "shelly" || it->second.external.read().externalId != id) {
         *error = "unknown Shelly device"; return false;
     }
     Device& d = it->second;
-    if ((metric == 1 && !d.hasContact) || (metric == 2 && !d.hasTemperature) ||
-        (metric == 3 && !d.hasActor) || (metric == 4 && !d.hasPower)) {
+    if ((metric == 1 && !d.contact.present()) || (metric == 2 && !d.temperature.present()) ||
+        (metric == 3 && !d.actor.present()) || (metric == 4 && !d.power.present())) {
         *error = "Shelly capability is unavailable"; return false;
     }
     const long now = time(0);
     if (metric == 1 || metric == 3) {
         if (value != 0 && value != 1) { *error = "invalid Shelly state"; return false; }
         if (metric == 1) {
-            const bool hadKnownState = d.contactKnown;
-            const bool wasOpen = d.contactKnown && d.contactOpen;
-            const bool changed = !d.contactKnown || d.contactOpen != (value != 0);
-            d.contactOpen = value != 0; d.contactKnown = true;
+            const bool hadKnownState = d.contact.read().known;
+            const bool wasOpen = d.contact.read().known && d.contact.read().open;
+            const bool changed = !d.contact.read().known || d.contact.read().open != (value != 0);
+            d.contact.ensure().open = value != 0; d.contact.ensure().known = true;
             if (changed) {
-                history_.appendNumeric("shelly:"+d.externalId+":"+d.component,SensorHistory::Contact,d.contactOpen?1:0,"",now);
+                history_.appendNumeric("shelly:"+d.external.read().externalId+":"+d.external.read().component,SensorHistory::Contact,d.contact.read().open?1:0,"",now);
                 updateContactAlert(d.ieeeAddress, wasOpen, hadKnownState);
             }
         } else {
-            d.actorOn = value != 0; d.actorKnown = true;
+            d.actor.ensure().on = value != 0; d.actor.ensure().known = true;
         }
     } else if (metric == 2) {
         Device before = d;
         if (value < -100 || value > 200) { *error = "invalid Shelly temperature"; return false; }
-        bool known = d.temperatureKnown;
-        double previous = d.temperatureCelsius;
-        d.temperatureCelsius = value; d.temperatureKnown = true; d.temperatureObservation.at = now;
-        history_.appendNumeric("shelly:" + d.externalId + ":" + d.component,SensorHistory::Temperature,value,"celsius",now);
+        bool known = d.temperature.read().known;
+        double previous = d.temperature.read().celsius;
+        d.temperature.ensure().celsius = value; d.temperature.ensure().known = true; d.temperature.ensure().observation.at = now;
+        history_.appendNumeric("shelly:" + d.external.read().externalId + ":" + d.external.read().component,SensorHistory::Temperature,value,"celsius",now);
         updateTemperatureAlert(d, known, previous);
         updateValueAlerts(d, before);
     } else {
         Device before = d;
         if (value < 0 || value > 6553.5) { *error = "invalid Shelly power"; return false; }
-        d.powerWatts = value; d.powerKnown = true;
-        history_.appendNumeric("shelly:" + d.externalId + ":" + d.component,SensorHistory::Power,value,"watts",now);
+        d.power.ensure().watts = value; d.power.ensure().known = true;
+        history_.appendNumeric("shelly:" + d.external.read().externalId + ":" + d.external.read().component,SensorHistory::Power,value,"watts",now);
         updateValueAlerts(d, before);
     }
     d.lastSeen = now;
@@ -1002,13 +979,13 @@ bool Gateway::applyShellyEvent(const std::string& id, int metric, double value, 
 bool Gateway::applyFritzEvent(const std::string& id, bool connected, bool hasSignal, int signalPercent, std::string* error) {
     std::map<std::string, Device>::iterator it;
     for (it = devices_.begin(); it != devices_.end(); ++it)
-        if (it->second.source == "fritz_box" && it->second.externalId == id) break;
+        if (it->second.source == "fritz_box" && it->second.external.read().externalId == id) break;
     if (it == devices_.end()) { *error = "unknown Fritz!Box client"; return false; }
     if (hasSignal && (signalPercent < 0 || signalPercent > 100)) { *error = "invalid Wi-Fi signal strength"; return false; }
     Device before = it->second;
-    it->second.occupied = connected;
-    it->second.hasWifiSignal = hasSignal;
-    if (hasSignal) it->second.wifiSignalPercent = signalPercent;
+    it->second.occupancy.ensure().occupied = connected;
+    it->second.wifiSignal.setPresent(hasSignal);
+    if (hasSignal) it->second.wifiSignal.ensure().percent = signalPercent;
     /* =====================================================================
      * PRIVACY: WI-FI PRESENCE DEVICES GET NO HISTORY.
      * Connection changes reveal people's arrivals, departures and routines.
@@ -1024,13 +1001,13 @@ bool Gateway::applyFritzEvent(const std::string& id, bool connected, bool hasSig
 
 bool Gateway::setActorState(const std::string& address, bool on, std::string* error) {
     std::map<std::string, Device>::const_iterator it = devices_.find(address);
-    if (it == devices_.end() || it->second.source != "shelly" || !it->second.hasActor || shellyTransport_ == 0) {
+    if (it == devices_.end() || it->second.source != "shelly" || !it->second.actor.present() || shellyTransport_ == 0) {
         *error = "actor is unavailable"; return false;
     }
     int relayIndex = 0;
-    std::string::size_type colon = it->second.component.find(':');
-    if (colon != std::string::npos) relayIndex = atoi(it->second.component.c_str() + colon + 1);
-    return shellyTransport_->setActor(it->second.externalId, relayIndex, on, error);
+    std::string::size_type colon = it->second.external.read().component.find(':');
+    if (colon != std::string::npos) relayIndex = atoi(it->second.external.read().component.c_str() + colon + 1);
+    return shellyTransport_->setActor(it->second.external.read().externalId, relayIndex, on, error);
 }
 
 bool Gateway::configureSerial(std::string* error) {
@@ -1358,8 +1335,8 @@ void Gateway::pollZiggurat() {
                 Device& device = devices_[known->second];
                 // LSB-first flags: bit 1 is rejoin; reason 0 is an explicit NWK announcement.
                 // Router reports and keepalive expiry do not establish loss of configuration.
-                if (b[11] == 0 && (b[2] & 2) == 0) device.configuredSignature.clear();
-                device.networkAddress=0xffff;
+                if (b[11] == 0 && (b[2] & 2) == 0) device.zigbee.ensure().configuredSignature.clear();
+                device.zigbee.ensure().networkAddress=0xffff;
                 nodeAddresses_.erase(known);
             }
             if (b[11] == 0 && (b[2] & 2) == 0) {
@@ -1524,7 +1501,7 @@ void Gateway::poll() {
         if (nodeAddresses_.find(node) != nodeAddresses_.end()) {
             const Device& device = devices_[nodeAddresses_[node]];
             if (isThermostat(device)) queueThermostatReadings(device);
-            if (device.configuredSignature != deviceConfigurationSignature(device)) {
+            if (device.zigbee.read().configuredSignature != deviceConfigurationSignature(device)) {
                 startInterview(node, false);
                 addLog("Queued missing or changed device reporting setup");
             }
@@ -1577,7 +1554,7 @@ void Gateway::poll() {
     long now = time(0);
     for (alert = nextContactAlertAt_.begin(); alert != nextContactAlertAt_.end(); ++alert) {
         std::map<std::string, Device>::const_iterator device = devices_.find(alert->first);
-        if (device != devices_.end() && device->second.contactOpen && now >= alert->second) {
+        if (device != devices_.end() && device->second.contact.read().open && now >= alert->second) {
             emitStateNotification("Window open", device->second.name.empty() ? device->second.ieeeAddress : device->second.name,
                                   "contact:" + device->second.ieeeAddress + ":window", false, 0);
             alert->second = now + static_cast<long>(device->second.contactReminderAlertMinutes * 60);
@@ -1624,7 +1601,7 @@ bool Gateway::hasImmediateWork() const {
              scene != sceneProvisioning_.end(); ++scene) {
             std::map<std::string, Device>::const_iterator device = devices_.find(scene->first);
             if (!scene->second.waitingForTraffic && scene->second.index < scene->second.commands.size() &&
-                device != devices_.end() && device->second.networkAddress != 0xffff) return true;
+                device != devices_.end() && device->second.zigbee.read().networkAddress != 0xffff) return true;
         }
     }
     for (unsigned long i = 0; i < nativeBindOperations_.size(); ++i) {
@@ -1633,7 +1610,7 @@ bool Gateway::hasImmediateWork() const {
         std::map<std::string, std::string>::const_iterator state = nativeBindingStates_.find(operation.ieeeAddress);
         if (operation.retryAt <= time(0) && state != nativeBindingStates_.end() &&
             state->second.find("failed") != 0 && device != devices_.end() &&
-            device->second.networkAddress != 0xffff &&
+            device->second.zigbee.read().networkAddress != 0xffff &&
             (operation.destinationMode == 1 || !operation.targetIeee.empty() || coordinatorIeeeAddress_.size() == 8))
             return true;
     }
@@ -1672,7 +1649,7 @@ void Gateway::resetInactiveDeadlines() {
          timer != nextContactAlertAt_.end();) {
         std::map<std::string, long>::iterator current = timer++;
         std::map<std::string, Device>::const_iterator device = devices_.find(current->first);
-        if (device == devices_.end() || !device->second.hasContact || !device->second.contactOpen ||
+        if (device == devices_.end() || !device->second.contact.present() || !device->second.contact.read().open ||
             device->second.contactTriggerMode || device->second.contactReminderAlertMinutes == 0) {
             resetInactiveDeadline(&current->second, "contact_alert " + current->first);
             contactOpenedAt_.erase(current->first);
@@ -1689,7 +1666,7 @@ void Gateway::resetInactiveDeadlines() {
          pending != sceneProvisioning_.end(); ++pending) {
         std::map<std::string, Device>::const_iterator device = devices_.find(pending->first);
         if (pending->second.waitingForTraffic || pending->second.index >= pending->second.commands.size() ||
-            device == devices_.end() || device->second.networkAddress == 0xffff)
+            device == devices_.end() || device->second.zigbee.read().networkAddress == 0xffff)
             resetInactiveDeadline(&pending->second.deadline, "scene_provisioning " + pending->first);
     }
     for (std::map<unsigned short, SceneRetry>::iterator scene = sceneRetries_.begin(); scene != sceneRetries_.end();) {
@@ -1939,14 +1916,14 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
         *error = "device name must be between 1 and 64 characters";
         return false;
     }
-    if (it->second.hasTemperature &&
+    if (it->second.temperature.present() &&
         ((hasLow && (low != low || low < -100 || low > 200)) ||
          (hasHigh && (high != high || high < -100 || high > 200)) ||
          (hasLow && hasHigh && low >= high))) {
         *error = "invalid temperature thresholds";
         return false;
     }
-    if (it->second.hasContact) {
+    if (it->second.contact.present()) {
         long now = time(0);
         if (!hasContactTimings || initialAlertMinutes == 0 || reminderAlertMinutes == 0 ||
             initialAlertMinutes > static_cast<unsigned long>((LONG_MAX - now) / 60) ||
@@ -1955,23 +1932,23 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
             return false;
         }
     }
-    if (it->second.hasContact && hasContactTriggerSettings &&
+    if (it->second.contact.present() && hasContactTriggerSettings &&
         (contactTriggerCooldownSeconds == 0 || contactTriggerCooldownSeconds > static_cast<unsigned long>(LONG_MAX - time(0)))) {
         *error = "invalid contact trigger cooldown";
         return false;
     }
-    if (hasSensorRefreshInterval && (it->second.source == "shelly" || (!it->second.hasTemperature && !it->second.hasHumidity))) {
+    if (hasSensorRefreshInterval && (it->second.source == "shelly" || (!it->second.temperature.present() && !it->second.humidity.present()))) {
         *error = "sensor refresh interval applies only to measurement devices";
         return false;
     }
     it->second.name = name;
-    if (it->second.hasTemperature) {
+    if (it->second.temperature.present()) {
         it->second.hasLowTemperatureAlert = hasLow;
         it->second.lowTemperatureAlert = low;
         it->second.hasHighTemperatureAlert = hasHigh;
         it->second.highTemperatureAlert = high;
     }
-    if (it->second.hasContact) {
+    if (it->second.contact.present()) {
         long now = time(0);
         it->second.contactInitialAlertMinutes = initialAlertMinutes;
         it->second.contactReminderAlertMinutes = reminderAlertMinutes;
@@ -1983,7 +1960,7 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
         if (it->second.contactTriggerMode) {
             contactOpenedAt_.erase(ieeeAddress);
             nextContactAlertAt_.erase(ieeeAddress);
-        } else if (it->second.contactOpen) {
+        } else if (it->second.contact.read().open) {
             long openedAt = contactOpenedAt_.count(ieeeAddress) ? contactOpenedAt_[ieeeAddress] : now;
             long dueAt = openedAt + static_cast<long>(initialAlertMinutes * 60);
             contactOpenedAt_[ieeeAddress] = openedAt;
@@ -1992,8 +1969,8 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
     }
     if (hasSensorRefreshInterval) {
         it->second.sensorRefreshIntervalMinutes = sensorRefreshIntervalMinutes;
-        if (sensorRefreshIntervalMinutes == 0) nextSensorRefreshAt_.erase(it->second.networkAddress);
-        else nextSensorRefreshAt_[it->second.networkAddress] = sensorRefreshDeadline(time(0), sensorRefreshIntervalMinutes);
+        if (sensorRefreshIntervalMinutes == 0) nextSensorRefreshAt_.erase(it->second.zigbee.read().networkAddress);
+        else nextSensorRefreshAt_[it->second.zigbee.read().networkAddress] = sensorRefreshDeadline(time(0), sensorRefreshIntervalMinutes);
     }
     saveState(it->second.ieeeAddress);
     savePersistentState();
@@ -2020,7 +1997,7 @@ bool Gateway::setDeviceValueAlerts(const std::string& ieeeAddress,
             *error = std::string("invalid ") + names[i] + " alert limits"; return false;
         }
         const bool concentrationAlert = i == 7 || i == 8;
-        const std::string& currentUnit = i == 7 ? device.co2Unit : device.pm25Unit;
+        const std::string& currentUnit = i == 7 ? device.co2.read().unit : device.pm25.read().unit;
         static const char* const concentrationUnits[] = {"ppm", "ppb", "ppt", "mg/m3", "ug/m3",
             "ng/m3", "particles/m3", "Bq/m3", "dB/m", "particles/ft3"};
         bool supportedUnit = false;
@@ -2031,10 +2008,10 @@ bool Gateway::setDeviceValueAlerts(const std::string& ieeeAddress,
             *error = std::string("alert unit must match the current ") + names[i] + " measurement";
             return false;
         }
-        if ((i == 0 && !device.hasTemperature) || (i == 1 && !device.hasHumidity) ||
-            (i == 2 && !device.hasBattery) || (i == 3 && device.source != "zigbee") ||
-            (i == 4 && !device.hasWifiSignal) || (i == 5 && !device.hasBrightness) ||
-            (i == 6 && !device.hasPower) || (i == 7 && !device.hasCo2) || (i == 8 && !device.hasPm25)) {
+        if ((i == 0 && !device.temperature.present()) || (i == 1 && !device.humidity.present()) ||
+            (i == 2 && !device.battery.present()) || (i == 3 && device.source != "zigbee") ||
+            (i == 4 && !device.wifiSignal.present()) || (i == 5 && !device.brightness.present()) ||
+            (i == 6 && !device.power.present()) || (i == 7 && !device.co2.present()) || (i == 8 && !device.pm25.present())) {
             if (alert.hasLow || alert.hasHigh || alert.hysteresis != 0) {
                 *error = std::string("alert limits unavailable for ") + names[i]; return false;
             }
@@ -2057,25 +2034,25 @@ bool Gateway::setDeviceValueAlerts(const std::string& ieeeAddress,
 bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) {
     std::map<std::string, Device>::const_iterator device = devices_.find(resolveDeviceId(ieeeAddress));
     if (device == devices_.end()) { *error = "device is unknown"; return false; }
-    if (device->second.source == "shelly") return shellyTransport_ != 0 && shellyTransport_->refresh(device->second.externalId, error);
-    if (device->second.source == "fritz_box") return shellyTransport_ != 0 && shellyTransport_->refreshFritzBox(device->second.externalId, error);
+    if (device->second.source == "shelly") return shellyTransport_ != 0 && shellyTransport_->refresh(device->second.external.read().externalId, error);
+    if (device->second.source == "fritz_box") return shellyTransport_ != 0 && shellyTransport_->refreshFritzBox(device->second.external.read().externalId, error);
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
         *error = "Zigbee network is not ready";
         addLog(std::string("Manual refresh rejected; Zigbee network not ready: ") + ieeeAddress);
         return false;
     }
-    if (device->second.networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
-    std::map<unsigned short, InterviewState>::const_iterator interview = interviews_.find(device->second.networkAddress);
+    if (device->second.zigbee.read().networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
+    std::map<unsigned short, InterviewState>::const_iterator interview = interviews_.find(device->second.zigbee.read().networkAddress);
     if (interview != interviews_.end() && !interview->second.paused) {
         *error = "device interview is already in progress";
         addLog(std::string("Manual refresh rejected; interview is busy: ") + ieeeAddress);
         return false;
     }
-    if (!device->second.hasRemote && !device->second.endpoints.empty()) {
+    if (!device->second.remote.present() && !device->second.zigbee.read().endpoints.empty()) {
         bool readable = false;
         unsigned long endpoint;
-        for (endpoint = 0; endpoint < device->second.endpoints.size(); ++endpoint) {
-            const EndpointDescriptor& descriptor = device->second.endpoints[endpoint];
+        for (endpoint = 0; endpoint < device->second.zigbee.read().endpoints.size(); ++endpoint) {
+            const EndpointDescriptor& descriptor = device->second.zigbee.read().endpoints[endpoint];
             if (endpointSupports(descriptor, 0x0402) || endpointSupports(descriptor, 0x0405) ||
                 endpointSupports(descriptor, 0x0001) || endpointSupports(descriptor, 0x0006) ||
                 endpointSupports(descriptor, 0x0008)) readable = true;
@@ -2089,18 +2066,18 @@ bool Gateway::refreshDevice(const std::string& ieeeAddress, std::string* error) 
     /* A remote needs a full interview so its output command clusters are
        bound to the coordinator.  Measurement devices only need their
        persisted endpoints refreshed. */
-    startInterview(device->second.networkAddress, !device->second.hasRemote, true, device->second.hasRemote);
-    if (!sensorRefreshEligible(device->second.networkAddress)) nextSensorRefreshAt_.erase(device->second.networkAddress);
-    else nextSensorRefreshAt_[device->second.networkAddress] =
+    startInterview(device->second.zigbee.read().networkAddress, !device->second.remote.present(), true, device->second.remote.present());
+    if (!sensorRefreshEligible(device->second.zigbee.read().networkAddress)) nextSensorRefreshAt_.erase(device->second.zigbee.read().networkAddress);
+    else nextSensorRefreshAt_[device->second.zigbee.read().networkAddress] =
         sensorRefreshDeadline(time(0), device->second.sensorRefreshIntervalMinutes);
-    addLog(std::string(device->second.hasRemote ? "Manual remote configuration queued: " :
+    addLog(std::string(device->second.remote.present() ? "Manual remote configuration queued: " :
                        "Manual attribute refresh queued: ") + ieeeAddress);
     return true;
 }
 
 bool Gateway::endpointForCluster(const Device& device, unsigned short cluster, unsigned char* endpoint) const {
-    for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
-        if (endpointSupports(device.endpoints[i], cluster)) { *endpoint = device.endpoints[i].endpoint; return true; }
+    for (unsigned long i = 0; i < device.zigbee.read().endpoints.size(); ++i) {
+        if (endpointSupports(device.zigbee.read().endpoints[i], cluster)) { *endpoint = device.zigbee.read().endpoints[i].endpoint; return true; }
     }
     return false;
 }
@@ -2111,11 +2088,11 @@ bool Gateway::identifyDevice(const std::string& ieeeAddress, std::string* error)
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
         *error = "Zigbee network is not ready"; return false;
     }
-    if (found->second.networkAddress == 0xffff) {
+    if (found->second.zigbee.read().networkAddress == 0xffff) {
         *error = "device has no active network address"; return false;
     }
-    for (unsigned long i = 0; i < found->second.endpoints.size(); ++i) {
-        const EndpointDescriptor& descriptor = found->second.endpoints[i];
+    for (unsigned long i = 0; i < found->second.zigbee.read().endpoints.size(); ++i) {
+        const EndpointDescriptor& descriptor = found->second.zigbee.read().endpoints[i];
         if (std::find(descriptor.inputClusters.begin(), descriptor.inputClusters.end(), 0x0003) ==
             descriptor.inputClusters.end()) continue;
         std::vector<unsigned char> message;
@@ -2123,7 +2100,7 @@ bool Gateway::identifyDevice(const std::string& ieeeAddress, std::string* error)
         message.push_back(++zclTransactionSequence_);
         message.push_back(0x00); /* Identify command */
         message.push_back(5); message.push_back(0); /* five seconds, little endian */
-        sendApsUnicast(found->second.networkAddress, descriptor.profileId, 0x0003,
+        sendApsUnicast(found->second.zigbee.read().networkAddress, descriptor.profileId, 0x0003,
                        kCoordinatorEndpoint, descriptor.endpoint, message);
         addLog(std::string("Identify command queued: ") + ieeeAddress);
         return true;
@@ -2138,7 +2115,7 @@ bool Gateway::queryDeviceConfiguration(const std::string& ieeeAddress, std::stri
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
         *error = "Zigbee network is not ready"; return false;
     }
-    if (device->second.networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
+    if (device->second.zigbee.read().networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
     if (deviceConfigurationQueries_.count(ieeeAddress)) { *error = "configuration query is already in progress"; return false; }
 
     DeviceConfigurationStatus& status = deviceConfigurations_[ieeeAddress];
@@ -2151,16 +2128,16 @@ bool Gateway::queryDeviceConfiguration(const std::string& ieeeAddress, std::stri
     query.nodeDescriptorDeadline = time(0) + 20;
     std::vector<unsigned char> descriptorRequest;
     descriptorRequest.push_back(query.nodeDescriptorSequence);
-    descriptorRequest.push_back(static_cast<unsigned char>(device->second.networkAddress));
-    descriptorRequest.push_back(static_cast<unsigned char>(device->second.networkAddress >> 8));
-    sendApsUnicast(device->second.networkAddress, 0x0000, 0x0002, 0, 0, descriptorRequest);
+    descriptorRequest.push_back(static_cast<unsigned char>(device->second.zigbee.read().networkAddress));
+    descriptorRequest.push_back(static_cast<unsigned char>(device->second.zigbee.read().networkAddress >> 8));
+    sendApsUnicast(device->second.zigbee.read().networkAddress, 0x0000, 0x0002, 0, 0, descriptorRequest);
 
     query.bindingsSequence = zdoSequence_++;
     query.bindingsDeadline = time(0) + 20;
     std::vector<unsigned char> bindRequest;
     bindRequest.push_back(query.bindingsSequence);
     bindRequest.push_back(0); /* start index */
-    sendApsUnicast(device->second.networkAddress, 0x0000, 0x0033, 0, 0, bindRequest);
+    sendApsUnicast(device->second.zigbee.read().networkAddress, 0x0000, 0x0033, 0, 0, bindRequest);
 
     unsigned char endpoint = 0;
     if (endpointForCluster(device->second, kGroupsCluster, &endpoint)) {
@@ -2172,7 +2149,7 @@ bool Gateway::queryDeviceConfiguration(const std::string& ieeeAddress, std::stri
         request.push_back(query.groupsSequence);
         request.push_back(0x02); /* Get Group Membership */
         request.push_back(0); /* capacity: request all groups */
-        sendApsUnicast(device->second.networkAddress, kHomeAutomationProfile, kGroupsCluster,
+        sendApsUnicast(device->second.zigbee.read().networkAddress, kHomeAutomationProfile, kGroupsCluster,
                        kCoordinatorEndpoint, endpoint, request);
     } else {
         status.groupsStatus = "unsupported: no Groups server endpoint";
@@ -2198,9 +2175,9 @@ bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& s
     AUTOMATION_PROFILE("coord.light");
     std::map<std::string, Device>::iterator found = devices_.find(resolveDeviceId(ieeeAddress));
     unsigned char endpoint;
-    if (found == devices_.end() || !found->second.hasLight) { *error = "device is not a light"; return false; }
+    if (found == devices_.end() || !found->second.light.present()) { *error = "device is not a light"; return false; }
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
-    if (found->second.networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
+    if (found->second.zigbee.read().networkAddress == 0xffff) { *error = "device has no active network address"; return false; }
     if (brightnessPercent >= 0) {
         if (brightnessPercent > 100 || !endpointForCluster(found->second, kLevelCluster, &endpoint)) {
             *error = "brightness is unavailable for this light"; return false;
@@ -2208,11 +2185,11 @@ bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& s
         std::vector<unsigned char> arguments;
         unsigned int level = static_cast<unsigned int>((brightnessPercent * 254 + 50) / 100);
         arguments.push_back(static_cast<unsigned char>(level)); arguments.push_back(0); arguments.push_back(0);
-        sendZclLightCommand(found->second.networkAddress, endpoint, kLevelCluster,
+        sendZclLightCommand(found->second.zigbee.read().networkAddress, endpoint, kLevelCluster,
                             kLevelMoveToLevelWithOnOff, arguments);
-        found->second.hasBrightness = true;
-        found->second.brightnessPercent = brightnessPercent;
-        found->second.lightOn = brightnessPercent != 0;
+        found->second.brightness.setPresent(true);
+        found->second.brightness.ensure().percent = brightnessPercent;
+        found->second.light.ensure().on = brightnessPercent != 0;
         saveState(found->second.ieeeAddress);
         addLog(std::string("Light brightness command queued: ") + ieeeAddress);
         return true;
@@ -2223,9 +2200,9 @@ bool Gateway::setLightState(const std::string& ieeeAddress, const std::string& s
     else if (state == "on") command = kOnOffOn;
     else if (state == "toggle") command = kOnOffToggle;
     else { *error = "invalid light state"; return false; }
-    sendZclLightCommand(found->second.networkAddress, endpoint, kOnOffCluster, command, std::vector<unsigned char>());
-    if (state == "toggle") found->second.lightOn = !found->second.lightOn;
-    else found->second.lightOn = state == "on";
+    sendZclLightCommand(found->second.zigbee.read().networkAddress, endpoint, kOnOffCluster, command, std::vector<unsigned char>());
+    if (state == "toggle") found->second.light.ensure().on = !found->second.light.read().on;
+    else found->second.light.ensure().on = state == "on";
     saveState(found->second.ieeeAddress);
     addLog(std::string("Light power command queued: ") + ieeeAddress + " " + state);
     return true;
@@ -2306,7 +2283,7 @@ void Gateway::pollSceneProvisioning() {
         SceneProvisionState& pending = it->second;
         std::map<std::string, Device>::const_iterator device = devices_.find(it->first);
         if (pending.waitingForTraffic || pending.index >= pending.commands.size() ||
-            device == devices_.end() || device->second.networkAddress == 0xffff) continue;
+            device == devices_.end() || device->second.zigbee.read().networkAddress == 0xffff) continue;
         SceneProvisionCommand& command = pending.commands[pending.index];
         std::vector<unsigned char> message;
         message.push_back(kZclClusterCommandNoDefaultResponse);
@@ -2314,7 +2291,7 @@ void Gateway::pollSceneProvisioning() {
         message.push_back(command.transaction);
         message.insert(message.end(), command.payload.begin(), command.payload.end());
         pending.deadline = now + 10;
-        sendApsUnicast(device->second.networkAddress, kHomeAutomationProfile, command.cluster,
+        sendApsUnicast(device->second.zigbee.read().networkAddress, kHomeAutomationProfile, command.cluster,
                        kCoordinatorEndpoint, command.endpoint, message);
         return;
     }
@@ -2416,7 +2393,7 @@ bool Gateway::sendSceneRetry(unsigned short groupId, SceneRetry* retry) {
     } else {
         for (unsigned long i = 0; i < scene->states.size(); ++i) {
             std::map<std::string, Device>::const_iterator device = devices_.find(scene->states[i].ieeeAddress);
-            if (device == devices_.end() || device->second.networkAddress == 0xffff) {
+            if (device == devices_.end() || device->second.zigbee.read().networkAddress == 0xffff) {
                 addLog("Scene retry waiting for unavailable member");
                 return false;
             }
@@ -2452,9 +2429,9 @@ bool Gateway::sendSceneRetry(unsigned short groupId, SceneRetry* retry) {
                 if (scene->states[i].ieeeAddress == device->first)
                     native = sceneMemberNative(device->second, *scene, scene->states[i]);
             if (!native) continue; /* handled by completeSceneRetry */
-            if (device->second.networkAddress == 0xffff ||
+            if (device->second.zigbee.read().networkAddress == 0xffff ||
                 !endpointForCluster(device->second, retry->off ? kOnOffCluster : kScenesCluster, &endpoint)) return false;
-            retry->ezspSequence = sendApsUnicast(device->second.networkAddress, kHomeAutomationProfile,
+            retry->ezspSequence = sendApsUnicast(device->second.zigbee.read().networkAddress, kHomeAutomationProfile,
                 retry->off ? kOnOffCluster : kScenesCluster, kCoordinatorEndpoint, endpoint, message);
             retry->inFlight = true;
             retry->sentAt = time(0);
@@ -2624,7 +2601,7 @@ void Gateway::queueNativeBindingChanges(const std::vector<NativeRemoteBinding>& 
             else ++i;
         }
         std::map<std::string, Device>::const_iterator remote = devices_.find(*name);
-        if (remote == devices_.end() || remote->second.endpoints.empty()) {
+        if (remote == devices_.end() || remote->second.zigbee.read().endpoints.empty()) {
             nativeBindingStates_[*name] = "pending: remote interview required";
             markViewDirty();
             continue;
@@ -2637,8 +2614,8 @@ void Gateway::queueNativeBindingChanges(const std::vector<NativeRemoteBinding>& 
             if ((version >> major >> dot1 >> minor >> dot2 >> patch) && dot1 == '.' && dot2 == '.')
                 legacyIkea = major < 2 || (major == 2 && (minor < 3 || (minor == 3 && patch < 75)));
         }
-        for (i = 0; i < remote->second.endpoints.size(); ++i) {
-            const EndpointDescriptor& endpoint = remote->second.endpoints[i];
+        for (i = 0; i < remote->second.zigbee.read().endpoints.size(); ++i) {
+            const EndpointDescriptor& endpoint = remote->second.zigbee.read().endpoints[i];
             const unsigned short clusters[] = {kOnOffCluster, kLevelCluster};
             for (unsigned int c = 0; c < 2; ++c) {
                 if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), clusters[c]) ==
@@ -2718,7 +2695,7 @@ void Gateway::pollNativeBindings() {
         NativeBindOperation& operation = nativeBindOperations_[i];
         if (operation.retryAt > now || nativeBindingStates_[operation.ieeeAddress].find("failed") == 0) continue;
         std::map<std::string, Device>::const_iterator device = devices_.find(operation.ieeeAddress);
-        if (device == devices_.end() || device->second.networkAddress == 0xffff) continue;
+        if (device == devices_.end() || device->second.zigbee.read().networkAddress == 0xffff) continue;
         std::vector<unsigned char> request;
         std::string source = operation.ieeeAddress;
         if (!validIeeeAddress(source)) {
@@ -2764,7 +2741,7 @@ void Gateway::pollNativeBindings() {
             request.push_back(endpoint);
         }
         operation.deadline = now + 10;
-        sendApsUnicast(device->second.networkAddress, 0x0000,
+        sendApsUnicast(device->second.zigbee.read().networkAddress, 0x0000,
                        operation.unbind ? 0x0022 : 0x0021, 0, 0, request);
         addLog(std::string("Native ") + (operation.unbind ? "unbind" : "bind") + " queued for " + source);
         return;
@@ -2785,7 +2762,7 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
         if (groups[i].id == 0 || groups[i].id > 0xfff7 || groups[i].name.empty() || groups[i].members.empty()) { *error="invalid scene group"; return false; }
         for (unsigned long j=0;j<i;++j) if (groups[j].id==groups[i].id) { *error="duplicate scene group"; return false; }
         for (unsigned long j=0;j<groups[i].members.size();++j) {
-            if (devices_.find(groups[i].members[j])==devices_.end() || !devices_[groups[i].members[j]].hasLight) { *error="group member is not a light"; return false; }
+            if (devices_.find(groups[i].members[j])==devices_.end() || !devices_[groups[i].members[j]].light.present()) { *error="group member is not a light"; return false; }
             for (unsigned long a=0;a<=i;++a) for (unsigned long b=0;b<groups[a].members.size();++b)
                 if ((a!=i || b!=j) && groups[a].members[b]==groups[i].members[j]) { *error="a light may belong to only one scene group"; return false; }
         }
@@ -2811,7 +2788,7 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
             }
         }
         std::map<std::string, Device>::const_iterator remote = devices_.find(bindings[i].ieeeAddress);
-        if (group==0 || remote == devices_.end() || !remote->second.hasRemote ||
+        if (group==0 || remote == devices_.end() || !remote->second.remote.present() ||
             (bindings[i].action!="on" && bindings[i].action!="off" && bindings[i].action!="arrow_left" && bindings[i].action!="arrow_right" &&
              bindings[i].action!="matter_press" && bindings[i].action!="matter_hold" && bindings[i].action!="matter_release" &&
              bindings[i].action!="matter_multi_press") ||
@@ -2830,8 +2807,8 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
         std::map<std::string, Device>::const_iterator remote = devices_.find(binding.ieeeAddress);
         bool found = false;
         bool commands = false;
-        if (remote != devices_.end()) for (unsigned long e=0;e<remote->second.endpoints.size();++e) {
-            const EndpointDescriptor& endpoint = remote->second.endpoints[e];
+        if (remote != devices_.end()) for (unsigned long e=0;e<remote->second.zigbee.read().endpoints.size();++e) {
+            const EndpointDescriptor& endpoint = remote->second.zigbee.read().endpoints[e];
             if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), static_cast<unsigned short>(kOnOffCluster)) != endpoint.outputClusters.end() ||
                 std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), static_cast<unsigned short>(kLevelCluster)) != endpoint.outputClusters.end())
                 commands = true;
@@ -2846,7 +2823,7 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
             }
         }
         if (!found || !validIeeeAddress(binding.ieeeAddress) || remote == devices_.end() ||
-            !remote->second.hasRemote || !commands) {
+            !remote->second.remote.present() || !commands) {
             *error = "native binding requires a remote and group-capable lights"; return false;
         }
         for (unsigned long j=0;j<i;++j) if (nativeBindings[j].ieeeAddress == binding.ieeeAddress) {
@@ -2864,21 +2841,25 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
 
 void Gateway::classifyDevice(Device* device) const {
     bool onOffServer = false, levelServer = false, remote = false;
-    for (unsigned long i = 0; i < device->endpoints.size(); ++i) {
-        const EndpointDescriptor& endpoint = device->endpoints[i];
+    for (unsigned long i = 0; i < device->zigbee.read().endpoints.size(); ++i) {
+        const EndpointDescriptor& endpoint = device->zigbee.read().endpoints[i];
         if (endpointSupports(endpoint, 0x0006)) onOffServer = true;
         if (endpointSupports(endpoint, 0x0008)) levelServer = true;
         if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0006) != endpoint.outputClusters.end() ||
             std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0008) != endpoint.outputClusters.end()) remote = true;
     }
-    if (isThermostat(*device)) {
-        device->kind = "thermostat"; device->hasLight = false; device->hasBrightness = false;
-        device->hasActor = false; device->hasRemote = false; device->hasTemperature = true; return;
+    if (thermostatProfile(*device)) {
+        device->thermostat.ensure();
+        device->kind = "thermostat"; device->light.setPresent(false); device->brightness.setPresent(false);
+        device->actor.setPresent(false); device->remote.setPresent(false); device->temperature.setPresent(true); return;
     }
-    device->hasLight = onOffServer;
-    device->hasRemote = remote && !onOffServer;
-    if (device->hasLight) device->kind = levelServer ? "dimmable light" : "light";
-    else if (device->hasRemote) device->kind = "remote control";
+    // An incomplete interview is not evidence that a persisted capability disappeared.
+    if(device->zigbee.read().endpoints.empty())return;
+    device->thermostat.reset();
+    device->light.setPresent(onOffServer);
+    device->remote.setPresent(remote && !onOffServer);
+    if (device->light.present()) device->kind = levelServer ? "dimmable light" : "light";
+    else if (device->remote.present()) device->kind = "remote control";
 }
 
 bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, unsigned char endpoint,
@@ -2887,10 +2868,10 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
     std::map<unsigned short, std::string>::const_iterator address = nodeAddresses_.find(sender);
     if (address == nodeAddresses_.end()) return false;
     std::map<std::string, Device>::const_iterator device = devices_.find(address->second);
-    if (device == devices_.end() || !device->second.hasRemote) return false;
+    if (device == devices_.end() || !device->second.remote.present()) return false;
     bool advertisesCluster = false;
-    for (unsigned long i = 0; i < device->second.endpoints.size(); ++i) {
-        const EndpointDescriptor& descriptor = device->second.endpoints[i];
+    for (unsigned long i = 0; i < device->second.zigbee.read().endpoints.size(); ++i) {
+        const EndpointDescriptor& descriptor = device->second.zigbee.read().endpoints[i];
         if (descriptor.endpoint == endpoint &&
             std::find(descriptor.outputClusters.begin(), descriptor.outputClusters.end(), cluster) != descriptor.outputClusters.end()) {
             advertisesCluster = true; break;
@@ -2987,10 +2968,10 @@ bool Gateway::applyAttributeReport(const std::string& ieeeAddress, unsigned shor
     bool changed;
     unsigned observed = 0;
     long timestamp = time(0);
-    bool wasOpen = device.contactOpen;
-    bool hadKnownContact = device.contactKnown;
-    bool hadTemperature = device.hasTemperature;
-    double previousTemperature = device.temperatureCelsius;
+    bool wasOpen = device.contact.read().open;
+    bool hadKnownContact = device.contact.read().known;
+    bool hadTemperature = device.temperature.present();
+    double previousTemperature = device.temperature.read().celsius;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = applyZclAttribute(&device, cluster, attribute, value, timestamp, &observed);
     if(observed & ZclObservedTemperature)automationReport(device,"temperature_celsius");
@@ -3010,15 +2991,15 @@ bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vect
     Device& device = devices_[ieeeAddress];
     Device before = device;
     bool changed;
-    bool wasOpen = device.contactOpen;
-    bool hadKnownContact = device.contactKnown;
+    bool wasOpen = device.contact.read().open;
+    bool hadKnownContact = device.contact.read().known;
     if (device.ieeeAddress.empty()) device.ieeeAddress = ieeeAddress;
     changed = ::applyIasZoneStatus(&device, payload, time(0));
-    if(changed)automationReport(device,device.hasWaterLeak?"water_detected":"contact_open");
+    if(changed)automationReport(device,device.waterLeak.present()?"water_detected":"contact_open");
     if (changed) {
-        if (!device.hasWaterLeak) recordHistory(before, device, ZclObservedContact, device.lastSeen);
-        addLog(std::string(device.hasWaterLeak ? "Water leak status from " : "Contact status from ") + ieeeAddress +
-               (device.contactOpen ? (device.hasWaterLeak ? ": wet" : ": open") : (device.hasWaterLeak ? ": dry" : ": closed")));
+        if (!device.waterLeak.present()) recordHistory(before, device, ZclObservedContact, device.lastSeen);
+        addLog(std::string(device.waterLeak.present() ? "Water leak status from " : "Contact status from ") + ieeeAddress +
+               (device.contact.read().open ? (device.waterLeak.present() ? ": wet" : ": open") : (device.waterLeak.present() ? ": dry" : ": closed")));
         updateContactAlert(ieeeAddress, wasOpen, hadKnownContact);
         saveState(device.ieeeAddress);
     }
@@ -3026,28 +3007,28 @@ bool Gateway::applyIasZoneStatus(const std::string& ieeeAddress, const std::vect
 }
 
 void Gateway::recordHistory(const Device& before, const Device& after, unsigned observed, long timestamp) {
-    if ((observed & ZclObservedTemperature) && after.hasTemperature) {
-        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Temperature,after.temperatureCelsius,"celsius",timestamp);
+    if ((observed & ZclObservedTemperature) && after.temperature.present()) {
+        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Temperature,after.temperature.read().celsius,"celsius",timestamp);
     }
-    if ((observed & ZclObservedHumidity) && after.hasHumidity) {
-        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Humidity,after.humidityPercent,"percent",timestamp);
+    if ((observed & ZclObservedHumidity) && after.humidity.present()) {
+        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Humidity,after.humidity.read().percent,"percent",timestamp);
     }
-    if ((observed & ZclObservedContact) && after.hasContact &&
-        (!before.hasContact || before.contactOpen != after.contactOpen))
-        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Contact,after.contactOpen?1:0,"",timestamp);
-    if ((observed & ZclObservedOccupancy) && after.hasOccupancy)
-        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Occupancy,after.occupied?1:0,"",timestamp);
-    if ((observed & ZclObservedBattery) && after.hasBattery) {
-        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Battery,after.batteryPercent,"percent",timestamp);
+    if ((observed & ZclObservedContact) && after.contact.present() &&
+        (!before.contact.present() || before.contact.read().open != after.contact.read().open))
+        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Contact,after.contact.read().open?1:0,"",timestamp);
+    if ((observed & ZclObservedOccupancy) && after.occupancy.present())
+        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Occupancy,after.occupancy.read().occupied?1:0,"",timestamp);
+    if ((observed & ZclObservedBattery) && after.battery.present()) {
+        history_.appendNumeric("zigbee:"+after.ieeeAddress,SensorHistory::Battery,after.battery.read().percent,"percent",timestamp);
     }
 }
 
 void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen, bool hadKnownState) {
     std::map<std::string, Device>::const_iterator device = devices_.find(resolveDeviceId(ieeeAddress));
-    if (device == devices_.end() || !device->second.hasContact) return;
+    if (device == devices_.end() || !device->second.contact.present()) return;
     if (device->second.contactTriggerMode) {
-        if (hadKnownState && device->second.contactOpen != wasOpen && notificationsEnabled() &&
-            (!device->second.hasWaterLeak || device->second.contactOpen)) {
+        if (hadKnownState && device->second.contact.read().open != wasOpen && notificationsEnabled() &&
+            (!device->second.waterLeak.present() || device->second.contact.read().open)) {
             long now = time(0);
             std::map<std::string, long>::const_iterator due = nextContactTriggerAt_.find(ieeeAddress);
             if (due == nextContactTriggerAt_.end() || now >= due->second) {
@@ -3063,10 +3044,10 @@ void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen, b
         nextContactAlertAt_.erase(ieeeAddress);
         return;
     }
-    if (device->second.contactOpen && !wasOpen) {
+    if (device->second.contact.read().open && !wasOpen) {
         contactOpenedAt_[ieeeAddress] = time(0);
         nextContactAlertAt_[ieeeAddress] = time(0) + static_cast<long>(device->second.contactInitialAlertMinutes * 60);
-    } else if (!device->second.contactOpen && wasOpen) {
+    } else if (!device->second.contact.read().open && wasOpen) {
         if (hadKnownState && notificationsEnabled())
             emitStateNotification("", "", "contact:" + device->second.ieeeAddress + ":window", true, 0);
         contactOpenedAt_.erase(ieeeAddress);
@@ -3092,21 +3073,21 @@ void Gateway::logEventLoopDiagnostic(const std::string& message) {
 }
 
 void Gateway::updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature) {
-    if (!device.hasTemperature || !hadTemperature) return;
+    if (!device.temperature.present() || !hadTemperature) return;
     if (device.hasHighTemperatureAlert && previousTemperature < device.highTemperatureAlert &&
-        device.temperatureCelsius >= device.highTemperatureAlert) {
+        device.temperature.read().celsius >= device.highTemperatureAlert) {
         emitStateNotification("Temperature high", device.name.empty() ? device.ieeeAddress : device.name,
                               "legacy:" + device.ieeeAddress + ":temperature:high", false, 0);
     } else if (device.hasHighTemperatureAlert && previousTemperature >= device.highTemperatureAlert &&
-               device.temperatureCelsius < device.highTemperatureAlert && notificationsEnabled()) {
+               device.temperature.read().celsius < device.highTemperatureAlert && notificationsEnabled()) {
         emitStateNotification("", "", "legacy:" + device.ieeeAddress + ":temperature:high", true, 0);
     }
     if (device.hasLowTemperatureAlert && previousTemperature > device.lowTemperatureAlert &&
-        device.temperatureCelsius <= device.lowTemperatureAlert) {
+        device.temperature.read().celsius <= device.lowTemperatureAlert) {
         emitStateNotification("Temperature low", device.name.empty() ? device.ieeeAddress : device.name,
                               "legacy:" + device.ieeeAddress + ":temperature:low", false, 0);
     } else if (device.hasLowTemperatureAlert && previousTemperature <= device.lowTemperatureAlert &&
-               device.temperatureCelsius > device.lowTemperatureAlert && notificationsEnabled()) {
+               device.temperature.read().celsius > device.lowTemperatureAlert && notificationsEnabled()) {
         emitStateNotification("", "", "legacy:" + device.ieeeAddress + ":temperature:low", true, 0);
     }
 }
@@ -3114,23 +3095,23 @@ void Gateway::updateTemperatureAlert(const Device& device, bool hadTemperature, 
 void Gateway::updateValueAlerts(Device& device, const Device& before) {
     struct Reading { const char* name; const char* label; bool supported; bool known; double current; double previous; const char* unit; };
     Reading readings[] = {
-        {"temperature", "Temperature", device.hasTemperature,
-         before.source == "zigbee" ? before.hasTemperature : before.temperatureKnown,
-         device.temperatureCelsius, before.temperatureCelsius, ""},
-        {"humidity", "Humidity", device.hasHumidity,
-         before.source == "matter" ? before.humidityKnown : before.hasHumidity && before.lastSeen != 0,
-         device.humidityPercent, before.humidityPercent, ""},
-        {"battery", "Battery", device.hasBattery, before.hasBattery, static_cast<double>(device.batteryPercent), static_cast<double>(before.batteryPercent), ""},
-        {"link_quality", "Link quality", device.source == "zigbee", before.source == "zigbee" && before.lastSeen != 0, static_cast<double>(device.linkQuality), static_cast<double>(before.linkQuality), ""},
-        {"wifi_signal", "Wi-Fi signal", device.hasWifiSignal, before.hasWifiSignal, static_cast<double>(device.wifiSignalPercent), static_cast<double>(before.wifiSignalPercent), ""},
-        {"brightness", "Brightness", device.hasBrightness,
-         before.source == "matter" ? before.brightnessKnown : before.hasBrightness,
-         static_cast<double>(device.brightnessPercent), static_cast<double>(before.brightnessPercent), "percent"},
-        {"power", "Power", device.hasPower, before.powerKnown, device.powerWatts, before.powerWatts, "watts"},
-        {"co2", "CO₂", device.hasCo2, before.co2Known && before.co2Unit == device.co2Unit,
-         device.co2Ppm, before.co2Ppm, device.co2Unit.c_str()},
-        {"pm25", "PM2.5", device.hasPm25, before.pm25Known && before.pm25Unit == device.pm25Unit,
-         device.pm25MicrogramsM3, before.pm25MicrogramsM3, device.pm25Unit.c_str()}
+        {"temperature", "Temperature", device.temperature.present(),
+         before.source == "zigbee" ? before.temperature.present() : before.temperature.read().known,
+         device.temperature.read().celsius, before.temperature.read().celsius, ""},
+        {"humidity", "Humidity", device.humidity.present(),
+         before.source == "matter" ? before.humidity.read().known : before.humidity.present() && before.lastSeen != 0,
+         device.humidity.read().percent, before.humidity.read().percent, ""},
+        {"battery", "Battery", device.battery.present(), before.battery.present(), static_cast<double>(device.battery.read().percent), static_cast<double>(before.battery.read().percent), ""},
+        {"link_quality", "Link quality", device.source == "zigbee", before.source == "zigbee" && before.lastSeen != 0, static_cast<double>(device.zigbee.read().linkQuality), static_cast<double>(before.zigbee.read().linkQuality), ""},
+        {"wifi_signal", "Wi-Fi signal", device.wifiSignal.present(), before.wifiSignal.present(), static_cast<double>(device.wifiSignal.read().percent), static_cast<double>(before.wifiSignal.read().percent), ""},
+        {"brightness", "Brightness", device.brightness.present(),
+         before.source == "matter" ? before.brightness.read().known : before.brightness.present(),
+         static_cast<double>(device.brightness.read().percent), static_cast<double>(before.brightness.read().percent), "percent"},
+        {"power", "Power", device.power.present(), before.power.read().known, device.power.read().watts, before.power.read().watts, "watts"},
+        {"co2", "CO₂", device.co2.present(), before.co2.read().known && before.co2.read().unit == device.co2.read().unit,
+         device.co2.read().ppm, before.co2.read().ppm, device.co2.read().unit.c_str()},
+        {"pm25", "PM2.5", device.pm25.present(), before.pm25.read().known && before.pm25.read().unit == device.pm25.read().unit,
+         device.pm25.read().microgramsM3, before.pm25.read().microgramsM3, device.pm25.read().unit.c_str()}
     };
     for (unsigned int i = 0; i < sizeof(readings) / sizeof(readings[0]); ++i) {
         std::map<std::string, DeviceValueAlert>::iterator found = device.valueAlerts.find(readings[i].name);
@@ -3180,7 +3161,7 @@ bool Gateway::emitNotification(const std::string& title, const std::string& body
     std::string enqueueError;
     std::vector<std::string> presentSensorIds;
     for (std::map<std::string, Device>::const_iterator device = devices_.begin(); device != devices_.end(); ++device)
-        if (device->second.hasOccupancy && device->second.occupied) presentSensorIds.push_back(device->second.ieeeAddress);
+        if (device->second.occupancy.present() && device->second.occupancy.read().occupied) presentSensorIds.push_back(device->second.ieeeAddress);
     if (!notificationWorker_->enqueue(title, body, presentSensorIds, error != 0 ? error : &enqueueError,
                                       androidChannelId)) {
         addLog(std::string("Notification queue failed: ") + title + " - " + body);
@@ -3203,7 +3184,7 @@ bool Gateway::emitStateNotification(const std::string& title, const std::string&
     std::vector<std::string> presentSensorIds;
     if (!clear)
         for (std::map<std::string, Device>::const_iterator device = devices_.begin(); device != devices_.end(); ++device)
-            if (device->second.hasOccupancy && device->second.occupied) presentSensorIds.push_back(device->second.ieeeAddress);
+            if (device->second.occupancy.present() && device->second.occupancy.read().occupied) presentSensorIds.push_back(device->second.ieeeAddress);
     std::string enqueueError;
     if (!notificationWorker_->enqueueState(title, body, key, clear ? "clear" : "show", presentSensorIds,
                                            error != 0 ? error : &enqueueError,
@@ -3255,11 +3236,11 @@ std::string GatewayView::statusJson() const {
     bool firstSource = true;
     for (unsigned long i=0;i<devices.size();++i) {
         const Device& source=devices[i];
-        if (!source.hasTemperature || isThermostat(source) || (source.source == "matter" && source.matterEndpoint < 0)) continue;
+        if (!source.temperature.present() || isThermostat(source) || (source.source == "matter" && source.matter.read().endpoint < 0)) continue;
         if (!firstSource) json << ',';
         firstSource=false;
         json << "{\"id\":\"" << jsonEscape(source.ieeeAddress) << "\",\"name\":\"" << jsonEscape(source.name)
-             << "\",\"observed_at\":" << source.temperatureObservation.at << '}';
+             << "\",\"observed_at\":" << source.temperature.read().observation.at << '}';
     }
     json << "],\"devices\":[";
     std::vector<const Device*> listedDevices;
@@ -3270,7 +3251,7 @@ std::string GatewayView::statusJson() const {
         const Device& entry=devices[index];
         if (entry.source != "matter" || isThermostat(entry)) { listedDevices.push_back(&entry); continue; }
         const std::string id=entry.ieeeAddress.substr(0,40);
-        if (entry.matterEndpoint < 0) matterNodes[id]=&entry;
+        if (entry.matter.read().endpoint < 0) matterNodes[id]=&entry;
         else matterEndpoints[id].push_back(&entry);
     }
     for (std::map<std::string, std::vector<const Device*> >::const_iterator it=matterEndpoints.begin(); it!=matterEndpoints.end(); ++it)
@@ -3282,35 +3263,35 @@ std::string GatewayView::statusJson() const {
     mergedNodes.reserve(matterNodes.size());
     for (std::map<std::string, const Device*>::iterator it=matterNodes.begin(); it!=matterNodes.end(); ++it) {
         Device node=*it->second;
-        if(it->second->matterEndpoint>=0)node.matterMetadataState="stale";
+        if(it->second->matter.read().endpoint>=0)node.matter.ensure().metadataState="stale";
         const std::vector<const Device*>& endpoints=matterEndpoints[it->first];
         const Device* preferred=0;
         for (unsigned long index=0;index<endpoints.size();++index)
-            if (endpoints[index]->hasActor || endpoints[index]->hasLight || endpoints[index]->hasContact ||
-                endpoints[index]->hasTemperature || endpoints[index]->hasRemote) { preferred=endpoints[index]; break; }
+            if (endpoints[index]->actor.present() || endpoints[index]->light.present() || endpoints[index]->contact.present() ||
+                endpoints[index]->temperature.present() || endpoints[index]->remote.present()) { preferred=endpoints[index]; break; }
         if (preferred) {
-            const std::string state=node.matterState, metadata=node.matterMetadataState;
+            const std::string state=node.matter.read().state, metadata=node.matter.read().metadataState;
             const bool online=node.online;
-            node=*preferred; node.matterState=state; node.matterMetadataState=metadata; node.online=online;
+            node=*preferred; node.matter.ensure().state=state; node.matter.ensure().metadataState=metadata; node.online=online;
         }
         for (unsigned long index=0;index<endpoints.size();++index) {
             const Device& endpoint=*endpoints[index];
-            node.hasActor = node.hasActor || endpoint.hasActor;
-            node.hasLight = node.hasLight || endpoint.hasLight;
-            node.hasRemote = node.hasRemote || endpoint.hasRemote;
-            node.hasContact = node.hasContact || endpoint.hasContact;
-            node.hasWaterLeak = node.hasWaterLeak || endpoint.hasWaterLeak;
-            if (endpoint.hasWaterLeak) { node.waterLeakKnown = endpoint.waterLeakKnown; node.waterDetected = endpoint.waterDetected; }
-            if (endpoint.hasTemperature) { node.hasTemperature=true; node.temperatureKnown=endpoint.temperatureKnown; node.temperatureCelsius=endpoint.temperatureCelsius; }
-            if (endpoint.hasHumidity) { node.hasHumidity=true; node.humidityKnown=endpoint.humidityKnown; node.humidityPercent=endpoint.humidityPercent; }
-            if (endpoint.hasAirQuality) { node.hasAirQuality=true; node.airQualityKnown=endpoint.airQualityKnown; node.airQuality=endpoint.airQuality; }
-            if (endpoint.hasCo2) { node.hasCo2=true; node.co2Known=endpoint.co2Known; node.co2Ppm=endpoint.co2Ppm; node.co2Unit=endpoint.co2Unit; }
-            if (endpoint.hasPm25) { node.hasPm25=true; node.pm25Known=endpoint.pm25Known; node.pm25MicrogramsM3=endpoint.pm25MicrogramsM3; node.pm25Unit=endpoint.pm25Unit; }
-            if (endpoint.hasBattery) { node.hasBattery=true; node.batteryPercent=endpoint.batteryPercent; }
+            node.actor.setPresent(node.actor.present() || endpoint.actor.present());
+            node.light.setPresent(node.light.present() || endpoint.light.present());
+            node.remote.setPresent(node.remote.present() || endpoint.remote.present());
+            node.contact.setPresent(node.contact.present() || endpoint.contact.present());
+            node.waterLeak.setPresent(node.waterLeak.present() || endpoint.waterLeak.present());
+            if (endpoint.waterLeak.present()) { node.waterLeak.ensure().known = endpoint.waterLeak.read().known; node.waterLeak.ensure().detected = endpoint.waterLeak.read().detected; }
+            if (endpoint.temperature.present()) { node.temperature.setPresent(true); node.temperature.ensure().known=endpoint.temperature.read().known; node.temperature.ensure().celsius=endpoint.temperature.read().celsius; }
+            if (endpoint.humidity.present()) { node.humidity.setPresent(true); node.humidity.ensure().known=endpoint.humidity.read().known; node.humidity.ensure().percent=endpoint.humidity.read().percent; }
+            if (endpoint.airQuality.present()) { node.airQuality.setPresent(true); node.airQuality.ensure().known=endpoint.airQuality.read().known; node.airQuality.ensure().value=endpoint.airQuality.read().value; }
+            if (endpoint.co2.present()) { node.co2.setPresent(true); node.co2.ensure().known=endpoint.co2.read().known; node.co2.ensure().ppm=endpoint.co2.read().ppm; node.co2.ensure().unit=endpoint.co2.read().unit; }
+            if (endpoint.pm25.present()) { node.pm25.setPresent(true); node.pm25.ensure().known=endpoint.pm25.read().known; node.pm25.ensure().microgramsM3=endpoint.pm25.read().microgramsM3; node.pm25.ensure().unit=endpoint.pm25.read().unit; }
+            if (endpoint.battery.present()) { node.battery.setPresent(true); node.battery.ensure().percent=endpoint.battery.read().percent; }
         }
-        node.ieeeAddress=node.externalId=it->first;
-        node.component="node";
-        if (node.matterMetadataState.empty()) node.matterMetadataState=endpoints.empty()?"missing":"stale";
+        node.ieeeAddress=node.external.ensure().externalId=it->first;
+        node.external.ensure().component="node";
+        if (node.matter.read().metadataState.empty()) node.matter.ensure().metadataState=endpoints.empty()?"missing":"stale";
         mergedNodes.push_back(node);
         listedDevices.push_back(&mergedNodes.back());
     }
@@ -3320,49 +3301,49 @@ std::string GatewayView::statusJson() const {
         if (!first) json << ',';
         first = false;
         json << "{\"id\":\"" << jsonEscape(device.ieeeAddress) << "\",\"source\":\"" << jsonEscape(device.source)
-             << "\",\"component\":\"" << jsonEscape(device.component)
-             << "\",\"external_id\":\"" << jsonEscape(device.externalId)
+             << "\",\"component\":\"" << jsonEscape(device.external.read().component)
+             << "\",\"external_id\":\"" << jsonEscape(device.external.read().externalId)
              << "\",\"ieee_address\":\"" << (device.source == "zigbee" ? jsonEscape(device.ieeeAddress) : "") << "\",\"name\":\""
              << jsonEscape(device.name) << "\",\"kind\":\"" << jsonEscape(device.kind)
-             << "\",\"has_contact\":" << (device.hasContact ? "true" : "false")
-             << ",\"contact_known\":" << (device.source == "zigbee" || device.contactKnown ? "true" : "false")
-             << ",\"contact_open\":" << (device.contactOpen ? "true" : "false")
-             << ",\"has_water_leak\":" << (device.hasWaterLeak ? "true" : "false")
-             << ",\"water_leak_known\":" << (device.source == "zigbee" || device.waterLeakKnown ? "true" : "false")
-             << ",\"water_detected\":" << (device.waterDetected ? "true" : "false")
-             << ",\"has_temperature\":" << (device.hasTemperature ? "true" : "false")
-             << ",\"temperature_known\":" << ((device.source == "zigbee" && !isThermostat(device)) || device.temperatureKnown ? "true" : "false")
+             << "\",\"has_contact\":" << (device.contact.present() ? "true" : "false")
+             << ",\"contact_known\":" << (device.source == "zigbee" || device.contact.read().known ? "true" : "false")
+             << ",\"contact_open\":" << (device.contact.read().open ? "true" : "false")
+             << ",\"has_water_leak\":" << (device.waterLeak.present() ? "true" : "false")
+             << ",\"water_leak_known\":" << (device.source == "zigbee" || device.waterLeak.read().known ? "true" : "false")
+             << ",\"water_detected\":" << (device.waterLeak.read().detected ? "true" : "false")
+             << ",\"has_temperature\":" << (device.temperature.present() ? "true" : "false")
+             << ",\"temperature_known\":" << ((device.source == "zigbee" && !isThermostat(device)) || device.temperature.read().known ? "true" : "false")
              << ",\"has_thermostat\":" << (isThermostat(device) ? "true" : "false")
              << ",\"thermostat\":" << (isThermostat(device) ? thermostatJson(device) : "null")
-             << ",\"temperature_celsius\":" << device.temperatureCelsius
-             << ",\"has_humidity\":" << (device.hasHumidity ? "true" : "false")
-             << ",\"humidity_percent\":" << device.humidityPercent
-             << ",\"has_air_quality\":" << (device.hasAirQuality ? "true" : "false")
-             << ",\"air_quality_known\":" << (device.airQualityKnown ? "true" : "false")
-             << ",\"air_quality\":\"" << jsonEscape(device.airQuality) << '\"'
-             << ",\"has_co2\":" << (device.hasCo2 ? "true" : "false")
-             << ",\"co2_known\":" << ((device.source != "matter" || device.co2Unit == "ppm") && device.co2Known ? "true" : "false")
-             << ",\"co2_ppm\":" << (device.source == "matter" && device.co2Unit != "ppm" ? 0 : device.co2Ppm)
-             << ",\"has_pm25\":" << (device.hasPm25 ? "true" : "false")
-             << ",\"pm25_known\":" << ((device.source != "matter" || device.pm25Unit == "ug/m3") && device.pm25Known ? "true" : "false")
-             << ",\"pm25_micrograms_m3\":" << (device.source == "matter" && device.pm25Unit != "ug/m3" ? 0 : device.pm25MicrogramsM3)
-             << ",\"has_occupancy\":" << (device.hasOccupancy ? "true" : "false")
-             << ",\"occupied\":" << (device.occupied ? "true" : "false")
-             << ",\"has_battery\":" << (device.hasBattery ? "true" : "false")
-             << ",\"battery_percent\":" << device.batteryPercent << ",\"link_quality\":" << device.linkQuality
-             << ",\"has_wifi_signal\":" << (device.hasWifiSignal ? "true" : "false")
-             << ",\"wifi_signal_percent\":" << device.wifiSignalPercent
-             << ",\"has_light\":" << (device.hasLight ? "true" : "false")
-             << ",\"light_on\":" << (device.lightOn ? "true" : "false")
-             << ",\"has_brightness\":" << (device.hasBrightness ? "true" : "false")
-             << ",\"brightness_percent\":" << device.brightnessPercent
-             << ",\"has_remote\":" << (device.hasRemote ? "true" : "false")
-             << ",\"has_actor\":" << (device.hasActor ? "true" : "false")
-             << ",\"actor_known\":" << (device.actorKnown ? "true" : "false")
-             << ",\"actor_on\":" << (device.actorOn ? "true" : "false")
-             << ",\"has_power\":" << (device.hasPower ? "true" : "false")
-             << ",\"power_known\":" << (device.powerKnown ? "true" : "false")
-             << ",\"power_watts\":" << device.powerWatts
+             << ",\"temperature_celsius\":" << device.temperature.read().celsius
+             << ",\"has_humidity\":" << (device.humidity.present() ? "true" : "false")
+             << ",\"humidity_percent\":" << device.humidity.read().percent
+             << ",\"has_air_quality\":" << (device.airQuality.present() ? "true" : "false")
+             << ",\"air_quality_known\":" << (device.airQuality.read().known ? "true" : "false")
+             << ",\"air_quality\":\"" << jsonEscape(device.airQuality.read().value) << '\"'
+             << ",\"has_co2\":" << (device.co2.present() ? "true" : "false")
+             << ",\"co2_known\":" << ((device.source != "matter" || device.co2.read().unit == "ppm") && device.co2.read().known ? "true" : "false")
+             << ",\"co2_ppm\":" << (device.source == "matter" && device.co2.read().unit != "ppm" ? 0 : device.co2.read().ppm)
+             << ",\"has_pm25\":" << (device.pm25.present() ? "true" : "false")
+             << ",\"pm25_known\":" << ((device.source != "matter" || device.pm25.read().unit == "ug/m3") && device.pm25.read().known ? "true" : "false")
+             << ",\"pm25_micrograms_m3\":" << (device.source == "matter" && device.pm25.read().unit != "ug/m3" ? 0 : device.pm25.read().microgramsM3)
+             << ",\"has_occupancy\":" << (device.occupancy.present() ? "true" : "false")
+             << ",\"occupied\":" << (device.occupancy.read().occupied ? "true" : "false")
+             << ",\"has_battery\":" << (device.battery.present() ? "true" : "false")
+             << ",\"battery_percent\":" << device.battery.read().percent << ",\"link_quality\":" << device.zigbee.read().linkQuality
+             << ",\"has_wifi_signal\":" << (device.wifiSignal.present() ? "true" : "false")
+             << ",\"wifi_signal_percent\":" << device.wifiSignal.read().percent
+             << ",\"has_light\":" << (device.light.present() ? "true" : "false")
+             << ",\"light_on\":" << (device.light.read().on ? "true" : "false")
+             << ",\"has_brightness\":" << (device.brightness.present() ? "true" : "false")
+             << ",\"brightness_percent\":" << device.brightness.read().percent
+             << ",\"has_remote\":" << (device.remote.present() ? "true" : "false")
+             << ",\"has_actor\":" << (device.actor.present() ? "true" : "false")
+             << ",\"actor_known\":" << (device.actor.read().known ? "true" : "false")
+             << ",\"actor_on\":" << (device.actor.read().on ? "true" : "false")
+             << ",\"has_power\":" << (device.power.present() ? "true" : "false")
+             << ",\"power_known\":" << (device.power.read().known ? "true" : "false")
+             << ",\"power_watts\":" << device.power.read().watts
              << ",\"has_low_temperature_alert\":" << (device.hasLowTemperatureAlert ? "true" : "false")
              << ",\"low_temperature_alert\":" << device.lowTemperatureAlert
              << ",\"has_high_temperature_alert\":" << (device.hasHighTemperatureAlert ? "true" : "false")
@@ -3371,7 +3352,7 @@ std::string GatewayView::statusJson() const {
              << ",\"contact_reminder_alert_minutes\":" << device.contactReminderAlertMinutes
              << ",\"contact_trigger_mode\":" << (device.contactTriggerMode ? "true" : "false")
              << ",\"contact_trigger_cooldown_seconds\":" << device.contactTriggerCooldownSeconds
-             << ",\"contact_trigger_active\":" << (device.contactTriggerMode && device.contactTriggerUntil > time(0) ? "true" : "false")
+             << ",\"contact_trigger_active\":" << (device.contactTriggerMode && device.contact.read().triggerUntil > time(0) ? "true" : "false")
              << ",\"sensor_refresh_interval_minutes\":" << device.sensorRefreshIntervalMinutes
              << ",\"value_alerts\":{";
         for (std::map<std::string, DeviceValueAlert>::const_iterator alert = device.valueAlerts.begin(); alert != device.valueAlerts.end(); ++alert) {
@@ -3387,76 +3368,76 @@ std::string GatewayView::statusJson() const {
              << '\"';
         if (device.source == "zigbee" || device.source == "matter")
             json << ",\"setup_state\":\"" << (device.source == "matter" ?
-                (device.matterState == "complete" ? "complete" : "incomplete") :
-                (device.initialInterviewComplete ? "complete" : "incomplete")) << '"';
+                (device.matter.read().state == "complete" ? "complete" : "incomplete") :
+                (device.zigbee.read().initialInterviewComplete ? "complete" : "incomplete")) << '"';
         if (device.source == "matter") {
-            json << ",\"commissioning_state\":\"" << jsonEscape(device.matterState)
-                 << "\",\"endpoint_metadata_state\":\"" << jsonEscape(device.matterMetadataState) << '"';
+            json << ",\"commissioning_state\":\"" << jsonEscape(device.matter.read().state)
+                 << "\",\"endpoint_metadata_state\":\"" << jsonEscape(device.matter.read().metadataState) << '"';
             json << ",\"matter_rssi_dbm\":";
-            if (device.matterRssiDbm >= -128 && device.matterRssiDbm <= 0) json << device.matterRssiDbm; else json << "null";
+            if (device.matter.read().rssiDbm >= -128 && device.matter.read().rssiDbm <= 0) json << device.matter.read().rssiDbm; else json << "null";
             json << ",\"online\":" << (device.online ? "true" : "false")
-                 << ",\"matter_node\":\"" << jsonEscape(device.matterNode)
-                 << "\",\"matter_endpoint\":" << device.matterEndpoint
-                 << ",\"light_known\":" << (device.lightKnown || device.actorKnown ? "true" : "false")
-                 << ",\"brightness_known\":" << (device.brightnessKnown ? "true" : "false")
-                 << ",\"humidity_known\":" << (device.humidityKnown ? "true" : "false")
-                 << ",\"co2_unit\":\"" << jsonEscape(device.co2Unit)
-                 << "\",\"pm25_unit\":\"" << jsonEscape(device.pm25Unit)
+                 << ",\"matter_node\":\"" << jsonEscape(device.matter.read().node)
+                 << "\",\"matter_endpoint\":" << device.matter.read().endpoint
+                 << ",\"light_known\":" << (device.light.read().known || device.actor.read().known ? "true" : "false")
+                 << ",\"brightness_known\":" << (device.brightness.read().known ? "true" : "false")
+                 << ",\"humidity_known\":" << (device.humidity.read().known ? "true" : "false")
+                 << ",\"co2_unit\":\"" << jsonEscape(device.co2.read().unit)
+                 << "\",\"pm25_unit\":\"" << jsonEscape(device.pm25.read().unit)
                  << "\",\"sensor_values\":{";
             bool firstSensor = true;
-            if (device.hasTemperature) {
+            if (device.temperature.present()) {
                 json << "\"temperature\":{\"value\":";
-                if (device.temperatureKnown) json << device.temperatureCelsius; else json << "null";
-                json << ",\"unit\":\"°C\",\"quality\":\"" << (device.temperatureKnown ? "measured" : "unknown") << "\"}";
+                if (device.temperature.read().known) json << device.temperature.read().celsius; else json << "null";
+                json << ",\"unit\":\"°C\",\"quality\":\"" << (device.temperature.read().known ? "measured" : "unknown") << "\"}";
                 firstSensor = false;
             }
-            if (device.hasHumidity) {
+            if (device.humidity.present()) {
                 if (!firstSensor) json << ',';
                 json << "\"humidity\":{\"value\":";
-                if (device.humidityKnown) json << device.humidityPercent; else json << "null";
-                json << ",\"unit\":\"%\",\"quality\":\"" << (device.humidityKnown ? "measured" : "unknown") << "\"}";
+                if (device.humidity.read().known) json << device.humidity.read().percent; else json << "null";
+                json << ",\"unit\":\"%\",\"quality\":\"" << (device.humidity.read().known ? "measured" : "unknown") << "\"}";
                 firstSensor = false;
             }
-            if (device.hasAirQuality) {
+            if (device.airQuality.present()) {
                 if (!firstSensor) json << ',';
                 json << "\"air_quality\":{\"value\":";
-                if (device.airQualityKnown) json << '"' << jsonEscape(device.airQuality) << '"'; else json << "null";
-                json << ",\"unit\":\"\",\"quality\":\"" << (device.airQualityKnown ? "measured" : "unknown") << "\"}";
+                if (device.airQuality.read().known) json << '"' << jsonEscape(device.airQuality.read().value) << '"'; else json << "null";
+                json << ",\"unit\":\"\",\"quality\":\"" << (device.airQuality.read().known ? "measured" : "unknown") << "\"}";
                 firstSensor = false;
             }
-            if (device.hasCo2) {
+            if (device.co2.present()) {
                 if (!firstSensor) json << ',';
                 json << "\"co2\":{\"value\":";
-                if (device.co2Known) json << device.co2Ppm; else json << "null";
-                json << ",\"unit\":\"" << jsonEscape(device.co2Unit) << "\",\"quality\":\"" << (device.co2Known ? "measured" : "unknown") << "\"}";
+                if (device.co2.read().known) json << device.co2.read().ppm; else json << "null";
+                json << ",\"unit\":\"" << jsonEscape(device.co2.read().unit) << "\",\"quality\":\"" << (device.co2.read().known ? "measured" : "unknown") << "\"}";
                 firstSensor = false;
             }
-            if (device.hasPm25) {
+            if (device.pm25.present()) {
                 if (!firstSensor) json << ',';
                 json << "\"pm25\":{\"value\":";
-                if (device.pm25Known) json << device.pm25MicrogramsM3; else json << "null";
-                json << ",\"unit\":\"" << jsonEscape(device.pm25Unit) << "\",\"quality\":\"" << (device.pm25Known ? "measured" : "unknown") << "\"}";
+                if (device.pm25.read().known) json << device.pm25.read().microgramsM3; else json << "null";
+                json << ",\"unit\":\"" << jsonEscape(device.pm25.read().unit) << "\",\"quality\":\"" << (device.pm25.read().known ? "measured" : "unknown") << "\"}";
             }
             json << "},\"matter_servers\":[";
-            for (unsigned long cluster = 0; cluster < device.matterServers.size(); ++cluster) {
+            for (unsigned long cluster = 0; cluster < device.matter.read().servers.size(); ++cluster) {
                 if (cluster) json << ',';
-                json << device.matterServers[cluster];
+                json << device.matter.read().servers[cluster];
             }
             json << "],\"matter_clients\":[";
-            for (unsigned long cluster = 0; cluster < device.matterClients.size(); ++cluster) {
+            for (unsigned long cluster = 0; cluster < device.matter.read().clients.size(); ++cluster) {
                 if (cluster != 0) json << ',';
-                json << device.matterClients[cluster];
+                json << device.matter.read().clients[cluster];
             }
             json << "],\"matter_device_types\":[";
-            for (unsigned long type = 0; type < device.matterDeviceTypes.size(); ++type) {
+            for (unsigned long type = 0; type < device.matter.read().deviceTypes.size(); ++type) {
                 if (type) json << ',';
-                json << device.matterDeviceTypes[type];
+                json << device.matter.read().deviceTypes[type];
             }
             json << ']';
         }
         json << ",\"node_descriptor\":";
-        if (device.nodeDescriptor.size() == 13) {
-            const std::vector<unsigned char>& d = device.nodeDescriptor;
+        if (device.zigbee.read().nodeDescriptor.size() == 13) {
+            const std::vector<unsigned char>& d = device.zigbee.read().nodeDescriptor;
             unsigned short manufacturerCode = static_cast<unsigned short>(d[3]) |
                                               (static_cast<unsigned short>(d[4]) << 8);
             unsigned short maxIncoming = static_cast<unsigned short>(d[6]) |
@@ -3497,16 +3478,16 @@ std::string GatewayView::statusJson() const {
             for (unsigned long index=0;index<endpoints.size();++index) {
                 const Device& endpoint=*endpoints[index];
                 if (index) json << ',';
-                json << "{\"endpoint\":" << endpoint.matterEndpoint << ",\"id\":\"" << jsonEscape(endpoint.ieeeAddress)
+                json << "{\"endpoint\":" << endpoint.matter.read().endpoint << ",\"id\":\"" << jsonEscape(endpoint.ieeeAddress)
                      << "\",\"name\":\"" << jsonEscape(endpoint.name) << "\",\"input_clusters\":[";
-                for (unsigned long c=0;c<endpoint.matterServers.size();++c) { if(c)json<<','; json<<endpoint.matterServers[c]; }
+                for (unsigned long c=0;c<endpoint.matter.read().servers.size();++c) { if(c)json<<','; json<<endpoint.matter.read().servers[c]; }
                 json << "],\"output_clusters\":[";
-                for (unsigned long c=0;c<endpoint.matterClients.size();++c) { if(c)json<<','; json<<endpoint.matterClients[c]; }
+                for (unsigned long c=0;c<endpoint.matter.read().clients.size();++c) { if(c)json<<','; json<<endpoint.matter.read().clients[c]; }
                 json << "]}";
             }
         }
-        for (unsigned long endpointIndex = 0; endpointIndex < device.endpoints.size(); ++endpointIndex) {
-            const EndpointDescriptor& endpoint = device.endpoints[endpointIndex];
+        for (unsigned long endpointIndex = 0; endpointIndex < device.zigbee.read().endpoints.size(); ++endpointIndex) {
+            const EndpointDescriptor& endpoint = device.zigbee.read().endpoints[endpointIndex];
             if (endpointIndex != 0) json << ',';
             json << "{\"endpoint\":" << static_cast<unsigned int>(endpoint.endpoint)
                  << ",\"profile_id\":" << endpoint.profileId
@@ -3603,7 +3584,7 @@ GatewayView Gateway::captureView(bool includeLogs,const Automation::CatalogPtr& 
     else {
         std::tr1::shared_ptr<Automation::SnapshotList> records(new Automation::SnapshotList);records->reserve(devices_.size());
         for(std::map<std::string,Device>::const_iterator it=devices_.begin();it!=devices_.end();++it){
-            Device* record=new Device(it->second);record->contactTriggerUntil=contactTriggerUntilForView(it->first);
+            Device* record=new Device(it->second);if(record->contact.present())record->contact.ensure().triggerUntil=contactTriggerUntilForView(it->first);
             Automation::DevicePtr immutable(record);records->push_back(Automation::capture(*record,Automation::SnapshotPtr(),immutable));
         }
         view.devices.share(records);
@@ -3757,8 +3738,8 @@ void Gateway::loadState() {
             clearVolatileDeviceValues(&saved[i]);
             if (saved[i].source == "zigbee") classifyDevice(&saved[i]);
             devices_[saved[i].ieeeAddress] = saved[i];
-            if (saved[i].networkAddress != 0xffff) nodeAddresses_[saved[i].networkAddress] = saved[i].ieeeAddress;
-            if ((saved[i].hasLight || isThermostat(saved[i])) && saved[i].networkAddress != 0xffff) lightSetupPending_[saved[i].networkAddress] = true;
+            if (saved[i].zigbee.read().networkAddress != 0xffff) nodeAddresses_[saved[i].zigbee.read().networkAddress] = saved[i].ieeeAddress;
+            if ((saved[i].light.present() || isThermostat(saved[i])) && saved[i].zigbee.read().networkAddress != 0xffff) lightSetupPending_[saved[i].zigbee.read().networkAddress] = true;
         }
     }
     error.clear();
@@ -3782,14 +3763,14 @@ void Gateway::loadState() {
                 volatileValues[i].contactTriggerCooldownSeconds = persistent.contactTriggerCooldownSeconds;
                 volatileValues[i].sensorRefreshIntervalMinutes = persistent.sensorRefreshIntervalMinutes;
                 volatileValues[i].valueAlerts = persistent.valueAlerts;
-                volatileValues[i].initialInterviewComplete = persistent.initialInterviewComplete;
-                volatileValues[i].configuredSignature = persistent.configuredSignature;
-                volatileValues[i].thermostat.sourceId = persistent.thermostat.sourceId;
-                volatileValues[i].thermostat.staleMinutes = persistent.thermostat.staleMinutes;
+                volatileValues[i].zigbee.ensure().initialInterviewComplete = persistent.zigbee.read().initialInterviewComplete;
+                volatileValues[i].zigbee.ensure().configuredSignature = persistent.zigbee.read().configuredSignature;
+                volatileValues[i].thermostatSourceId = persistent.thermostatSourceId;
+                volatileValues[i].thermostatStaleMinutes = persistent.thermostatStaleMinutes;
                 if (volatileValues[i].manufacturerName.empty()) volatileValues[i].manufacturerName = persistent.manufacturerName;
                 if (volatileValues[i].modelId.empty()) volatileValues[i].modelId = persistent.modelId;
-                if (volatileValues[i].endpoints.empty()) volatileValues[i].endpoints = persistent.endpoints;
-                if (volatileValues[i].nodeDescriptor.empty()) volatileValues[i].nodeDescriptor = persistent.nodeDescriptor;
+                if (volatileValues[i].zigbee.read().endpoints.empty()) volatileValues[i].zigbee.ensure().endpoints = persistent.zigbee.read().endpoints;
+                if (volatileValues[i].zigbee.read().nodeDescriptor.empty()) volatileValues[i].zigbee.ensure().nodeDescriptor = persistent.zigbee.read().nodeDescriptor;
                 if (volatileValues[i].source == "zigbee") classifyDevice(&volatileValues[i]);
                 devices_[volatileValues[i].ieeeAddress] = volatileValues[i];
             }
@@ -3800,7 +3781,7 @@ void Gateway::loadState() {
     // Start a fresh initial delay after both device stores have been restored.
     for (std::map<std::string, Device>::const_iterator device = devices_.begin();
          device != devices_.end(); ++device) {
-        if (device->second.hasContact && device->second.contactOpen &&
+        if (device->second.contact.present() && device->second.contact.read().open &&
             !device->second.contactTriggerMode && device->second.contactReminderAlertMinutes != 0)
             updateContactAlert(device->first, false, false);
     }
@@ -4262,7 +4243,7 @@ unsigned char Gateway::sendApsUnicast(unsigned short destination, unsigned short
                         ieee[7-i]=static_cast<unsigned char>(value);
                     }
                     const Device& device = devices_[text];
-                    if (device.hasContact || device.hasTemperature || device.hasHumidity || device.hasRemote) request[0] |= 8;
+                    if (device.contact.present() || device.temperature.present() || device.humidity.present() || device.remote.present()) request[0] |= 8;
                 }
             }
             request.insert(request.end(), ieee.begin(), ieee.end());
@@ -4984,7 +4965,7 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     if (removed != deviceDeletions_.end() && (removed->second.state == "pending" ||
         (removed->second.state == "succeeded" && joinUntil_ <= time(0)))) return;
     if (nodeAddresses_.count(nodeId) && nodeAddresses_[nodeId] != address.str()) {
-        devices_[nodeAddresses_[nodeId]].networkAddress = 0xffff;
+        devices_[nodeAddresses_[nodeId]].zigbee.ensure().networkAddress = 0xffff;
         interviews_.erase(nodeId);
         lastActiveEndpointRequestAt_.erase(nodeId);
         if (interviewRequestInFlight_ && interviewNode_ == nodeId) {
@@ -5026,8 +5007,8 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     }
     nodeAddresses_[nodeId] = address.str();
     Device& device = devices_[address.str()];
-    bool persistentChanged = device.networkAddress != nodeId;
-    device.networkAddress = nodeId;
+    bool persistentChanged = device.zigbee.read().networkAddress != nodeId;
+    device.zigbee.ensure().networkAddress = nodeId;
     if (!sensorRefreshEligible(nodeId)) nextSensorRefreshAt_.erase(nodeId);
     else nextSensorRefreshAt_[nodeId] = sensorRefreshDeadline(time(0), device.sensorRefreshIntervalMinutes);
     if (device.ieeeAddress.empty()) {
@@ -5063,17 +5044,17 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
 int Gateway::allocateIasZoneId(const std::string& ieeeAddress) {
     std::map<std::string, Device>::iterator current = devices_.find(resolveDeviceId(ieeeAddress));
     int candidate;
-    if (current != devices_.end() && current->second.iasZoneId >= 0 && current->second.iasZoneId <= 254) {
-        return current->second.iasZoneId;
+    if (current != devices_.end() && current->second.zigbee.read().iasZoneId >= 0 && current->second.zigbee.read().iasZoneId <= 254) {
+        return current->second.zigbee.read().iasZoneId;
     }
     for (candidate = 0; candidate <= 254; ++candidate) {
         std::map<std::string, Device>::const_iterator device;
         bool used = false;
         for (device = devices_.begin(); device != devices_.end(); ++device) {
-            if (device->second.iasZoneId == candidate) { used = true; break; }
+            if (device->second.zigbee.read().iasZoneId == candidate) { used = true; break; }
         }
         if (!used) {
-            devices_[ieeeAddress].iasZoneId = candidate;
+            devices_[ieeeAddress].zigbee.ensure().iasZoneId = candidate;
             saveState();
             savePersistentState();
             return candidate;
@@ -5102,7 +5083,7 @@ bool Gateway::reconfigureDevice(const std::string& ieeeAddress, std::string* err
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
         *error = "Zigbee network is not ready"; return false;
     }
-    unsigned short node = device->second.networkAddress;
+    unsigned short node = device->second.zigbee.read().networkAddress;
     if (node == 0xffff) { *error = "device has no active network address"; return false; }
     if (interviewRequestInFlight_ && interviewNode_ == node) {
         *error = "device interview is already in progress"; return false;
@@ -5124,8 +5105,8 @@ std::string Gateway::deviceConfigurationSignature(const Device& device) const {
               << ':' << device.modelId.size() << ':' << device.modelId
               << ':' << device.softwareBuildId.size() << ':' << device.softwareBuildId
               << ':' << nativeBindingEnabled(device.ieeeAddress);
-    for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
-        const EndpointDescriptor& endpoint = device.endpoints[i];
+    for (unsigned long i = 0; i < device.zigbee.read().endpoints.size(); ++i) {
+        const EndpointDescriptor& endpoint = device.zigbee.read().endpoints[i];
         signature << ':' << static_cast<unsigned int>(endpoint.endpoint) << ':' << endpoint.profileId
                   << ':' << endpoint.deviceId << ':' << static_cast<unsigned int>(endpoint.deviceVersion) << ":in";
         for (unsigned long c = 0; c < endpoint.inputClusters.size(); ++c) signature << ':' << endpoint.inputClusters[c];
@@ -5140,8 +5121,8 @@ void Gateway::startInterview(unsigned short destination, bool refreshOnly, bool 
     std::map<unsigned short, std::string>::const_iterator address = nodeAddresses_.find(destination);
     if (address == nodeAddresses_.end()) return;
     const Device& device = devices_[address->second];
-    if (!refreshOnly && !forceConfiguration && !device.endpoints.empty() &&
-        device.configuredSignature == deviceConfigurationSignature(device)) {
+    if (!refreshOnly && !forceConfiguration && !device.zigbee.read().endpoints.empty() &&
+        device.zigbee.read().configuredSignature == deviceConfigurationSignature(device)) {
         addLog("Device reporting configuration unchanged; keeping existing bindings: " + address->second);
         return;
     }
@@ -5159,11 +5140,11 @@ void Gateway::startInterview(unsigned short destination, bool refreshOnly, bool 
     state.refreshOnly = refreshOnly;
     state.forceConfiguration = forceConfiguration;
     interviews_[destination] = state;
-    if (refreshOnly && !forceEndpointDiscovery && !device.endpoints.empty()) {
+    if (refreshOnly && !forceEndpointDiscovery && !device.zigbee.read().endpoints.empty()) {
         buildRefreshOperations(destination);
         return;
     }
-    if (!refreshOnly && !forceEndpointDiscovery && !device.endpoints.empty()) {
+    if (!refreshOnly && !forceEndpointDiscovery && !device.zigbee.read().endpoints.empty()) {
         buildConfigurationOperations(destination);
         return;
     }
@@ -5195,11 +5176,11 @@ bool Gateway::sensorRefreshEligible(unsigned short nodeId) const {
     if (node == nodeAddresses_.end() || nodeId == 0xffff) return false;
     std::map<std::string, Device>::const_iterator device = devices_.find(node->second);
     if (device == devices_.end() || device->second.source != "zigbee" ||
-        device->second.networkAddress != nodeId || device->second.sensorRefreshIntervalMinutes == 0) return false;
-    if (device->second.hasTemperature || device->second.hasHumidity) return true;
-    for (unsigned long endpoint = 0; endpoint < device->second.endpoints.size(); ++endpoint) {
-        if (endpointSupports(device->second.endpoints[endpoint], 0x0402) ||
-            endpointSupports(device->second.endpoints[endpoint], 0x0405)) return true;
+        device->second.zigbee.read().networkAddress != nodeId || device->second.sensorRefreshIntervalMinutes == 0) return false;
+    if (device->second.temperature.present() || device->second.humidity.present()) return true;
+    for (unsigned long endpoint = 0; endpoint < device->second.zigbee.read().endpoints.size(); ++endpoint) {
+        if (endpointSupports(device->second.zigbee.read().endpoints[endpoint], 0x0402) ||
+            endpointSupports(device->second.zigbee.read().endpoints[endpoint], 0x0405)) return true;
     }
     return false;
 }
@@ -5224,8 +5205,8 @@ void Gateway::buildRefreshOperations(unsigned short destination) {
     state.operations.clear();
     state.operationIndex = 0;
     if (isThermostat(device)) queueThermostatReadings(device);
-    for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
-        const EndpointDescriptor& endpoint = device.endpoints[i];
+    for (unsigned long i = 0; i < device.zigbee.read().endpoints.size(); ++i) {
+        const EndpointDescriptor& endpoint = device.zigbee.read().endpoints[i];
         if (endpointSupports(endpoint, 0x0402)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0402, 0x0000);
         if (endpointSupports(endpoint, 0x0405)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0405, 0x0000);
         if (!isThermostat(device) && endpointSupports(endpoint, 0x0006)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0006, 0x0000);
@@ -5248,13 +5229,13 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
     if (state.configurationPending) state.refreshOnly = false;
     state.configurationPending = false;
     Device& device = devices_[state.ieeeAddress];
-    if (!state.refreshOnly && !device.endpoints.empty() && !device.initialInterviewComplete) {
-        device.initialInterviewComplete = true;
+    if (!state.refreshOnly && !device.zigbee.read().endpoints.empty() && !device.zigbee.read().initialInterviewComplete) {
+        device.zigbee.ensure().initialInterviewComplete = true;
         savePersistentState(); saveState(); markViewDirty();
     }
     state.configurationSignature = deviceConfigurationSignature(device);
     state.configurationFailed = false;
-    if (!state.forceConfiguration && device.configuredSignature == state.configurationSignature) {
+    if (!state.forceConfiguration && device.zigbee.read().configuredSignature == state.configurationSignature) {
         if (state.refreshOnly) buildRefreshOperations(destination);
         else interviews_.erase(destination);
         return;
@@ -5263,8 +5244,8 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
     const bool herdsmanTh01 = device.manufacturerName == "eWeLink" && device.modelId == "TH01";
     state.operations.clear();
     state.operationIndex = 0;
-    for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
-        const EndpointDescriptor& endpoint = device.endpoints[i];
+    for (unsigned long i = 0; i < device.zigbee.read().endpoints.size(); ++i) {
+        const EndpointDescriptor& endpoint = device.zigbee.read().endpoints[i];
         if (isThermostat(device) && endpointSupports(endpoint, 0x0201)) {
             queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0201);
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0201, 0, 0x29, 10, 0, 3600);
@@ -5290,8 +5271,8 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
             std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0008) != endpoint.outputClusters.end())
             queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0008);
     }
-    for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
-        const EndpointDescriptor& endpoint = device.endpoints[i];
+    for (unsigned long i = 0; i < device.zigbee.read().endpoints.size(); ++i) {
+        const EndpointDescriptor& endpoint = device.zigbee.read().endpoints[i];
         if (endpointSupports(endpoint, 0x0402)) {
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0402, 0x0000, 0x29, 20,
                                     30, herdsmanTh01 ? 3600 : 300);
@@ -5482,7 +5463,7 @@ bool Gateway::updateBasicIdentity(Device* device, const std::vector<unsigned cha
             changed = true;
         } else if (attribute == 0x4000 && device->softwareBuildId != value) {
             device->softwareBuildId = value;
-            device->thermostat.unsupported.clear();
+            device->thermostat.ensure().unsupported.clear();
             changed = true;
             addLog("Device software build: " + device->ieeeAddress + " version=" + value);
         }
@@ -5507,8 +5488,8 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
     InterviewState& state = found->second;
     Device& device = devices_[state.ieeeAddress];
     if (completedType == InterviewSimpleDescriptor) {
-        if (!endpointDescriptorsEqual(device.endpoints, state.discoveredEndpoints)) {
-            device.endpoints = state.discoveredEndpoints;
+        if (!endpointDescriptorsEqual(device.zigbee.read().endpoints, state.discoveredEndpoints)) {
+            device.zigbee.ensure().endpoints = state.discoveredEndpoints;
             classifyDevice(&device);
             state.persistentDirty = true;
         }
@@ -5525,9 +5506,9 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
         }
         state.operations.clear();
         state.operationIndex = 0;
-        for (unsigned long i = 0; i < device.endpoints.size(); ++i) {
-            if (endpointSupports(device.endpoints[i], 0x0000))
-                queueInterviewOperation(destination, InterviewBasicRead, device.endpoints[i].endpoint, 0x0000);
+        for (unsigned long i = 0; i < device.zigbee.read().endpoints.size(); ++i) {
+            if (endpointSupports(device.zigbee.read().endpoints[i], 0x0000))
+                queueInterviewOperation(destination, InterviewBasicRead, device.zigbee.read().endpoints[i].endpoint, 0x0000);
         }
         if (state.operations.empty()) {
             buildConfigurationOperations(destination);
@@ -5543,13 +5524,13 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
     } else {
         if (!state.refreshOnly && !state.configurationFailed && !state.configurationSignature.empty() &&
             state.configurationSignature == deviceConfigurationSignature(device) &&
-            device.configuredSignature != state.configurationSignature) {
-            device.configuredSignature = state.configurationSignature;
+            device.zigbee.read().configuredSignature != state.configurationSignature) {
+            device.zigbee.ensure().configuredSignature = state.configurationSignature;
             savePersistentState();
             saveState();
         }
-        if (!state.refreshOnly && !device.initialInterviewComplete) {
-            device.initialInterviewComplete = true;
+        if (!state.refreshOnly && !device.zigbee.read().initialInterviewComplete) {
+            device.zigbee.ensure().initialInterviewComplete = true;
             savePersistentState(); saveState(); markViewDirty();
         }
         addLog(state.refreshOnly ? "Sensor attribute refresh completed" : "Sensor interview completed");
@@ -5755,8 +5736,8 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
                 } else {
                     Device& device = devices_[owner->second];
                     std::vector<unsigned char> descriptor(message.begin() + 4, message.begin() + 17);
-                    if (device.nodeDescriptor != descriptor) {
-                        device.nodeDescriptor = descriptor;
+                    if (device.zigbee.read().nodeDescriptor != descriptor) {
+                        device.zigbee.ensure().nodeDescriptor = descriptor;
                         savePersistentState();
                     }
                     status.nodeDescriptorStatus = "complete";
@@ -5786,7 +5767,7 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
                 interviewDeadline_ = 0;
             }
             interview->second.paused = false;
-            if (interview->second.refreshOnly && !devices_[interview->second.ieeeAddress].endpoints.empty())
+            if (interview->second.refreshOnly && !devices_[interview->second.ieeeAddress].zigbee.read().endpoints.empty())
                 buildRefreshOperations(sender);
             else buildDescriptorOperations(sender, endpoints);
             addLog("Active endpoints received");
@@ -5866,7 +5847,7 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
                         std::vector<unsigned char> next;
                         next.push_back(query->second.bindingsSequence);
                         next.push_back(query->second.bindingStartIndex);
-                        sendApsUnicast(devices_[owner->second].networkAddress, 0x0000, 0x0033, 0, 0, next);
+                        sendApsUnicast(devices_[owner->second].zigbee.read().networkAddress, 0x0000, 0x0033, 0, 0, next);
                     } else {
                         status.bindingsStatus = "complete";
                         query->second.bindingsDeadline = 0;
@@ -5949,10 +5930,10 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
     wakeInterview(sender);
     address = nodeAddresses_.find(sender);
     if (address == nodeAddresses_.end()) return;
-    if (profile == 0x0104 && !devices_[address->second].endpoints.empty()) {
+    if (profile == 0x0104 && !devices_[address->second].zigbee.read().endpoints.empty()) {
         bool endpointKnown = false;
-        for (unsigned long i = 0; i < devices_[address->second].endpoints.size(); ++i) {
-            if (devices_[address->second].endpoints[i].endpoint == sourceEndpoint) endpointKnown = true;
+        for (unsigned long i = 0; i < devices_[address->second].zigbee.read().endpoints.size(); ++i) {
+            if (devices_[address->second].zigbee.read().endpoints[i].endpoint == sourceEndpoint) endpointKnown = true;
         }
         if (!endpointKnown) {
             addLog("Ignoring APS message from an undiscovered endpoint");
@@ -6012,7 +5993,7 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
         if (known != nodeAddresses_.end()) {
             Device& device = devices_[known->second];
             Device before = device;
-            device.linkQuality = lqi;
+            device.zigbee.ensure().linkQuality = lqi;
             device.lastSeen = time(0);
             updateValueAlerts(device, before);
             markDeviceDirty(device.ieeeAddress);
@@ -6051,8 +6032,8 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
         std::vector<unsigned char> records(message.begin() + zclOffset, message.end());
         Device before = devices_[address->second];
         unsigned observed = 0;
-        bool wasOpen = devices_[address->second].contactOpen;
-        bool hadKnownContact = devices_[address->second].contactKnown;
+        bool wasOpen = devices_[address->second].contact.read().open;
+        bool hadKnownContact = devices_[address->second].contact.read().known;
         std::map<unsigned short, InterviewState>::iterator interview = interviews_.find(sender);
         bool matched = false;
         if (interview != interviews_.end() &&

@@ -1,0 +1,1480 @@
+{
+  "host": {
+    "mode": "host",
+    "baseline_revision": "3a59035",
+    "synthetic": true,
+    "production_state_access": false,
+    "samples": 5,
+    "after_source_digest": "7ec33e777daae0e3c444d074f91aec32bea2452d9dc21904c05fe56355b5201e",
+    "complete": true,
+    "cases": {
+      "empty/construct": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.037401,
+          "wall_us": 0.037431,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 3,
+            "fixture_bytes": 1686,
+            "peak_bytes": 2423
+          }
+        },
+        "after": {
+          "cpu_us": 0.017127,
+          "wall_us": 0.017123,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 3,
+            "fixture_bytes": 606,
+            "peak_bytes": 1343
+          }
+        },
+        "cpu_change_percent": -54.20710676185128
+      },
+      "empty/copy": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.10123,
+          "wall_us": 0.101313,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 1642,
+            "fixture_allocations": 3,
+            "fixture_bytes": 1686,
+            "peak_bytes": 4065
+          }
+        },
+        "after": {
+          "cpu_us": 0.060707,
+          "wall_us": 0.060941,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 562,
+            "fixture_allocations": 3,
+            "fixture_bytes": 606,
+            "peak_bytes": 1905
+          }
+        },
+        "cpu_change_percent": -40.03062333300406
+      },
+      "empty/snapshot": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.090087,
+          "wall_us": 0.09019,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 400,
+            "fixture_allocations": 3,
+            "fixture_bytes": 1686,
+            "peak_bytes": 2823
+          }
+        },
+        "after": {
+          "cpu_us": 0.09993,
+          "wall_us": 0.099927,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 400,
+            "fixture_allocations": 3,
+            "fixture_bytes": 606,
+            "peak_bytes": 1743
+          }
+        },
+        "cpu_change_percent": 10.926104765393463
+      },
+      "empty/unchanged": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.090444,
+          "wall_us": 0.090606,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 3,
+            "fixture_bytes": 1686,
+            "peak_bytes": 2423
+          }
+        },
+        "after": {
+          "cpu_us": 0.102527,
+          "wall_us": 0.102572,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 3,
+            "fixture_bytes": 606,
+            "peak_bytes": 1343
+          }
+        },
+        "cpu_change_percent": 13.359647958958032
+      },
+      "empty/capabilities": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.269719,
+          "wall_us": 0.269767,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 3,
+            "fixture_bytes": 1686,
+            "peak_bytes": 2423
+          }
+        },
+        "after": {
+          "cpu_us": 0.191746,
+          "wall_us": 0.191837,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 3,
+            "fixture_bytes": 606,
+            "peak_bytes": 1343
+          }
+        },
+        "cpu_change_percent": -28.908975637608027
+      },
+      "empty/cache": {
+        "iterations": 5629,
+        "before": {
+          "cpu_us": 44.197803,
+          "wall_us": 44.277937,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65757,
+            "fixture_allocations": 3,
+            "fixture_bytes": 1686,
+            "peak_bytes": 68180
+          }
+        },
+        "after": {
+          "cpu_us": 44.58619,
+          "wall_us": 44.667776,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65757,
+            "fixture_allocations": 3,
+            "fixture_bytes": 606,
+            "peak_bytes": 67100
+          }
+        },
+        "cpu_change_percent": 0.8787472988193601
+      },
+      "sensor/copy": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.103111,
+          "wall_us": 0.103185,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 1642,
+            "fixture_allocations": 3,
+            "fixture_bytes": 1686,
+            "peak_bytes": 4065
+          }
+        },
+        "after": {
+          "cpu_us": 0.090945,
+          "wall_us": 0.090949,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 6,
+            "allocated_bytes": 702,
+            "fixture_allocations": 7,
+            "fixture_bytes": 746,
+            "peak_bytes": 2185
+          }
+        },
+        "cpu_change_percent": -11.798935128162846
+      },
+      "sensor/snapshot": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.093273,
+          "wall_us": 0.093375,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 400,
+            "fixture_allocations": 3,
+            "fixture_bytes": 1686,
+            "peak_bytes": 2823
+          }
+        },
+        "after": {
+          "cpu_us": 0.09859,
+          "wall_us": 0.098648,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 400,
+            "fixture_allocations": 7,
+            "fixture_bytes": 746,
+            "peak_bytes": 1883
+          }
+        },
+        "cpu_change_percent": 5.700470661391832
+      },
+      "sensor/unchanged": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.090239,
+          "wall_us": 0.09028,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 3,
+            "fixture_bytes": 1686,
+            "peak_bytes": 2423
+          }
+        },
+        "after": {
+          "cpu_us": 0.097411,
+          "wall_us": 0.097465,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 7,
+            "fixture_bytes": 746,
+            "peak_bytes": 1483
+          }
+        },
+        "cpu_change_percent": 7.947783109298645
+      },
+      "sensor/capabilities": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.266896,
+          "wall_us": 0.267098,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 3,
+            "fixture_bytes": 1686,
+            "peak_bytes": 2423
+          }
+        },
+        "after": {
+          "cpu_us": 0.196019,
+          "wall_us": 0.196075,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 7,
+            "fixture_bytes": 746,
+            "peak_bytes": 1483
+          }
+        },
+        "cpu_change_percent": -26.556036808344828
+      },
+      "sensor/cache": {
+        "iterations": 5447,
+        "before": {
+          "cpu_us": 45.908003,
+          "wall_us": 46.028557,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65757,
+            "fixture_allocations": 3,
+            "fixture_bytes": 1686,
+            "peak_bytes": 68180
+          }
+        },
+        "after": {
+          "cpu_us": 46.195951,
+          "wall_us": 46.309709,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65757,
+            "fixture_allocations": 7,
+            "fixture_bytes": 746,
+            "peak_bytes": 67240
+          }
+        },
+        "cpu_change_percent": 0.627228328794871
+      },
+      "thermostat/copy": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.141626,
+          "wall_us": 0.141622,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 5,
+            "allocated_bytes": 1772,
+            "fixture_allocations": 7,
+            "fixture_bytes": 1816,
+            "peak_bytes": 70617
+          }
+        },
+        "after": {
+          "cpu_us": 0.141077,
+          "wall_us": 0.141074,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 9,
+            "allocated_bytes": 1488,
+            "fixture_allocations": 11,
+            "fixture_bytes": 1532,
+            "peak_bytes": 69765
+          }
+        },
+        "cpu_change_percent": -0.3876406874443905
+      },
+      "thermostat/snapshot": {
+        "iterations": 3970,
+        "before": {
+          "cpu_us": 81.345095,
+          "wall_us": 81.354612,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 1976,
+            "allocated_bytes": 267980,
+            "fixture_allocations": 7,
+            "fixture_bytes": 1816,
+            "peak_bytes": 200025
+          }
+        },
+        "after": {
+          "cpu_us": 63.802939,
+          "wall_us": 63.815482,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 1980,
+            "allocated_bytes": 267696,
+            "fixture_allocations": 11,
+            "fixture_bytes": 1532,
+            "peak_bytes": 199173
+          }
+        },
+        "cpu_change_percent": -21.565106046037563
+      },
+      "thermostat/unchanged": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.126855,
+          "wall_us": 0.126939,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 7,
+            "fixture_bytes": 1816,
+            "peak_bytes": 68845
+          }
+        },
+        "after": {
+          "cpu_us": 0.136922,
+          "wall_us": 0.137013,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 11,
+            "fixture_bytes": 1532,
+            "peak_bytes": 68277
+          }
+        },
+        "cpu_change_percent": 7.935832249418628
+      },
+      "thermostat/capabilities": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.357289,
+          "wall_us": 0.357333,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 7,
+            "fixture_bytes": 1816,
+            "peak_bytes": 68845
+          }
+        },
+        "after": {
+          "cpu_us": 0.272195,
+          "wall_us": 0.272226,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 11,
+            "fixture_bytes": 1532,
+            "peak_bytes": 68277
+          }
+        },
+        "cpu_change_percent": -23.816574257813706
+      },
+      "thermostat/cache": {
+        "iterations": 5408,
+        "before": {
+          "cpu_us": 45.462556,
+          "wall_us": 45.574886,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65757,
+            "fixture_allocations": 7,
+            "fixture_bytes": 1816,
+            "peak_bytes": 134602
+          }
+        },
+        "after": {
+          "cpu_us": 46.476617,
+          "wall_us": 46.559621,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65757,
+            "fixture_allocations": 11,
+            "fixture_bytes": 1532,
+            "peak_bytes": 134034
+          }
+        },
+        "cpu_change_percent": 2.230541107279582
+      },
+      "multifunction/copy": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.144416,
+          "wall_us": 0.14446,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 5,
+            "allocated_bytes": 1772,
+            "fixture_allocations": 7,
+            "fixture_bytes": 1816,
+            "peak_bytes": 70617
+          }
+        },
+        "after": {
+          "cpu_us": 0.169093,
+          "wall_us": 0.169215,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 12,
+            "allocated_bytes": 1522,
+            "fixture_allocations": 14,
+            "fixture_bytes": 1566,
+            "peak_bytes": 69867
+          }
+        },
+        "cpu_change_percent": 17.087441834699767
+      },
+      "multifunction/snapshot": {
+        "iterations": 3925,
+        "before": {
+          "cpu_us": 81.954923,
+          "wall_us": 81.961909,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 1976,
+            "allocated_bytes": 267980,
+            "fixture_allocations": 7,
+            "fixture_bytes": 1816,
+            "peak_bytes": 200025
+          }
+        },
+        "after": {
+          "cpu_us": 63.682145,
+          "wall_us": 63.687669,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 1983,
+            "allocated_bytes": 267730,
+            "fixture_allocations": 14,
+            "fixture_bytes": 1566,
+            "peak_bytes": 199275
+          }
+        },
+        "cpu_change_percent": -22.29613222868868
+      },
+      "multifunction/unchanged": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.122835,
+          "wall_us": 0.122833,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 7,
+            "fixture_bytes": 1816,
+            "peak_bytes": 68845
+          }
+        },
+        "after": {
+          "cpu_us": 0.137548,
+          "wall_us": 0.137714,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 14,
+            "fixture_bytes": 1566,
+            "peak_bytes": 68345
+          }
+        },
+        "cpu_change_percent": 11.977856474131965
+      },
+      "multifunction/capabilities": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.350975,
+          "wall_us": 0.351006,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 7,
+            "fixture_bytes": 1816,
+            "peak_bytes": 68845
+          }
+        },
+        "after": {
+          "cpu_us": 0.263035,
+          "wall_us": 0.263066,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 14,
+            "fixture_bytes": 1566,
+            "peak_bytes": 68345
+          }
+        },
+        "cpu_change_percent": -25.055915663508788
+      },
+      "multifunction/cache": {
+        "iterations": 5447,
+        "before": {
+          "cpu_us": 45.962545,
+          "wall_us": 46.067928,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65757,
+            "fixture_allocations": 7,
+            "fixture_bytes": 1816,
+            "peak_bytes": 134602
+          }
+        },
+        "after": {
+          "cpu_us": 46.409106,
+          "wall_us": 46.533263,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65757,
+            "fixture_allocations": 14,
+            "fixture_bytes": 1566,
+            "peak_bytes": 134102
+          }
+        },
+        "cpu_change_percent": 0.9715758777065098
+      },
+      "mixed26/copy": {
+        "iterations": 73218,
+        "before": {
+          "cpu_us": 3.12329,
+          "wall_us": 3.123558,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 63,
+            "allocated_bytes": 44252,
+            "fixture_allocations": 101,
+            "fixture_bytes": 45396,
+            "peak_bytes": 903189
+          }
+        },
+        "after": {
+          "cpu_us": 4.325582,
+          "wall_us": 4.325967,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 157,
+            "allocated_bytes": 26908,
+            "fixture_allocations": 195,
+            "fixture_bytes": 28052,
+            "peak_bytes": 865297
+          }
+        },
+        "cpu_change_percent": 38.494408140134276
+      },
+      "mixed26/snapshot": {
+        "iterations": 309,
+        "before": {
+          "cpu_us": 841.643712,
+          "wall_us": 841.799929,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 23740,
+            "allocated_bytes": 3221360,
+            "fixture_allocations": 101,
+            "fixture_bytes": 45396,
+            "peak_bytes": 990117
+          }
+        },
+        "after": {
+          "cpu_us": 818.910848,
+          "wall_us": 819.01777,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 23806,
+            "allocated_bytes": 3218156,
+            "fixture_allocations": 195,
+            "fixture_bytes": 28052,
+            "peak_bytes": 969319
+          }
+        },
+        "cpu_change_percent": -2.7010080008772253
+      },
+      "mixed26/unchanged": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 2.337262,
+          "wall_us": 2.340183,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 101,
+            "fixture_bytes": 45396,
+            "peak_bytes": 858937
+          }
+        },
+        "after": {
+          "cpu_us": 2.717683,
+          "wall_us": 2.718045,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 195,
+            "fixture_bytes": 28052,
+            "peak_bytes": 838389
+          }
+        },
+        "cpu_change_percent": 16.276352415775385
+      },
+      "mixed26/capabilities": {
+        "iterations": 100000,
+        "before": {
+          "cpu_us": 0.267877,
+          "wall_us": 0.267874,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 101,
+            "fixture_bytes": 45396,
+            "peak_bytes": 858937
+          }
+        },
+        "after": {
+          "cpu_us": 0.188187,
+          "wall_us": 0.188183,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 195,
+            "fixture_bytes": 28052,
+            "peak_bytes": 838389
+          }
+        },
+        "cpu_change_percent": -29.74872796096716
+      },
+      "mixed26/cache": {
+        "iterations": 2228,
+        "before": {
+          "cpu_us": 112.294964,
+          "wall_us": 112.608528,
+          "inline_bytes": 1624,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65757,
+            "fixture_allocations": 101,
+            "fixture_bytes": 45396,
+            "peak_bytes": 924694
+          }
+        },
+        "after": {
+          "cpu_us": 116.426388,
+          "wall_us": 116.666,
+          "inline_bytes": 544,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65757,
+            "fixture_allocations": 195,
+            "fixture_bytes": 28052,
+            "peak_bytes": 904146
+          }
+        },
+        "cpu_change_percent": 3.6790821714854482
+      }
+    }
+  },
+  "mips_gateway": {
+    "mode": "device",
+    "baseline_revision": "3a59035",
+    "synthetic": true,
+    "production_state_access": false,
+    "samples": 5,
+    "after_source_digest": "7ec33e777daae0e3c444d074f91aec32bea2452d9dc21904c05fe56355b5201e",
+    "complete": true,
+    "cases": {
+      "empty/construct": {
+        "iterations": 20833,
+        "before": {
+          "cpu_us": 19.680315,
+          "wall_us": 24.480392,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 39,
+            "fixture_allocations": 6,
+            "fixture_bytes": 984,
+            "peak_bytes": 1476
+          }
+        },
+        "after": {
+          "cpu_us": 12.4802,
+          "wall_us": 12.960207,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 39,
+            "fixture_allocations": 6,
+            "fixture_bytes": 312,
+            "peak_bytes": 804
+          }
+        },
+        "cpu_change_percent": -36.58536461433671
+      },
+      "empty/copy": {
+        "iterations": 19230,
+        "before": {
+          "cpu_us": 27.041082,
+          "wall_us": 32.24129,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 1,
+            "allocated_bytes": 864,
+            "fixture_allocations": 6,
+            "fixture_bytes": 979,
+            "peak_bytes": 2296
+          }
+        },
+        "after": {
+          "cpu_us": 13.520541,
+          "wall_us": 21.320853,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 1,
+            "allocated_bytes": 192,
+            "fixture_allocations": 6,
+            "fixture_bytes": 307,
+            "peak_bytes": 952
+          }
+        },
+        "cpu_change_percent": -50.0
+      },
+      "empty/snapshot": {
+        "iterations": 3787,
+        "before": {
+          "cpu_us": 63.374703,
+          "wall_us": 63.374703,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 284,
+            "fixture_allocations": 6,
+            "fixture_bytes": 983,
+            "peak_bytes": 1720
+          }
+        },
+        "after": {
+          "cpu_us": 66.015316,
+          "wall_us": 92.421442,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 284,
+            "fixture_allocations": 6,
+            "fixture_bytes": 311,
+            "peak_bytes": 1048
+          }
+        },
+        "cpu_change_percent": 4.166667258385415
+      },
+      "empty/unchanged": {
+        "iterations": 8928,
+        "before": {
+          "cpu_us": 32.482079,
+          "wall_us": 58.243728,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 6,
+            "fixture_bytes": 984,
+            "peak_bytes": 1437
+          }
+        },
+        "after": {
+          "cpu_us": 29.121864,
+          "wall_us": 29.121864,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 6,
+            "fixture_bytes": 312,
+            "peak_bytes": 765
+          }
+        },
+        "cpu_change_percent": -10.344827373888233
+      },
+      "empty/capabilities": {
+        "iterations": 2500,
+        "before": {
+          "cpu_us": 212.0,
+          "wall_us": 320.0,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 6,
+            "fixture_bytes": 987,
+            "peak_bytes": 1440
+          }
+        },
+        "after": {
+          "cpu_us": 100.0,
+          "wall_us": 120.0,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 6,
+            "fixture_bytes": 315,
+            "peak_bytes": 768
+          }
+        },
+        "cpu_change_percent": -52.83018867924528
+      },
+      "empty/cache": {
+        "iterations": 108,
+        "before": {
+          "cpu_us": 2222.222222,
+          "wall_us": 2592.592593,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65769,
+            "fixture_allocations": 6,
+            "fixture_bytes": 980,
+            "peak_bytes": 67202
+          }
+        },
+        "after": {
+          "cpu_us": 2500.0,
+          "wall_us": 5092.592591,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65769,
+            "fixture_allocations": 6,
+            "fixture_bytes": 308,
+            "peak_bytes": 66530
+          }
+        },
+        "cpu_change_percent": 12.500000011250002
+      },
+      "sensor/copy": {
+        "iterations": 8928,
+        "before": {
+          "cpu_us": 28.001792,
+          "wall_us": 41.442652,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 1,
+            "allocated_bytes": 864,
+            "fixture_allocations": 6,
+            "fixture_bytes": 979,
+            "peak_bytes": 2296
+          }
+        },
+        "after": {
+          "cpu_us": 30.241935,
+          "wall_us": 42.562724,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 5,
+            "allocated_bytes": 280,
+            "fixture_allocations": 10,
+            "fixture_bytes": 395,
+            "peak_bytes": 1128
+          }
+        },
+        "cpu_change_percent": 7.999998714368006
+      },
+      "sensor/snapshot": {
+        "iterations": 4098,
+        "before": {
+          "cpu_us": 68.326013,
+          "wall_us": 75.646657,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 284,
+            "fixture_allocations": 6,
+            "fixture_bytes": 983,
+            "peak_bytes": 1720
+          }
+        },
+        "after": {
+          "cpu_us": 63.445583,
+          "wall_us": 65.885798,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 2,
+            "allocated_bytes": 284,
+            "fixture_allocations": 10,
+            "fixture_bytes": 399,
+            "peak_bytes": 1136
+          }
+        },
+        "cpu_change_percent": -7.142857874642861
+      },
+      "sensor/unchanged": {
+        "iterations": 8928,
+        "before": {
+          "cpu_us": 35.842294,
+          "wall_us": 47.043011,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 6,
+            "fixture_bytes": 984,
+            "peak_bytes": 1437
+          }
+        },
+        "after": {
+          "cpu_us": 30.241935,
+          "wall_us": 42.562724,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 10,
+            "fixture_bytes": 400,
+            "peak_bytes": 853
+          }
+        },
+        "cpu_change_percent": -15.625001569374996
+      },
+      "sensor/capabilities": {
+        "iterations": 2403,
+        "before": {
+          "cpu_us": 203.911777,
+          "wall_us": 278.818144,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 6,
+            "fixture_bytes": 987,
+            "peak_bytes": 1440
+          }
+        },
+        "after": {
+          "cpu_us": 99.875156,
+          "wall_us": 108.198086,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 10,
+            "fixture_bytes": 403,
+            "peak_bytes": 856
+          }
+        },
+        "cpu_change_percent": -51.02040820329863
+      },
+      "sensor/cache": {
+        "iterations": 96,
+        "before": {
+          "cpu_us": 2395.833333,
+          "wall_us": 4270.833335,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65769,
+            "fixture_allocations": 6,
+            "fixture_bytes": 980,
+            "peak_bytes": 67202
+          }
+        },
+        "after": {
+          "cpu_us": 2291.666667,
+          "wall_us": 3229.166665,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65769,
+            "fixture_allocations": 10,
+            "fixture_bytes": 396,
+            "peak_bytes": 66618
+          }
+        },
+        "cpu_change_percent": -4.347826059735349
+      },
+      "thermostat/copy": {
+        "iterations": 5681,
+        "before": {
+          "cpu_us": 45.76659,
+          "wall_us": 56.328111,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 922,
+            "fixture_allocations": 12,
+            "fixture_bytes": 1076,
+            "peak_bytes": 38370
+          }
+        },
+        "after": {
+          "cpu_us": 70.410139,
+          "wall_us": 103.854955,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 8,
+            "allocated_bytes": 826,
+            "fixture_allocations": 16,
+            "fixture_bytes": 980,
+            "peak_bytes": 38082
+          }
+        },
+        "cpu_change_percent": 53.84615502269232
+      },
+      "thermostat/snapshot": {
+        "iterations": 11,
+        "before": {
+          "cpu_us": 20000.0,
+          "wall_us": 20909.090907,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 1652,
+            "allocated_bytes": 118107,
+            "fixture_allocations": 12,
+            "fixture_bytes": 1080,
+            "peak_bytes": 100583
+          }
+        },
+        "after": {
+          "cpu_us": 20909.090909,
+          "wall_us": 22727.272727,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 1656,
+            "allocated_bytes": 118011,
+            "fixture_allocations": 16,
+            "fixture_bytes": 984,
+            "peak_bytes": 100295
+          }
+        },
+        "cpu_change_percent": 4.545454544999994
+      },
+      "thermostat/unchanged": {
+        "iterations": 4098,
+        "before": {
+          "cpu_us": 61.005368,
+          "wall_us": 92.72816,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 12,
+            "fixture_bytes": 1081,
+            "peak_bytes": 37453
+          }
+        },
+        "after": {
+          "cpu_us": 51.24451,
+          "wall_us": 56.124939,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 16,
+            "fixture_bytes": 985,
+            "peak_bytes": 37261
+          }
+        },
+        "cpu_change_percent": -15.999998557503991
+      },
+      "thermostat/capabilities": {
+        "iterations": 1136,
+        "before": {
+          "cpu_us": 272.887324,
+          "wall_us": 316.901409,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 12,
+            "fixture_bytes": 1084,
+            "peak_bytes": 37456
+          }
+        },
+        "after": {
+          "cpu_us": 193.661972,
+          "wall_us": 237.676056,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 16,
+            "fixture_bytes": 988,
+            "peak_bytes": 37264
+          }
+        },
+        "cpu_change_percent": -29.03225801723205
+      },
+      "thermostat/cache": {
+        "iterations": 108,
+        "before": {
+          "cpu_us": 2407.407407,
+          "wall_us": 3425.925927,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65769,
+            "fixture_allocations": 12,
+            "fixture_bytes": 1077,
+            "peak_bytes": 103218
+          }
+        },
+        "after": {
+          "cpu_us": 2314.814815,
+          "wall_us": 2500.0,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65769,
+            "fixture_allocations": 16,
+            "fixture_bytes": 981,
+            "peak_bytes": 103026
+          }
+        },
+        "cpu_change_percent": -3.8461538221893465
+      },
+      "multifunction/copy": {
+        "iterations": 5952,
+        "before": {
+          "cpu_us": 40.322581,
+          "wall_us": 40.322581,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 922,
+            "fixture_allocations": 12,
+            "fixture_bytes": 1076,
+            "peak_bytes": 38370
+          }
+        },
+        "after": {
+          "cpu_us": 85.685484,
+          "wall_us": 110.887097,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 11,
+            "allocated_bytes": 860,
+            "fixture_allocations": 19,
+            "fixture_bytes": 1014,
+            "peak_bytes": 38184
+          }
+        },
+        "cpu_change_percent": 112.49999845
+      },
+      "multifunction/snapshot": {
+        "iterations": 12,
+        "before": {
+          "cpu_us": 20833.333333,
+          "wall_us": 22500.000002,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 1652,
+            "allocated_bytes": 118107,
+            "fixture_allocations": 12,
+            "fixture_bytes": 1080,
+            "peak_bytes": 100583
+          }
+        },
+        "after": {
+          "cpu_us": 21666.666667,
+          "wall_us": 31666.666657,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 1659,
+            "allocated_bytes": 118045,
+            "fixture_allocations": 19,
+            "fixture_bytes": 1018,
+            "peak_bytes": 100397
+          }
+        },
+        "cpu_change_percent": 4.000000003264015
+      },
+      "multifunction/unchanged": {
+        "iterations": 4545,
+        "before": {
+          "cpu_us": 70.407041,
+          "wall_us": 143.014301,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 12,
+            "fixture_bytes": 1081,
+            "peak_bytes": 37453
+          }
+        },
+        "after": {
+          "cpu_us": 59.405941,
+          "wall_us": 77.007701,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 19,
+            "fixture_bytes": 1019,
+            "peak_bytes": 37329
+          }
+        },
+        "cpu_change_percent": -15.624999778076187
+      },
+      "multifunction/capabilities": {
+        "iterations": 1250,
+        "before": {
+          "cpu_us": 256.0,
+          "wall_us": 528.0,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 12,
+            "fixture_bytes": 1084,
+            "peak_bytes": 37456
+          }
+        },
+        "after": {
+          "cpu_us": 200.0,
+          "wall_us": 248.0,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 19,
+            "fixture_bytes": 1022,
+            "peak_bytes": 37332
+          }
+        },
+        "cpu_change_percent": -21.875
+      },
+      "multifunction/cache": {
+        "iterations": 113,
+        "before": {
+          "cpu_us": 2389.380531,
+          "wall_us": 3716.814159,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65769,
+            "fixture_allocations": 12,
+            "fixture_bytes": 1077,
+            "peak_bytes": 103218
+          }
+        },
+        "after": {
+          "cpu_us": 2389.380531,
+          "wall_us": 2566.371682,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65769,
+            "fixture_allocations": 19,
+            "fixture_bytes": 1015,
+            "peak_bytes": 103094
+          }
+        },
+        "cpu_change_percent": 0.0
+      },
+      "mixed26/copy": {
+        "iterations": 166,
+        "before": {
+          "cpu_us": 1325.301205,
+          "wall_us": 1385.542169,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 37,
+            "allocated_bytes": 23160,
+            "fixture_allocations": 140,
+            "fixture_bytes": 25446,
+            "peak_bytes": 489537
+          }
+        },
+        "after": {
+          "cpu_us": 1506.024096,
+          "wall_us": 1506.024096,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 131,
+            "allocated_bytes": 13420,
+            "fixture_allocations": 234,
+            "fixture_bytes": 15706,
+            "peak_bytes": 469109
+          }
+        },
+        "cpu_change_percent": 13.636363591776867
+      },
+      "mixed26/snapshot": {
+        "iterations": 1,
+        "before": {
+          "cpu_us": 270000.0,
+          "wall_us": 270000.000019,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 19852,
+            "allocated_bytes": 1421260,
+            "fixture_allocations": 140,
+            "fixture_bytes": 25450,
+            "peak_bytes": 529512
+          }
+        },
+        "after": {
+          "cpu_us": 270000.0,
+          "wall_us": 290000.000037,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 19918,
+            "allocated_bytes": 1420312,
+            "fixture_allocations": 234,
+            "fixture_bytes": 15710,
+            "peak_bytes": 518762
+          }
+        },
+        "cpu_change_percent": 0.0
+      },
+      "mixed26/unchanged": {
+        "iterations": 178,
+        "before": {
+          "cpu_us": 1629.213483,
+          "wall_us": 2471.910112,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 140,
+            "fixture_bytes": 25451,
+            "peak_bytes": 466382
+          }
+        },
+        "after": {
+          "cpu_us": 1573.033708,
+          "wall_us": 2528.089887,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 234,
+            "fixture_bytes": 15711,
+            "peak_bytes": 455694
+          }
+        },
+        "cpu_change_percent": -3.44827584513675
+      },
+      "mixed26/capabilities": {
+        "iterations": 2500,
+        "before": {
+          "cpu_us": 208.0,
+          "wall_us": 276.0,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 140,
+            "fixture_bytes": 25454,
+            "peak_bytes": 466385
+          }
+        },
+        "after": {
+          "cpu_us": 100.0,
+          "wall_us": 116.0,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 0,
+            "allocated_bytes": 0,
+            "fixture_allocations": 234,
+            "fixture_bytes": 15714,
+            "peak_bytes": 455697
+          }
+        },
+        "cpu_change_percent": -51.92307692307692
+      },
+      "mixed26/cache": {
+        "iterations": 22,
+        "before": {
+          "cpu_us": 11363.636364,
+          "wall_us": 18181.818178,
+          "inline_bytes": 864,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65769,
+            "fixture_allocations": 140,
+            "fixture_bytes": 25447,
+            "peak_bytes": 532147
+          }
+        },
+        "after": {
+          "cpu_us": 11363.636364,
+          "wall_us": 22272.727272,
+          "inline_bytes": 192,
+          "memory": {
+            "allocations": 4,
+            "allocated_bytes": 65769,
+            "fixture_allocations": 234,
+            "fixture_bytes": 15707,
+            "peak_bytes": 521459
+          }
+        },
+        "cpu_change_percent": 0.0
+      }
+    }
+  }
+}

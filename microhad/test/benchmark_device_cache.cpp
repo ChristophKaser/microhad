@@ -31,19 +31,19 @@ int main(int argc, char** argv) {
         device.ieeeAddress = id.str();
         device.name = "Synthetic room temperature sensor";
         device.manufacturerName = "Synthetic vendor"; device.modelId = "Synthetic model";
-        device.networkAddress = i + 1;
-        device.hasTemperature = device.temperatureKnown = true; device.temperatureCelsius = 21.125;
-        device.hasHumidity = device.humidityKnown = true; device.humidityPercent = 55.5;
-        device.hasBattery = true; device.batteryPercent = 80; device.lastSeen = 1700000000;
+        device.zigbee.ensure().networkAddress = i + 1;
+        device.temperature.setPresent(device.temperature.ensure().known = true); device.temperature.ensure().celsius = 21.125;
+        device.humidity.setPresent(device.humidity.ensure().known = true); device.humidity.ensure().percent = 55.5;
+        device.battery.setPresent(true); device.battery.ensure().percent = 80; device.lastSeen = 1700000000;
         if (i % 3 == 0) {
-            device.source = "matter"; device.matterNode = "0000000000000002";
-            device.matterEndpoint = 1; device.matterState = "complete"; device.matterMetadataState = "stale";
-            device.matterServers.push_back(6); device.matterServers.push_back(1026);
-            device.matterClients.push_back(8); device.matterDeviceTypes.push_back(256);
+            device.source = "matter"; device.matter.ensure().node = "0000000000000002";
+            device.matter.ensure().endpoint = 1; device.matter.ensure().state = "complete"; device.matter.ensure().metadataState = "stale";
+            device.matter.ensure().servers.push_back(6); device.matter.ensure().servers.push_back(1026);
+            device.matter.ensure().clients.push_back(8); device.matter.ensure().deviceTypes.push_back(256);
         } else {
             EndpointDescriptor endpoint; endpoint.endpoint = 1; endpoint.profileId = 260; endpoint.deviceId = 770;
             endpoint.inputClusters.push_back(0); endpoint.inputClusters.push_back(1); endpoint.inputClusters.push_back(1026);
-            device.endpoints.push_back(endpoint); device.nodeDescriptor.assign(13, 0x42);
+            device.zigbee.ensure().endpoints.push_back(endpoint); device.zigbee.ensure().nodeDescriptor.assign(13, 0x42);
         }
         if (i % 4 == 0) {
             DeviceValueAlert alert; alert.hasHigh = true; alert.high = 28.5; alert.hysteresis = 1.5; alert.unit = "celsius";

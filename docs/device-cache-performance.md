@@ -345,3 +345,116 @@ Validation includes missing versus zero, erased-value equality, all attribute
 ID/name mappings, all pending attribute/report/day IDs, existing thermostat
 capability/schedule/source-confirmation tests, native host unit/integration and
 synthetic peer suites, the native MIPS build, and 111 Rust library tests.
+
+## Optional device components (2026-10-25)
+
+`Device` now composes optional typed components through the same C++03
+`ClonePtr<T>` abstraction for every capability. Temperature, humidity, contact,
+water leak, air quality, CO2, PM2.5, occupancy, battery, light, brightness,
+remote, actor, power, Wi-Fi signal and thermostat values are no longer inline
+fields. Zigbee, Matter and external endpoint metadata follow the same ownership
+model. Multifunction devices own several components; there is no device-class
+hierarchy or string-key component registry.
+
+`present()` identifies a supported component; `read()` returns const state or
+an immutable default without allocation; `ensure()` explicitly creates mutable
+state; `reset()` removes it. `setPresent(bool)` supports discovery updates.
+Copying the pointer or its enclosing `Device` deep-copies each present component.
+Pointer assignment clones before replacing the owned object. No mutable component is
+shared with published status, history or automation records. The internal
+thermostat array and bitsets from the preceding optimization remain in use.
+
+Common identity, display metadata, availability and user configuration remain
+in `Device`. Thermostat source selection and timeout settings survive while
+its runtime component is absent. Persistence adapters preserve existing JSON,
+Lua and protobuf names and formats. Decoders establish capability presence
+before applying values, so legacy default fields cannot create unrelated
+components. Values belonging to absent capabilities are discarded; unused
+serialized value fields use the component defaults. Incomplete discovery preserves saved capabilities; authoritative
+rediscovery removes components that disappeared and copies readings only into
+retained components. Status publication does not create contact state on other
+device types.
+
+The repeatable host/gateway benchmark is:
+
+```sh
+python3 microhad/scripts/benchmark-device-components.py --baseline 3a59035 --output /tmp/components-host.json
+python3 microhad/scripts/benchmark-device-components.py --baseline 3a59035 --device GATEWAY_IP --output /tmp/components-device.json
+```
+
+The gateway must be explicitly selected. Both revisions are built against the
+same synthetic driver with the same compiler settings. Gateway executables are
+statically linked MIPS programs uploaded beneath unique `/tmp` paths; fixtures
+and synthetic caches also stay under `/tmp` and are removed afterward. The
+benchmarks never read production configuration, connect to controller sockets,
+deploy software or restart services. Memory and CPU limits bound each invocation.
+Five measured runs alternate baseline/refactor order after calibration and
+warm-up. Calibration expands short pilots until the CPU timer can resolve them.
+
+Timing binaries use the normal allocator. Separate accounting binaries record
+requested C++ allocation counts/bytes and peak live requested bytes. Fixture
+bytes are captured before snapshot materialization. These are allocated payload
+bytes, not RSS or allocator metadata; accounting timings are not performance
+results. Fixtures cover empty devices, temperature/humidity/battery sensors,
+thermostats, multifunction devices and a mixed inventory of 26 devices.
+
+MIPS assembly inspection caught an optimizer issue in the first component
+accessor: placing static-default construction inside `read()` made RSDK outline
+that accessor. The thermostat translation unit contained 26 calls to it.
+Default construction now lives in a separate, non-inlined cold helper, allowing
+normal pointer reads to inline; the same offline check finds no such calls.
+This changes neither ownership nor absence behavior. Final measurements below
+use the optimized accessor.
+
+Final comparison against `3a59035` (median CPU microseconds):
+
+| Operation | Host before → after (µs) | Gateway before → after (µs) |
+|---|---:|---:|
+| Empty construction/destruction | 0.037 → 0.017 | 19.680 → 12.480 |
+| Sensor copy/destruction | 0.103 → 0.091 | 28.002 → 30.242 |
+| Thermostat copy/destruction | 0.142 → 0.141 | 45.767 → 70.410 |
+| 26-device copy/destruction | 3.123 → 4.326 | 1325.301 → 1506.024 |
+| Thermostat capability/limit sweep | 0.357 → 0.272 | 272.887 → 193.662 |
+| Changed thermostat snapshot | 81.345 → 63.803 | 20000.000 → 20909.091 |
+| Changed 26-device snapshots | 841.644 → 818.911 | 270000.000 → 270000.000 |
+| Unchanged 26-device snapshots | 2.337 → 2.718 | 1629.213 → 1573.034 |
+| 26-device cache write | 112.295 → 116.426 | 11363.636 → 11363.636 |
+
+Requested fixture allocation bytes before snapshot materialization:
+
+| Fixture | Host before → after (bytes) | Gateway before → after (bytes) |
+|---|---:|---:|
+| Empty | 1,686 → 606 | 979 → 307 |
+| Sensor | 1,686 → 746 | 979 → 395 |
+| Thermostat | 1,816 → 1,532 | 1,076 → 980 |
+| Multifunction | 1,816 → 1,566 | 1,076 → 1,014 |
+| Mixed 26 devices | 45,396 → 28,052 | 25,446 → 15,706 |
+
+Inline `sizeof(Device)` falls from **1,624 to 544 bytes on the host**, and
+**864 to 192 bytes on the gateway**. The mixed fixture uses about **38% less
+requested allocation memory** on both platforms. This is not an RSS estimate.
+
+Deep copies allocate each present component separately: a mixed-vector copy
+increases host C++ allocations from 63 to 157. Its CPU cost rises from 3.12 to
+4.33 µs on the host and from 1.33 to 1.51 ms on the gateway. This is the
+cost of the selected deep-copy ownership model. These allocations preserve
+independent mutable device copies. Changed snapshot and
+cache costs are broadly comparable on the gateway. Small percentage differences
+should be treated cautiously because its CPU timer advances in coarse ticks.
+
+Changed snapshot runs advance last-seen time; thermostat fixtures also change
+their setpoint on **every** iteration, including the first. Heavy gateway cases can
+use a single iteration per process, while calibration targets approximately
+250 ms for the faster variant when iteration counts permit. Zero CPU samples
+trigger a longer run instead of being reported as a speedup.
+
+All 26 cases, CPU and wall timings, allocation counts and source fingerprints
+are recorded in [the synthetic benchmark data](benchmarks/device-components-2026-10-25.json).
+Interrupted runs can resume with `--resume --output PATH`; metadata checks
+reject a changed source tree, baseline, platform, gateway or sample count.
+
+Validation: native unit/integration suites, all 20 synthetic peer tests, native
+MIPS build/target verification, deterministic protobuf generation and 21 schema
+vectors pass. The unchanged 33-event Matter IPC test intermittently failed
+during concurrent builds; clean reruns passed. No IPC timeouts or event limits
+were changed in this refactor. No production service was deployed or restarted.

@@ -45,17 +45,17 @@ std::string folded(const std::string& text) {
     std::string result=text;for(size_t i=0;i<result.size();++i)if(result[i]>='A'&&result[i]<='Z')result[i]+=32;return result;
 }
 bool dimmable(const Device& d) {
-    if(d.hasBrightness)return true;
-    for(size_t i=0;i<d.endpoints.size();++i)for(size_t j=0;j<d.endpoints[i].inputClusters.size();++j)
-        if(d.endpoints[i].inputClusters[j]==8)return true;
+    if(d.brightness.present())return true;
+    for(size_t i=0;i<d.zigbee.read().endpoints.size();++i)for(size_t j=0;j<d.zigbee.read().endpoints[i].inputClusters.size();++j)
+        if(d.zigbee.read().endpoints[i].inputClusters[j]==8)return true;
     return false;
 }
 const char* names[]={"actor_on","air_quality","battery_percent","brightness_percent","co2_ppm","contact_open","humidity_percent","id","kind","last_seen","light_on","link_quality","name","occupied","online","pm25_micrograms_m3","power_watts","source","temperature_celsius","water_detected","wifi_signal_percent","thermostat"};
 bool booleanField(Field f) { return f==ActorOn||f==ContactOpen||f==LightOn||f==Occupied||f==Online||f==WaterDetected; }
 }
-DeviceMetadata::DeviceMetadata(const Device& d):id(d.ieeeAddress),name(d.name),lookupName(folded(d.name)),source(d.source.empty()?"zigbee":d.source),kind(d.kind),matterNode(d.matterNode),matterEndpoint(d.matterEndpoint),light(d.hasLight),actor(d.hasActor),brightness(dimmable(d)),contact(d.hasContact),humidity(d.hasHumidity) {}
+DeviceMetadata::DeviceMetadata(const Device& d):id(d.ieeeAddress),name(d.name),lookupName(folded(d.name)),source(d.source.empty()?"zigbee":d.source),kind(d.kind),matterNode(d.matter.read().node),matterEndpoint(d.matter.read().endpoint),light(d.light.present()),actor(d.actor.present()),brightness(dimmable(d)),contact(d.contact.present()),humidity(d.humidity.present()) {}
 bool DeviceMetadata::matches(const Device& d) const {
-    return id==d.ieeeAddress&&name==d.name&&source==(d.source.empty()?"zigbee":d.source)&&kind==d.kind&&matterNode==d.matterNode&&matterEndpoint==d.matterEndpoint&&light==d.hasLight&&actor==d.hasActor&&brightness==dimmable(d)&&contact==d.hasContact&&humidity==d.hasHumidity;
+    return id==d.ieeeAddress&&name==d.name&&source==(d.source.empty()?"zigbee":d.source)&&kind==d.kind&&matterNode==d.matter.read().node&&matterEndpoint==d.matter.read().endpoint&&light==d.light.present()&&actor==d.actor.present()&&brightness==dimmable(d)&&contact==d.contact.present()&&humidity==d.humidity.present();
 }
 DeviceSnapshot::DeviceSnapshot():present(0) { for(unsigned i=0;i<FieldCount;++i)values[i]=0; }
 const char* fieldName(Field field) { return field<FieldCount?names[field]:""; }
@@ -75,15 +75,15 @@ bool sameField(const DeviceSnapshot& a,const DeviceSnapshot& b,Field field) {
 }
 namespace {
 bool sameThermostatInput(const Device& a,const Device& b) {
-    const ThermostatState& x=a.thermostat;const ThermostatState& y=b.thermostat;
+    const ThermostatState& x=a.thermostat.read();const ThermostatState& y=b.thermostat.read();
     return a.source==b.source&&a.modelId==b.modelId&&a.softwareBuildId==b.softwareBuildId&&
         x.values==y.values&&x.unsupported==y.unsupported&&x.attributes==y.attributes&&x.commands==y.commands&&
         x.attributesKnown==y.attributesKnown&&x.commandsKnown==y.commandsKnown&&x.scheduleSupported==y.scheduleSupported&&
-        x.schedules==y.schedules&&x.scheduleDetails==y.scheduleDetails&&x.pending==y.pending&&x.sourceId==y.sourceId&&
-        x.staleMinutes==y.staleMinutes&&x.sourceObservedAt==y.sourceObservedAt&&x.status==y.status&&x.error==y.error;
+        x.schedules==y.schedules&&x.scheduleDetails==y.scheduleDetails&&x.pending==y.pending&&a.thermostatSourceId==b.thermostatSourceId&&
+        a.thermostatStaleMinutes==b.thermostatStaleMinutes&&x.sourceObservedAt==y.sourceObservedAt&&x.status==y.status&&x.error==y.error;
 }
 Value thermostatSnapshotValue(const Device& d) {
-    const ThermostatState& t=d.thermostat;Value out=Value::object();
+    const ThermostatState& t=d.thermostat.read();Value out=Value::object();
     Value& values=out.fields["values"];values=Value::object();
     for(unsigned i=0;i<ThermostatField::Count;++i){
         const ThermostatField::Id id=static_cast<ThermostatField::Id>(i);
@@ -118,7 +118,7 @@ Value thermostatSnapshotValue(const Device& d) {
     }
     Value& pending=out.fields["pending"];pending=Value::array();
     for(unsigned i=0;i<ThermostatPendingCount;++i)if(t.pending.count(i))pending.items.push_back(Value(thermostatPendingName(i)));
-    out.fields["source_id"]=Value(t.sourceId);out.fields["stale_minutes"]=Value(static_cast<double>(t.staleMinutes));
+    out.fields["source_id"]=Value(d.thermostatSourceId);out.fields["stale_minutes"]=Value(static_cast<double>(d.thermostatStaleMinutes));
     out.fields["source_observed_at"]=Value(static_cast<double>(t.sourceObservedAt));
     out.fields["status"]=Value(t.status);out.fields["error"]=Value(t.error);
     return out;
@@ -132,16 +132,16 @@ SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr&
     F(Id,true,0);F(Name,true,0);F(Kind,true,0);F(Source,true,0);
     F(Online,true,d.online||(!zigbee&&d.source!="matter"&&d.lastSeen>0)||(zigbee&&d.lastSeen>0));
     F(LastSeen,true,d.lastSeen);
-    F(Temperature,d.hasTemperature&&d.temperatureKnown,d.temperatureCelsius);
-    F(Humidity,d.hasHumidity&&(d.humidityKnown||zigbee),d.humidityPercent);
-    F(ContactOpen,d.hasContact&&d.contactKnown,d.contactOpen);
-    F(WaterDetected,d.hasWaterLeak&&d.waterLeakKnown,d.waterDetected);
-    F(Occupied,d.hasOccupancy,d.occupied);F(LightOn,d.hasLight&&(d.lightKnown||zigbee),d.lightOn);
-    F(ActorOn,d.hasActor&&d.actorKnown,d.actorOn);F(Power,d.hasPower&&d.powerKnown,d.powerWatts);
-    F(AirQuality,d.hasAirQuality&&d.airQualityKnown,0);if(next.has(AirQuality))next.airQuality=d.airQuality;
-    F(Co2,d.hasCo2&&d.co2Known,d.co2Ppm);F(Pm25,d.hasPm25&&d.pm25Known,d.pm25MicrogramsM3);
-    F(Brightness,d.hasBrightness&&(d.brightnessKnown||zigbee),d.brightnessPercent);
-    F(Battery,d.hasBattery,d.batteryPercent);F(WifiSignal,d.hasWifiSignal,d.wifiSignalPercent);F(LinkQuality,zigbee,d.linkQuality);
+    F(Temperature,d.temperature.present()&&d.temperature.read().known,d.temperature.read().celsius);
+    F(Humidity,d.humidity.present()&&(d.humidity.read().known||zigbee),d.humidity.read().percent);
+    F(ContactOpen,d.contact.present()&&d.contact.read().known,d.contact.read().open);
+    F(WaterDetected,d.waterLeak.present()&&d.waterLeak.read().known,d.waterLeak.read().detected);
+    F(Occupied,d.occupancy.present(),d.occupancy.read().occupied);F(LightOn,d.light.present()&&(d.light.read().known||zigbee),d.light.read().on);
+    F(ActorOn,d.actor.present()&&d.actor.read().known,d.actor.read().on);F(Power,d.power.present()&&d.power.read().known,d.power.read().watts);
+    F(AirQuality,d.airQuality.present()&&d.airQuality.read().known,0);if(next.has(AirQuality))next.airQuality=d.airQuality.read().value;
+    F(Co2,d.co2.present()&&d.co2.read().known,d.co2.read().ppm);F(Pm25,d.pm25.present()&&d.pm25.read().known,d.pm25.read().microgramsM3);
+    F(Brightness,d.brightness.present()&&(d.brightness.read().known||zigbee),d.brightness.read().percent);
+    F(Battery,d.battery.present(),d.battery.read().percent);F(WifiSignal,d.wifiSignal.present(),d.wifiSignal.read().percent);F(LinkQuality,zigbee,d.zigbee.read().linkQuality);
     const bool thermostat=isThermostat(d);
     if(thermostat)next.present|=1U<<Thermostat;
     const bool sameThermostat=thermostat&&previous&&previous->has(Thermostat)&&previous->record&&sameThermostatInput(d,*previous->record);

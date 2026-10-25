@@ -28,16 +28,16 @@ bool applyXiaomiMeasurementData(Device* device, const std::vector<unsigned char>
         if (length == 0 || offset + length > value.size()) break;
         std::vector<unsigned char> field(value.begin() + offset, value.begin() + offset + length);
         if (identifier == 0x64 && type == 0x29 && field.size() == 2) {
-            device->hasTemperature = true;
-            device->temperatureCelsius = static_cast<double>(static_cast<short>(littleEndian16(field))) / 100.0;
-            device->temperatureKnown = true; device->temperatureObservation.at = observedAt;
-            device->kind = device->hasHumidity ? "temperature/humidity" : "temperature";
+            device->temperature.setPresent(true);
+            device->temperature.ensure().celsius = static_cast<double>(static_cast<short>(littleEndian16(field))) / 100.0;
+            device->temperature.ensure().known = true; device->temperature.ensure().observation.at = observedAt;
+            device->kind = device->humidity.present() ? "temperature/humidity" : "temperature";
             changed = true;
             if (observed != 0) *observed |= ZclObservedTemperature;
         } else if (identifier == 0x65 && type == 0x21 && field.size() == 2) {
-            device->hasHumidity = true;
-            device->humidityPercent = static_cast<double>(littleEndian16(field)) / 100.0;
-            device->kind = device->hasTemperature ? "temperature/humidity" : "humidity";
+            device->humidity.setPresent(true);
+            device->humidity.ensure().percent = static_cast<double>(littleEndian16(field)) / 100.0;
+            device->kind = device->temperature.present() ? "temperature/humidity" : "humidity";
             changed = true;
             if (observed != 0) *observed |= ZclObservedHumidity;
         }
@@ -83,60 +83,60 @@ bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short at
     if (cluster == 0x0402 && attribute == 0x0000 && value.size() == 2) {
         short raw = static_cast<short>(littleEndian16(value));
         if (raw < -27315) return false;
-        device->hasTemperature = true;
-        device->temperatureCelsius = static_cast<double>(raw) / 100.0;
-        device->temperatureKnown = true; device->temperatureObservation.at = observedAt;
+        device->temperature.setPresent(true);
+        device->temperature.ensure().celsius = static_cast<double>(raw) / 100.0;
+        device->temperature.ensure().known = true; device->temperature.ensure().observation.at = observedAt;
         device->kind = "temperature";
         if (observed != 0) *observed |= ZclObservedTemperature;
     } else if (cluster == 0x0405 && attribute == 0x0000 && value.size() == 2) {
         if (littleEndian16(value) > 10000) return false;
-        device->hasHumidity = true;
-        device->humidityPercent = static_cast<double>(littleEndian16(value)) / 100.0;
-        device->kind = device->hasTemperature ? "temperature/humidity" : "humidity";
+        device->humidity.setPresent(true);
+        device->humidity.ensure().percent = static_cast<double>(littleEndian16(value)) / 100.0;
+        device->kind = device->temperature.present() ? "temperature/humidity" : "humidity";
         if (observed != 0) *observed |= ZclObservedHumidity;
     } else if (cluster == 0x0406 && attribute == 0x0000 && value.size() == 1) {
-        device->hasOccupancy = true;
-        device->occupied = (value[0] & 0x01) != 0;
+        device->occupancy.setPresent(true);
+        device->occupancy.ensure().occupied = (value[0] & 0x01) != 0;
         device->kind = "occupancy";
         if (observed != 0) *observed |= ZclObservedOccupancy;
     } else if (cluster == 0x0001 && attribute == 0x0021 && value.size() == 1) {
         if (value[0] > 200) return false;
-        device->hasBattery = true;
+        device->battery.setPresent(true);
         /* Power Configuration reports half-percent units. */
-        device->batteryPercent = static_cast<int>(value[0]) / 2;
+        device->battery.ensure().percent = static_cast<int>(value[0]) / 2;
         if (observed != 0) *observed |= ZclObservedBattery;
     } else if (cluster == 0x0500 && attribute == 0x0001 && value.size() == 2) {
         /* IAS Zone Type 0x002a is the standard water sensor.  Preserve
            hasContact internally so existing binary alert scheduling and
            persisted notification settings remain compatible. */
         if (littleEndian16(value) != 0x002a) return false;
-        device->hasWaterLeak = true;
-        device->hasContact = true;
+        device->waterLeak.setPresent(true);
+        device->contact.setPresent(true);
         device->kind = "water leak";
-        device->waterDetected = device->contactOpen;
-        device->waterLeakKnown = device->contactKnown;
+        device->waterLeak.ensure().detected = device->contact.read().open;
+        device->waterLeak.ensure().known = device->contact.read().known;
         if (observed != 0) *observed |= ZclObservedWaterLeak;
     } else if (cluster == 0x0500 && attribute == 0x0002 && value.size() == 2) {
-        device->hasContact = true;
-        device->contactKnown = true;
-        device->contactOpen = (littleEndian16(value) & 0x0001) != 0;
-        if (device->hasWaterLeak) {
-            device->waterLeakKnown = true;
-            device->waterDetected = device->contactOpen;
+        device->contact.setPresent(true);
+        device->contact.ensure().known = true;
+        device->contact.ensure().open = (littleEndian16(value) & 0x0001) != 0;
+        if (device->waterLeak.present()) {
+            device->waterLeak.ensure().known = true;
+            device->waterLeak.ensure().detected = device->contact.read().open;
             device->kind = "water leak";
             if (observed != 0) *observed |= ZclObservedWaterLeak;
         } else device->kind = "contact";
         if (observed != 0) *observed |= ZclObservedContact;
     } else if (cluster == 0x0006 && attribute == 0x0000 && value.size() == 1) {
         if (value[0] > 1) return false;
-        device->hasLight = true;
-        device->lightOn = value[0] != 0;
+        device->light.setPresent(true);
+        device->light.ensure().on = value[0] != 0;
         if (device->kind == "generic") device->kind = "light";
     } else if (cluster == 0x0008 && attribute == 0x0000 && value.size() == 1) {
         if (value[0] == 0xff) return false;
-        device->hasLight = true;
-        device->hasBrightness = true;
-        device->brightnessPercent = (static_cast<int>(value[0]) * 100 + 127) / 254;
+        device->light.setPresent(true);
+        device->brightness.setPresent(true);
+        device->brightness.ensure().percent = (static_cast<int>(value[0]) * 100 + 127) / 254;
         if (device->kind == "generic") device->kind = "dimmable light";
     } else if (cluster == 0x0000 && attribute == 0xff01) {
         return applyXiaomiMeasurementData(device, value, observedAt, observed);
@@ -153,12 +153,12 @@ bool isLightAttribute(unsigned short cluster, unsigned short attribute) {
 
 bool applyIasZoneStatus(Device* device, const std::vector<unsigned char>& payload, long observedAt) {
     if (payload.size() != 2) return false;
-    device->hasContact = true;
-    device->contactKnown = true;
-    device->contactOpen = (littleEndian16(payload) & 0x0001) != 0;
-    if (device->hasWaterLeak) {
-        device->waterLeakKnown = true;
-        device->waterDetected = device->contactOpen;
+    device->contact.setPresent(true);
+    device->contact.ensure().known = true;
+    device->contact.ensure().open = (littleEndian16(payload) & 0x0001) != 0;
+    if (device->waterLeak.present()) {
+        device->waterLeak.ensure().known = true;
+        device->waterLeak.ensure().detected = device->contact.read().open;
         device->kind = "water leak";
     } else device->kind = "contact";
     device->lastSeen = observedAt;

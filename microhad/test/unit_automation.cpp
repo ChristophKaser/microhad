@@ -18,15 +18,15 @@ extern "C" {
 namespace {
 using Automation::Value;
 void typedSnapshots(){
-    Device d;d.ieeeAddress="sensor";d.name="Sensor";d.hasTemperature=true;d.temperatureKnown=true;d.temperatureCelsius=18;
+    Device d;d.ieeeAddress="sensor";d.name="Sensor";d.temperature.setPresent(true);d.temperature.ensure().known=true;d.temperature.ensure().celsius=18;
     Automation::SnapshotPtr before=Automation::capture(d);
     assert(Automation::capture(d,before)==before);
-    d.temperatureCelsius=19;Automation::SnapshotPtr changed=Automation::capture(d,before);
+    d.temperature.ensure().celsius=19;Automation::SnapshotPtr changed=Automation::capture(d,before);
     assert(changed!=before&&changed->metadata==before->metadata);
     assert(before->values[Automation::Temperature]==18&&changed->values[Automation::Temperature]==19);
     d.name="Renamed";Automation::SnapshotPtr renamed=Automation::capture(d,changed);
     assert(renamed->metadata!=changed->metadata&&changed->metadata->name=="Sensor");
-    EndpointDescriptor endpoint;endpoint.inputClusters.push_back(8);d.endpoints.push_back(endpoint);
+    EndpointDescriptor endpoint;endpoint.inputClusters.push_back(8);d.zigbee.ensure().endpoints.push_back(endpoint);
     Automation::SnapshotPtr capability=Automation::capture(d,renamed);
     assert(capability->metadata!=renamed->metadata&&capability->metadata->brightness);
     assert(!renamed->metadata->brightness&&!capability->has(Automation::Brightness));
@@ -36,14 +36,14 @@ void typedSnapshots(){
     assert(event.fields["chain_id"].string=="123"&&event.fields["chain_depth"].number==2);
     e.type="device.changed";e.device=changed;e.hasOld=true;e.old=Value(18.);
     event=Automation::eventValue(e);assert(event.fields["old"].number==18&&event.fields["value"].number==19);
-    d.temperatureKnown=false;Automation::SnapshotPtr unknown=Automation::capture(d,capability);
+    d.temperature.ensure().known=false;Automation::SnapshotPtr unknown=Automation::capture(d,capability);
     assert(!unknown->has(Automation::Temperature)&&!Automation::snapshot(*unknown).fields.count("temperature_celsius"));
 }
 
 void thermostatSnapshots(){
     Device d;d.ieeeAddress="trv";d.name="Thermostat";d.source="zigbee";
-    EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.inputClusters.push_back(513);d.endpoints.push_back(endpoint);
-    d.thermostat.values[ThermostatField::occupied_heating_setpoint]=20;
+    EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.inputClusters.push_back(513);d.zigbee.ensure().endpoints.push_back(endpoint);
+    d.thermostat.ensure().values[ThermostatField::occupied_heating_setpoint]=20;
     Automation::SnapshotPtr before=Automation::capture(d);
     assert(before->has(Automation::Thermostat)&&before->record);
     assert(Automation::capture(d,before)==before);
@@ -51,13 +51,13 @@ void thermostatSnapshots(){
     // Direct construction retains the actual uint32 limit; the old JSON path rounded it.
     fromJson.fields["fields"].fields["feature_map"].fields["max"]=Value(4294967295.);
     assert(before->thermostat==fromJson);
-    Device changed=d;changed.thermostat.scheduleSupported=true;
+    Device changed=d;changed.thermostat.ensure().scheduleSupported=true;
     assert(Automation::capture(changed,before)->thermostat.fields.find("schedule_supported")->second==Value(true));
-    changed=d;changed.thermostat.values[ThermostatField::local_temperature]=21.123456789;
+    changed=d;changed.thermostat.ensure().values[ThermostatField::local_temperature]=21.123456789;
     assert(Automation::capture(changed,before)->thermostat.fields.find("values")->second.fields.find("local_temperature")->second==Value(21.123456789));
     Value initial=before->thermostat;
     assert(initial.fields["values"].fields["occupied_heating_setpoint"]==Value(20.));
-    d.thermostat.pending.insert(ThermostatField::system_mode);d.thermostat.error="timeout";
+    d.thermostat.ensure().pending.insert(ThermostatField::system_mode);d.thermostat.ensure().error="timeout";
     Automation::SnapshotPtr after=Automation::capture(d,before);
     assert(!Automation::sameField(*before,*after,Automation::Thermostat));
     assert(initial.fields["error"]==Value(""));
@@ -96,7 +96,7 @@ struct Fixture {
     bool until(const std::string& key,double expected,unsigned milliseconds=2000){for(unsigned i=0;i<milliseconds/10;++i){std::string text;Value v;if(readTextFile(root+"/automations/state/test.json",&text)&&Automation::parse(text,&v)&&v.fields[key].type==Value::Number&&v.fields[key].number==expected)return true;usleep(10000);}return false;}
     void event(const std::string& type,double number=1){Automation::Event e;e.data.fields["type"]=Value(type);e.data.fields["value"]=Value(number);e.data.fields["field"]=Value("temperature_celsius");e.data.fields["device_id"]=Value("sensor");e.data.fields["source"]=Value("zigbee");e.data.fields["chain_id"]=Value("7");e.data.fields["chain_depth"]=Value(0.);assert(worker->enqueue(e));}
 };
-void serialization(){Value v;assert(Automation::parse("{\"nested\":{\"s\":\"x\\u00e4\\n\",\"n\":-1.2e3},\"b\":false}",&v));Value again;assert(Automation::parse(Automation::json(v),&again)&&again==v);assert(!Automation::parse("{\"n\":01}",&v));assert(!Automation::parse("{\"n\":1e999}",&v));assert(!Automation::parse("{\"x\":1,\"x\":2}",&v));assert(!Automation::parse("{\"x\":true}garbage",&v));Device d;d.ieeeAddress="0xabc";d.name="Office";d.hasTemperature=true;d.temperatureKnown=false;assert(!Automation::snapshot(d).fields.count("temperature_celsius"));d.temperatureKnown=true;d.temperatureCelsius=0;assert(Automation::snapshot(d).fields["temperature_celsius"].number==0);}
+void serialization(){Value v;assert(Automation::parse("{\"nested\":{\"s\":\"x\\u00e4\\n\",\"n\":-1.2e3},\"b\":false}",&v));Value again;assert(Automation::parse(Automation::json(v),&again)&&again==v);assert(!Automation::parse("{\"n\":01}",&v));assert(!Automation::parse("{\"n\":1e999}",&v));assert(!Automation::parse("{\"x\":1,\"x\":2}",&v));assert(!Automation::parse("{\"x\":true}garbage",&v));Device d;d.ieeeAddress="0xabc";d.name="Office";d.temperature.setPresent(true);d.temperature.ensure().known=false;assert(!Automation::snapshot(d).fields.count("temperature_celsius"));d.temperature.ensure().known=true;d.temperature.ensure().celsius=0;assert(Automation::snapshot(d).fields["temperature_celsius"].number==0);}
 void sandboxAndValidation(){Fixture f;assert(f.worker->validate("draft.lua","assert(io==nil and os==nil and package==nil and debug==nil and load==nil and loadfile==nil and dofile==nil and coroutine==nil and rawset==nil); assert(events.on and events.off and automation.sleep and events.wait_for)",&f.error));assert(!f.worker->validate("draft.lua","while true do end",&f.error));assert(f.error.find("budget")!=std::string::npos);assert(!f.worker->validate("draft.lua","local x=string.rep('x',1024*1024)",&f.error));assert(!f.worker->validate("draft.lua","automation.after(0,function()end)",&f.error));assert(!f.worker->validate("draft.lua","events.on({type='unsupported'},function()end)",&f.error));assert(!f.worker->validate("draft.lua","events.on({type='device.value',value_below='cold'},function()end)",&f.error));assert(!f.worker->validate("draft.lua","events.on({type='remote.action',endpoint='one'},function()end)",&f.error));assert(!f.worker->validate("draft.lua","automation.cron('* * *',function()end)",&f.error));assert(!f.worker->validate("draft.lua","automation.cron('70 * * * *',function()end)",&f.error));assert(f.worker->validate("draft.lua","persistent.changed=1; shared.changed=1; automation.after(.01,function()error('must not run')end)",&f.error));assert(!regularFile(f.root+"/automations/state/draft.json"));}
 void errorLocations(){
     Fixture f;

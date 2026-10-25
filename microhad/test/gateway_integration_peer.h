@@ -23,7 +23,7 @@ public:
     }
     static void clearAutomationThermostatOperations(Gateway* gateway) {
         gateway->thermostatOperations_.clear();
-        for(std::map<std::string,Device>::iterator it=gateway->devices_.begin();it!=gateway->devices_.end();++it)it->second.thermostat.pending.clear();
+        for(std::map<std::string,Device>::iterator it=gateway->devices_.begin();it!=gateway->devices_.end();++it)it->second.thermostat.ensure().pending.clear();
         gateway->markViewDirty();
     }
     static unsigned long automationThermostatOperations(const Gateway& gateway) { return gateway.thermostatOperations_.size(); }
@@ -100,11 +100,11 @@ public:
         Device device;
         EndpointDescriptor endpoint;
         device.ieeeAddress = ieee;
-        device.networkAddress = node;
-        device.iasZoneId = zoneId;
+        device.zigbee.ensure().networkAddress = node;
+        device.zigbee.ensure().iasZoneId = zoneId;
         endpoint.endpoint = 1;
         endpoint.inputClusters.push_back(0x0500);
-        device.endpoints.push_back(endpoint);
+        device.zigbee.ensure().endpoints.push_back(endpoint);
         gateway->devices_[ieee] = device;
         gateway->nodeAddresses_[node] = ieee;
     }
@@ -115,13 +115,13 @@ public:
         Device device;
         EndpointDescriptor endpoint;
         device.ieeeAddress = ieee;
-        device.networkAddress = node;
-        device.hasTemperature = true;
-        device.temperatureCelsius = 15.0;
+        device.zigbee.ensure().networkAddress = node;
+        device.temperature.setPresent(true);
+        device.temperature.ensure().celsius = 15.0;
         gateway->nextSensorRefreshAt_[node] = time(0) + 300;
         endpoint.endpoint = 1;
         endpoint.inputClusters.push_back(0x0402);
-        device.endpoints.push_back(endpoint);
+        device.zigbee.ensure().endpoints.push_back(endpoint);
         gateway->devices_[ieee] = device;
         gateway->nodeAddresses_[node] = ieee;
     }
@@ -132,11 +132,11 @@ public:
         Device device;
         EndpointDescriptor endpoint;
         device.ieeeAddress = ieee;
-        device.networkAddress = node;
-        device.hasContact = true;
+        device.zigbee.ensure().networkAddress = node;
+        device.contact.setPresent(true);
         endpoint.endpoint = 1;
         endpoint.inputClusters.push_back(0x0500);
-        device.endpoints.push_back(endpoint);
+        device.zigbee.ensure().endpoints.push_back(endpoint);
         gateway->devices_[ieee] = device;
         gateway->nodeAddresses_[node] = ieee;
     }
@@ -147,11 +147,11 @@ public:
         Device device;
         EndpointDescriptor endpoint;
         device.ieeeAddress = ieee;
-        device.networkAddress = node;
-        device.hasRemote = true;
+        device.zigbee.ensure().networkAddress = node;
+        device.remote.setPresent(true);
         endpoint.endpoint = 1;
         endpoint.outputClusters.push_back(0x0006);
-        device.endpoints.push_back(endpoint);
+        device.zigbee.ensure().endpoints.push_back(endpoint);
         gateway->devices_[ieee] = device;
         gateway->nodeAddresses_[node] = ieee;
     }
@@ -172,14 +172,14 @@ public:
         EndpointDescriptor endpoint;
         device.ieeeAddress = "0x00124b0000001234";
         device.name = "APS sensor";
-        device.networkAddress = 0x1234;
-        device.hasTemperature = true;
-        device.temperatureCelsius = 10.5;
+        device.zigbee.ensure().networkAddress = 0x1234;
+        device.temperature.setPresent(true);
+        device.temperature.ensure().celsius = 10.5;
         endpoint.endpoint = 1;
         endpoint.inputClusters.push_back(0x0402);
-        device.endpoints.push_back(endpoint);
+        device.zigbee.ensure().endpoints.push_back(endpoint);
         gateway->devices_[device.ieeeAddress] = device;
-        gateway->nodeAddresses_[device.networkAddress] = device.ieeeAddress;
+        gateway->nodeAddresses_[device.zigbee.ensure().networkAddress] = device.ieeeAddress;
     }
     static unsigned char ashReceiveSequence(const Gateway& gateway) { return gateway.ashReceiveSequence_; }
     static unsigned char ashSendSequence(const Gateway& gateway) { return gateway.ashSendSequence_; }
@@ -234,9 +234,9 @@ public:
         endpoint.inputClusters.push_back(0x0005);
         endpoint.inputClusters.push_back(0x0006);
         endpoint.inputClusters.push_back(0x0008);
-        device.ieeeAddress = "native-light"; device.networkAddress = 0x2345; device.hasLight = true;
-        device.endpoints.push_back(endpoint);
-        gateway->nodeAddresses_[device.networkAddress] = device.ieeeAddress;
+        device.ieeeAddress = "native-light"; device.zigbee.ensure().networkAddress = 0x2345; device.light.setPresent(true);
+        device.zigbee.ensure().endpoints.push_back(endpoint);
+        gateway->nodeAddresses_[device.zigbee.ensure().networkAddress] = device.ieeeAddress;
         gateway->online_ = true; gateway->networkFormed_ = true; gateway->coordinatorInitializationStep_ = 0;
         const std::string configuration =
             "G\t42\tKitchen\nM\t42\tnative-light\nS\t42\t7\tDinner\nT\t42\t7\tnative-light\t1\t50\n";
@@ -287,18 +287,18 @@ public:
         EndpointDescriptor power;
         EndpointDescriptor level;
         device.ieeeAddress = "light/test";
-        device.networkAddress = 0x1234;
-        device.hasLight = true;
-        device.hasTemperature = true;
-        device.hasContact = true;
+        device.zigbee.ensure().networkAddress = 0x1234;
+        device.light.setPresent(true);
+        device.temperature.setPresent(true);
+        device.contact.setPresent(true);
         power.endpoint = 1;
         power.profileId = 0x0104;
         power.inputClusters.push_back(0x0006);
         power.inputClusters.push_back(0x0003);
         level.endpoint = 1;
         level.inputClusters.push_back(0x0008);
-        device.endpoints.push_back(power);
-        device.endpoints.push_back(level);
+        device.zigbee.ensure().endpoints.push_back(power);
+        device.zigbee.ensure().endpoints.push_back(level);
         gateway->devices_[device.ieeeAddress] = device;
         gateway->online_ = true;
         gateway->networkFormed_ = true;
@@ -309,9 +309,9 @@ public:
         EndpointDescriptor endpoint;
         device.ieeeAddress = "runner-light";
         device.name = "Runner light";
-        device.networkAddress = 0x2345;
-        device.hasLight = true;
-        device.hasTemperature = true;
+        device.zigbee.ensure().networkAddress = 0x2345;
+        device.light.setPresent(true);
+        device.temperature.setPresent(true);
         device.sensorRefreshIntervalMinutes = 0;
         endpoint.endpoint = 1;
         endpoint.inputClusters.push_back(0x0004);
@@ -319,9 +319,9 @@ public:
         endpoint.inputClusters.push_back(0x0006);
         endpoint.inputClusters.push_back(0x0008);
         endpoint.inputClusters.push_back(0x0402);
-        device.endpoints.push_back(endpoint);
+        device.zigbee.ensure().endpoints.push_back(endpoint);
         gateway->devices_[device.ieeeAddress] = device;
-        gateway->nodeAddresses_[device.networkAddress] = device.ieeeAddress;
+        gateway->nodeAddresses_[device.zigbee.ensure().networkAddress] = device.ieeeAddress;
         gateway->online_ = true;
         gateway->networkFormed_ = true;
         gateway->networkInitRequested_ = true;

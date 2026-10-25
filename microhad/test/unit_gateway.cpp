@@ -35,22 +35,22 @@ public:
     static void deviceCacheBatching() {
         char directory[]="/tmp/microhad-cache-batch-XXXXXX";assert(mkdtemp(directory));
         const std::string cache="/tmp/microhad-values.pb";
-        std::string error;Device device;device.ieeeAddress="cache-lamp";device.hasLight=true;device.lightKnown=true;
+        std::string error;Device device;device.ieeeAddress="cache-lamp";device.light.setPresent(true);device.light.ensure().known=true;
         std::vector<Device> saved(1,device);assert(saveDevices(std::string(directory)+"/devices.json",saved,&error));
         {
             Gateway gateway("/dev/null",115200,directory,"","","");
             gateway.history_.useManualPersistenceForTests();gateway.devices_[device.ieeeAddress]=device;
             gateway.saveState();const uint64_t first=gateway.deviceCacheDueMs_;
             assert(gateway.deviceCacheWaitMilliseconds()>4500&&gateway.deviceCacheWaitMilliseconds()<=5000);
-            gateway.devices_[device.ieeeAddress].lightOn=true;gateway.saveState();
+            gateway.devices_[device.ieeeAddress].light.ensure().on=true;gateway.saveState();
             assert(gateway.deviceCacheDueMs_==first);
             gateway.flushState(false);assert(access(cache.c_str(),F_OK)!=0);
             gateway.deviceCacheDueMs_=0;gateway.flushState(false);
             assert(!gateway.deviceCacheDirty_&&access(cache.c_str(),F_OK)!=0);
             assert(gateway.history_.flushDeviceCache(&error));
-            std::vector<Device> loaded;assert(loadDeviceCache(cache,&loaded,&error)&&loaded[0].lightOn);
-            gateway.devices_[device.ieeeAddress].lightOn=false;gateway.saveState();
-            gateway.stop();assert(loadDeviceCache(cache,&loaded,&error)&&!loaded[0].lightOn);
+            std::vector<Device> loaded;assert(loadDeviceCache(cache,&loaded,&error)&&loaded[0].light.read().on);
+            gateway.devices_[device.ieeeAddress].light.ensure().on=false;gateway.saveState();
+            gateway.stop();assert(loadDeviceCache(cache,&loaded,&error)&&!loaded[0].light.read().on);
         }
         saved[0].name="Saved name";saved[0].sensorRefreshIntervalMinutes=17;
         saved[0].contactReminderAlertMinutes=123;
@@ -60,21 +60,21 @@ public:
         {
             Gateway restored("/dev/null",115200,directory,"","","");restored.loadState();
             const Device& loaded=restored.devices_[device.ieeeAddress];
-            assert(loaded.lightKnown&&!loaded.lightOn&&loaded.name=="Saved name");
+            assert(loaded.light.read().known&&!loaded.light.read().on&&loaded.name=="Saved name");
             assert(loaded.sensorRefreshIntervalMinutes==17&&loaded.contactReminderAlertMinutes==123);
             assert(loaded.valueAlerts.find("temperature")->second.high==30);
         }
         // A malformed new cache must not resurrect a stale legacy snapshot.
         {std::ofstream bad(cache.c_str());bad<<"bad";}
-        saved[0].lightOn=true;assert(saveDevices("/tmp/microhad-values.json",saved,&error));
+        saved[0].light.ensure().on=true;assert(saveDevices("/tmp/microhad-values.json",saved,&error));
         {
             Gateway restored("/dev/null",115200,directory,"","","");restored.loadState();
-            assert(!restored.devices_[device.ieeeAddress].lightOn);
+            assert(!restored.devices_[device.ieeeAddress].light.read().on);
         }
         unlink(cache.c_str());
         {
             Gateway legacy("/dev/null",115200,directory,"","","");legacy.history_.useManualPersistenceForTests();legacy.loadState();
-            assert(!legacy.devices_[device.ieeeAddress].lightOn&&!legacy.deviceCacheDirty_);
+            assert(!legacy.devices_[device.ieeeAddress].light.read().on&&!legacy.deviceCacheDirty_);
             legacy.stop();assert(access("/tmp/microhad-values.json",F_OK)==0);
             unlink("/tmp/microhad-values.json");
         }
@@ -108,41 +108,41 @@ public:
         assert(thermostatPendingId("unknown")==ThermostatPendingCount);
         pending.insert(ThermostatPendingCount);assert(pending.empty());
 
-        Device d; d.ieeeAddress="0x00124b0000000071"; d.networkAddress=0x7771;
+        Device d; d.ieeeAddress="0x00124b0000000071"; d.zigbee.ensure().networkAddress=0x7771;
         EndpointDescriptor endpoint; endpoint.endpoint=3; endpoint.profileId=0x104;
-        endpoint.inputClusters.push_back(0x201);endpoint.inputClusters.push_back(6);d.endpoints.push_back(endpoint);
+        endpoint.inputClusters.push_back(0x201);endpoint.inputClusters.push_back(6);d.zigbee.ensure().endpoints.push_back(endpoint);
         char directory[]="/tmp/microhad-generic-thermostat-XXXXXX";assert(mkdtemp(directory));
         Gateway g("/dev/null",115200,directory,"","","");g.classifyDevice(&d);
-        assert(isThermostat(d) && !isTrvzb(d) && !d.hasLight && d.kind=="thermostat");
+        assert(isThermostat(d) && !isTrvzb(d) && !d.light.present() && d.kind=="thermostat");
         unsigned observed=0;std::vector<unsigned char> local;local.push_back(0x34);local.push_back(8);
-        assert(applyZclAttribute(&d,0x201,0,local,100,&observed));assert(d.temperatureCelsius==21 && d.temperatureObservation.at==100);
-        d.thermostat.values[ThermostatField::control_sequence_of_operation]=4;
-        d.thermostat.values[ThermostatField::occupied_heating_setpoint]=20;d.thermostat.values[ThermostatField::occupied_cooling_setpoint]=25;
-        d.thermostat.values[ThermostatField::system_mode]=1;d.thermostat.values[ThermostatField::min_heat_setpoint_limit]=5;d.thermostat.values[ThermostatField::max_heat_setpoint_limit]=40;
+        assert(applyZclAttribute(&d,0x201,0,local,100,&observed));assert(d.temperature.read().celsius==21 && d.temperature.read().observation.at==100);
+        d.thermostat.ensure().values[ThermostatField::control_sequence_of_operation]=4;
+        d.thermostat.ensure().values[ThermostatField::occupied_heating_setpoint]=20;d.thermostat.ensure().values[ThermostatField::occupied_cooling_setpoint]=25;
+        d.thermostat.ensure().values[ThermostatField::system_mode]=1;d.thermostat.ensure().values[ThermostatField::min_heat_setpoint_limit]=5;d.thermostat.ensure().values[ThermostatField::max_heat_setpoint_limit]=40;
         std::string error;std::vector<unsigned char> encoded;
         assert(thermostatEncode(d,"occupied_heating_setpoint","22.25",&encoded,&error));
         assert(!thermostatEncode(d,"occupied_heating_setpoint","24",&encoded,&error));
         assert(!thermostatEncode(d,"child_lock","1",&encoded,&error));
         assert(thermostatEncode(d,"system_mode","3",&encoded,&error));
-        d.thermostat.values[ThermostatField::control_sequence_of_operation]=2;
+        d.thermostat.ensure().values[ThermostatField::control_sequence_of_operation]=2;
         assert(!thermostatSupported(d,*thermostatAttribute(ThermostatField::occupied_cooling_setpoint)));
-        assert(!thermostatModeSupported(d,3));d.thermostat.values[ThermostatField::control_sequence_of_operation]=4;
-        d.thermostat.scheduleSupported=true;
+        assert(!thermostatModeSupported(d,3));d.thermostat.ensure().values[ThermostatField::control_sequence_of_operation]=4;
+        d.thermostat.ensure().scheduleSupported=true;
         assert(thermostatScheduleForDevice(d,"{\"mode\":3,\"transitions\":[{\"time\":60,\"heat\":20,\"cool\":25}]}",1,&encoded));
-        assert(applyThermostatSchedule(&d,encoded));assert(d.thermostat.scheduleDetails.count(1));
+        assert(applyThermostatSchedule(&d,encoded));assert(d.thermostat.read().scheduleDetails.count(1));
         assert(!thermostatScheduleForDevice(d,"{\"mode\":3,\"transitions\":[{\"time\":60,\"heat\":24,\"cool\":25}]}",1,&encoded));
-        Device matter=d;matter.source="matter";matter.ieeeAddress="matter:test:endpoint";matter.matterNode="0000000000000072";matter.matterEndpoint=2;matter.matterServers.push_back(513);
+        Device matter=d;matter.source="matter";matter.ieeeAddress="matter:test:endpoint";matter.matter.ensure().node="0000000000000072";matter.matter.ensure().endpoint=2;matter.matter.ensure().servers.push_back(513);
         assert(isThermostat(matter));
         assert(applyMatterThermostat(&matter,65531,"thermostat_list","[0,17,18,27,28,65532]",100));
         assert(applyMatterThermostat(&matter,65532,"thermostat","35",100));
         assert(thermostatModeSupported(matter,1) && thermostatModeSupported(matter,3));
-        assert(applyMatterThermostat(&matter,0,"thermostat","null",101));assert(!matter.temperatureKnown);
-        assert(applyMatterThermostat(&matter,0,"thermostat","-525",102));assert(matter.temperatureCelsius==-5.25);
+        assert(applyMatterThermostat(&matter,0,"thermostat","null",101));assert(!matter.temperature.read().known);
+        assert(applyMatterThermostat(&matter,0,"thermostat","-525",102));assert(matter.temperature.read().celsius==-5.25);
         g.devices_[matter.ieeeAddress]=matter;MatterProto::MessageBody request;
         assert(g.setThermostat(matter.ieeeAddress,"occupied_cooling_setpoint","26.5",&error,&request));
         assert(request.device_command_request.present&&request.device_command_request.value.value.value=="26.5");
-        assert(g.thermostatResult(matter.matterNode,2,"occupied_cooling_setpoint","timeout"));
-        assert(!g.devices_[matter.ieeeAddress].thermostat.error.empty());
+        assert(g.thermostatResult(matter.matter.read().node,2,"occupied_cooling_setpoint","timeout"));
+        assert(!g.devices_[matter.ieeeAddress].thermostat.read().error.empty());
         assert(!g.setThermostat(matter.ieeeAddress,"child_lock","1",&error,&request));
         g.devices_[d.ieeeAddress]=d;
         assert(g.captureView().statusJson().find("\"has_thermostat\":true")!=std::string::npos);
@@ -155,16 +155,16 @@ public:
         Gateway g("/dev/null",115200,base,"","","");
         g.online_=true; g.networkFormed_=true; g.coordinatorInitializationStep_=0;
         Device valve; valve.ieeeAddress="0x00124b0000000042"; valve.modelId="TRVZB";
-        valve.softwareBuildId="1.3.0"; valve.networkAddress=0x1234;
+        valve.softwareBuildId="1.3.0"; valve.zigbee.ensure().networkAddress=0x1234;
         EndpointDescriptor e; e.endpoint=1; e.profileId=0x0104; e.inputClusters.push_back(0x0201);
-        e.inputClusters.push_back(0xfc11); e.inputClusters.push_back(6); valve.endpoints.push_back(e);
-        g.classifyDevice(&valve); assert(!valve.hasLight && valve.hasTemperature && valve.kind=="thermostat");
+        e.inputClusters.push_back(0xfc11); e.inputClusters.push_back(6); valve.zigbee.ensure().endpoints.push_back(e);
+        g.classifyDevice(&valve); assert(!valve.light.present() && valve.temperature.present() && valve.kind=="thermostat");
         g.devices_[valve.ieeeAddress]=valve;
         std::vector<unsigned char> reportingOk(1,0);
         assert(!g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0,1,7,reportingOk));
         Device sensor; sensor.ieeeAddress="shelly:room:temperature:0"; sensor.source="shelly";
-        sensor.hasTemperature=true; sensor.temperatureKnown=true; sensor.temperatureCelsius=21.26;
-        sensor.temperatureObservation.at=time(0); g.devices_[sensor.ieeeAddress]=sensor;
+        sensor.temperature.setPresent(true); sensor.temperature.ensure().known=true; sensor.temperature.ensure().celsius=21.26;
+        sensor.temperature.ensure().observation.at=time(0); g.devices_[sensor.ieeeAddress]=sensor;
         assert(g.setThermostat(valve.ieeeAddress,"temperature_source",sensor.ieeeAddress,&error));
         assert(!g.setThermostat(valve.ieeeAddress,"external_temperature_input","20",&error));
         assert(!g.setThermostat(valve.ieeeAddress,"stale_minutes","4",&error));
@@ -174,56 +174,56 @@ public:
         assert(g.thermostatOperations_.size()==1 && g.thermostatOperations_.front().pendingId==ThermostatField::temperature_sensor_select);
         g.pollThermostats(); ThermostatOperationForTest(g,"temperature_sensor_select",1);
         Device& t=g.devices_[valve.ieeeAddress];
-        assert(t.thermostat.values[ThermostatField::temperature_sensor_select]==1 && t.thermostat.lastForwardValue==21.3);
+        assert(t.thermostat.read().values[ThermostatField::temperature_sensor_select]==1 && t.thermostat.read().lastForwardValue==21.3);
         g.pollThermostats(); assert(g.thermostatOperations_.empty());
         // A changed reading is coalesced for one minute.
-        g.devices_[sensor.ieeeAddress].temperatureCelsius=22;
+        g.devices_[sensor.ieeeAddress].temperature.ensure().celsius=22;
         g.pollThermostats(); assert(g.thermostatOperations_.empty());
-        t.thermostat.lastForwardAt=time(0)-61;
+        t.thermostat.ensure().lastForwardAt=time(0)-61;
         g.pollThermostats(); assert(g.thermostatOperations_.size()==1);
         ThermostatOperationForTest(g,"external_temperature_input",2200);
         g.pollThermostats(); ThermostatOperationForTest(g,"temperature_sensor_select",1);
         // General traffic cannot keep an old temperature fresh.
-        g.devices_[sensor.ieeeAddress].temperatureObservation.at=time(0)-601;
-        g.devices_[sensor.ieeeAddress].lastSeen=time(0); t.thermostat.lastForwardAt=0;
+        g.devices_[sensor.ieeeAddress].temperature.ensure().observation.at=time(0)-601;
+        g.devices_[sensor.ieeeAddress].lastSeen=time(0); t.thermostat.ensure().lastForwardAt=0;
         g.pollThermostats();
         assert(g.thermostatOperations_.front().pendingId==ThermostatField::temperature_sensor_select);
-        assert(t.thermostat.values[ThermostatField::temperature_sensor_select]==1); // fallback not yet confirmed
+        assert(t.thermostat.read().values[ThermostatField::temperature_sensor_select]==1); // fallback not yet confirmed
         ThermostatOperationForTest(g,"temperature_sensor_select",0);
-        g.pollThermostats(); assert(t.thermostat.status.find("built-in sensor confirmed")!=std::string::npos);
+        g.pollThermostats(); assert(t.thermostat.read().status.find("built-in sensor confirmed")!=std::string::npos);
         // Fresh identical readings recover; selecting the valve itself is rejected.
-        g.devices_[sensor.ieeeAddress].temperatureObservation.at=time(0); t.thermostat.lastForwardAt=0;
+        g.devices_[sensor.ieeeAddress].temperature.ensure().observation.at=time(0); t.thermostat.ensure().lastForwardAt=0;
         g.pollThermostats(); assert(g.thermostatOperations_.front().pendingId==ThermostatField::external_temperature_input);
         assert(!g.setThermostat(valve.ieeeAddress,"temperature_source",valve.ieeeAddress,&error));
         g.thermostatOperations_.clear();
         // Actual observations are transient; a reconstructed source must first report.
-        Device zigbeeSensor; zigbeeSensor.ieeeAddress="0x00124b0000000043"; zigbeeSensor.hasTemperature=true;
+        Device zigbeeSensor; zigbeeSensor.ieeeAddress="0x00124b0000000043"; zigbeeSensor.temperature.setPresent(true);
         g.devices_[zigbeeSensor.ieeeAddress]=zigbeeSensor;
         std::vector<unsigned char> measured; measured.push_back(0x34); measured.push_back(8);
         assert(g.applyAttributeReport(zigbeeSensor.ieeeAddress,0x0402,0,measured));
-        assert(g.devices_[zigbeeSensor.ieeeAddress].temperatureObservation.at>0);
+        assert(g.devices_[zigbeeSensor.ieeeAddress].temperature.read().observation.at>0);
         assert(g.setThermostat(valve.ieeeAddress,"temperature_source",zigbeeSensor.ieeeAddress,&error));
         assert(g.setThermostat(valve.ieeeAddress,"temperature_source",sensor.ieeeAddress,&error));
         Device matterSensor; matterSensor.ieeeAddress="matter:room:1"; matterSensor.source="matter";
-        matterSensor.matterNode="0000000000000044"; matterSensor.matterEndpoint=1; matterSensor.hasTemperature=true;
+        matterSensor.matter.ensure().node="0000000000000044"; matterSensor.matter.ensure().endpoint=1; matterSensor.temperature.setPresent(true);
         g.devices_[matterSensor.ieeeAddress]=matterSensor;
         MatterReading reading; reading.node="0000000000000044"; reading.endpoint=1; reading.cluster=1026; reading.known=true; reading.numberValue=20;
         assert(g.applyMatterReading(reading,&error));
-        assert(g.devices_[matterSensor.ieeeAddress].temperatureObservation.at>0);
+        assert(g.devices_[matterSensor.ieeeAddress].temperature.read().observation.at>0);
         assert(g.setThermostat(valve.ieeeAddress,"temperature_source",matterSensor.ieeeAddress,&error));
         reading.known=false; assert(g.applyMatterReading(reading,&error));
-        assert(g.devices_[matterSensor.ieeeAddress].temperatureObservation.at==0);
+        assert(g.devices_[matterSensor.ieeeAddress].temperature.read().observation.at==0);
         assert(g.setThermostat(valve.ieeeAddress,"temperature_source",sensor.ieeeAddress,&error));
-        g.devices_[sensor.ieeeAddress].temperatureObservation.at=0;
-        t.thermostat.lastForwardAt=0;
+        g.devices_[sensor.ieeeAddress].temperature.ensure().observation.at=0;
+        t.thermostat.ensure().lastForwardAt=0;
         g.pollThermostats(); assert(g.thermostatOperations_.empty());
         // Initial background reads cannot delay a required fallback.
-        t.thermostat.values.erase(ThermostatField::temperature_sensor_select);
+        t.thermostat.ensure().values.erase(ThermostatField::temperature_sensor_select);
         g.queueThermostatReadings(t);
         g.pollThermostats();
         assert(g.thermostatOperations_.front().pendingId==ThermostatField::temperature_sensor_select && g.thermostatOperations_.front().command==2);
         ThermostatOperationForTest(g,"temperature_sensor_select",0);
-        g.thermostatOperations_.clear(); t.thermostat.pending.clear();
+        g.thermostatOperations_.clear(); t.thermostat.ensure().pending.clear();
         assert(g.setThermostat(valve.ieeeAddress,"occupied_heating_setpoint","21.5",&error));
         assert(!g.setThermostat(valve.ieeeAddress,"occupied_heating_setpoint","22",&error));
         // Reject responses from another endpoint, wrong sequence or manufacturer.
@@ -237,22 +237,22 @@ public:
         g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0,seq+1,4,ok);
         assert(!g.thermostatOperations_.front().readback);
         ThermostatOperationForTest(g,"occupied_heating_setpoint",2150);
-        assert(t.thermostat.values[ThermostatField::occupied_heating_setpoint]==21.5);
+        assert(t.thermostat.read().values[ThermostatField::occupied_heating_setpoint]==21.5);
         g.queueThermostatOperation(t,ThermostatField::child_lock,0xfc11,0,std::vector<unsigned char>(2,0));
         g.thermostatOperations_.front().attempts=3;
         g.thermostatOperations_.front().deadline=time(0)-1;
-        g.pollThermostats(); assert(g.thermostatOperations_.empty() && !t.thermostat.error.empty());
+        g.pollThermostats(); assert(g.thermostatOperations_.empty() && !t.thermostat.read().error.empty());
         std::vector<Device> stored; stored.push_back(t); stored.push_back(g.devices_[sensor.ieeeAddress]);
         assert(saveDevices(base+"/trvzb.json",stored,&error)); stored.clear();
         assert(loadDevices(base+"/trvzb.json",&stored,&error));
-        assert(stored[0].thermostat.sourceId==sensor.ieeeAddress && stored[0].thermostat.staleMinutes==10);
-        assert(stored[1].temperatureObservation.at==0);
-        g.devices_.erase(sensor.ieeeAddress); t.thermostat.values[ThermostatField::temperature_sensor_select]=1; t.thermostat.lastForwardAt=0;
+        assert(stored[0].thermostatSourceId==sensor.ieeeAddress && stored[0].thermostatStaleMinutes==10);
+        assert(stored[1].temperature.read().observation.at==0);
+        g.devices_.erase(sensor.ieeeAddress); t.thermostat.ensure().values[ThermostatField::temperature_sensor_select]=1; t.thermostat.ensure().lastForwardAt=0;
         g.pollThermostats(); assert(g.thermostatOperations_.front().pendingId==ThermostatField::temperature_sensor_select);
         g.thermostatOperations_.clear();
-        t.thermostat.pending.clear();
+        t.thermostat.ensure().pending.clear();
         assert(g.setThermostat(valve.ieeeAddress,"temperature_source","builtin",&error));
-        assert(t.thermostat.sourceId.empty());
+        assert(t.thermostatSourceId.empty());
         g.pollThermostats();
         assert(!g.setThermostat(valve.ieeeAddress,"temperature_source","manual",&error));
         ThermostatOperationForTest(g,"temperature_sensor_select",0);
@@ -264,18 +264,18 @@ public:
         assert(g.thermostatOperations_.front().readback);
         g.pollThermostats(); schedule=g.thermostatOperations_.front();
         g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,9,0,schedule.sequence,0,schedule.payload);
-        assert(g.thermostatOperations_.empty() && t.thermostat.schedules[1]=="00:00/18 07:00/21");
-        assert(t.thermostat.schedules.size()==1);
+        assert(g.thermostatOperations_.empty() && t.thermostat.read().schedules.find(1)->second=="00:00/18 07:00/21");
+        assert(t.thermostat.read().schedules.size()==1);
         assert(g.setThermostat(valve.ieeeAddress,"child_lock","1",&error)); g.pollThermostats();
         Gateway::ThermostatOperation rejected=g.thermostatOperations_.front();
         std::vector<unsigned char> rejection; rejection.push_back(0x86); rejection.push_back(0); rejection.push_back(0);
         g.handleThermostatMessage(valve.ieeeAddress,1,0xfc11,8,0,rejected.sequence,4,rejection);
-        assert(g.thermostatOperations_.empty() && t.thermostat.unsupported.count(ThermostatField::child_lock));
-        assert(!t.thermostat.error.empty() && t.thermostat.pending.empty());
+        assert(g.thermostatOperations_.empty() && t.thermostat.read().unsupported.count(ThermostatField::child_lock));
+        assert(!t.thermostat.read().error.empty() && t.thermostat.read().pending.empty());
         std::vector<unsigned char> wrongType; wrongType.push_back(0); wrongType.push_back(0);
         wrongType.push_back(0x21); wrongType.push_back(0x34); wrongType.push_back(8);
         g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,0x18,0,100,0x0a,wrongType);
-        assert(!t.temperatureKnown);
+        assert(!t.temperature.read().known);
         unlink((base+"/trvzb.json").c_str()); unlink((base+"/devices.json").c_str()); rmdir(base.c_str());
     }
     static void ThermostatOperationForTest(Gateway& g, const std::string& field, unsigned long raw) {
@@ -302,9 +302,9 @@ public:
         const bool hadValues = rename(values.c_str(), backup.c_str()) == 0;
         std::string error, json;
         Gateway gateway("/dev/null", 115200, base, "", "", "");
-        Device device; device.ieeeAddress = id; device.name = "Unfinished"; device.networkAddress = 0x1234;
+        Device device; device.ieeeAddress = id; device.name = "Unfinished"; device.zigbee.ensure().networkAddress = 0x1234;
         gateway.devices_[id] = device; gateway.nodeAddresses_[0x1234] = id;
-        device.ieeeAddress = other; device.initialInterviewComplete = true; device.networkAddress = 0xffff;
+        device.ieeeAddress = other; device.zigbee.ensure().initialInterviewComplete = true; device.zigbee.ensure().networkAddress = 0xffff;
         gateway.devices_[other] = device;
         assert(gateway.statusJson().find("\"setup_state\":\"incomplete\"") != std::string::npos);
         assert(!gateway.deleteDevice(id, false, &error)); // Offline requires explicit local fallback.
@@ -344,9 +344,9 @@ public:
         assert(readTextFile(base + "/history.values", &json) && json == "keep history");
         Gateway restarted("/dev/null", 115200, base, "", "", ""); restarted.loadState();
         assert(!restarted.devices_.count(id) && restarted.devices_.count(other));
-        assert(restarted.devices_[other].initialInterviewComplete);
+        assert(restarted.devices_[other].zigbee.read().initialInterviewComplete);
         // Timed-out attempts retain the record; explicit local fallback removes it.
-        gateway.devices_[id] = device; gateway.devices_[id].ieeeAddress = id; gateway.devices_[id].networkAddress = 0x1234;
+        gateway.devices_[id] = device; gateway.devices_[id].ieeeAddress = id; gateway.devices_[id].zigbee.ensure().networkAddress = 0x1234;
         gateway.nodeAddresses_[0x1234] = id;
         assert(gateway.deleteDevice(id, false, &error)); gateway.deviceDeletions_[id].deadline = time(0) - 1; gateway.poll();
         assert(gateway.deviceDeletionStatus(id, &json, &error) && json.find("failed") != std::string::npos && gateway.devices_.count(id));
@@ -357,18 +357,18 @@ public:
         assert(broken.deviceDeletionStatus(id, &json, &error) && json.find("failed") != std::string::npos && broken.devices_.count(id));
         // Completed discovery of an unsupported device is still completed setup.
         Gateway unsupported("/dev/null", 115200, base, "", "", ""); unsupported.devices_[id] = device;
-        unsupported.devices_[id].initialInterviewComplete = false;
-        EndpointDescriptor endpoint; endpoint.endpoint = 1; unsupported.devices_[id].endpoints.push_back(endpoint);
+        unsupported.devices_[id].zigbee.ensure().initialInterviewComplete = false;
+        EndpointDescriptor endpoint; endpoint.endpoint = 1; unsupported.devices_[id].zigbee.ensure().endpoints.push_back(endpoint);
         unsupported.interviews_[0x1234].ieeeAddress = id; unsupported.buildConfigurationOperations(0x1234);
-        assert(unsupported.devices_[id].initialInterviewComplete && unsupported.interviews_.empty());
-        std::vector<Device> loaded; assert(loadDevices(base + "/devices.json", &loaded, &error) && loaded[0].initialInterviewComplete);
+        assert(unsupported.devices_[id].zigbee.read().initialInterviewComplete && unsupported.interviews_.empty());
+        std::vector<Device> loaded; assert(loadDevices(base + "/devices.json", &loaded, &error) && loaded[0].zigbee.read().initialInterviewComplete);
         assert(readTextFile(base + "/devices.json", &json));
         const std::string marker = ",\"initial_interview_complete\":true"; json.erase(json.find(marker), marker.size());
         { std::ofstream legacy((base + "/devices.json").c_str()); legacy << json; }
-        assert(loadDevices(base + "/devices.json", &loaded, &error) && loaded[0].initialInterviewComplete);
+        assert(loadDevices(base + "/devices.json", &loaded, &error) && loaded[0].zigbee.read().initialInterviewComplete);
         // Matter removal retires every endpoint and node alias, but preserves other protocols.
         const std::string node = "0000000000000002", prefix = "matter:0000000000000001:" + node;
-        for (int i = 0; i < 2; ++i) { Device m; m.source = "matter"; m.matterNode = node; m.ieeeAddress = prefix + (i == 0 ? ":0001" : ":0002"); unsupported.devices_[m.ieeeAddress] = m; }
+        for (int i = 0; i < 2; ++i) { Device m; m.source = "matter"; m.matter.ensure().node = node; m.ieeeAddress = prefix + (i == 0 ? ":0001" : ":0002"); unsupported.devices_[m.ieeeAddress] = m; }
         assert(unsupported.reconcileMatterNodes(std::vector<std::string>(), &error));
         assert(unsupported.devices_.size() == 1 && unsupported.devices_.count(id));
         const char* files[] = {"devices.json", "scenes.conf", "dashboard.json", "history.values"};
@@ -387,9 +387,9 @@ public:
         const char* ids[] = {"open", "closed", "trigger", "disabled"};
         for (unsigned int i = 0; i < saved.size(); ++i) {
             saved[i].ieeeAddress = ids[i];
-            saved[i].hasContact = true;
-            saved[i].contactKnown = true;
-            saved[i].contactOpen = i != 1;
+            saved[i].contact.setPresent(true);
+            saved[i].contact.ensure().known = true;
+            saved[i].contact.ensure().open = i != 1;
             saved[i].contactInitialAlertMinutes = 20;
             saved[i].contactReminderAlertMinutes = 7;
         }
@@ -448,22 +448,22 @@ public:
         const unsigned short node = 0xb70f;
         const unsigned char eui[] = {0x98, 0x0f, 0x93, 0xfe, 0xff, 0x31, 0x3a, 0xb4};
         Device& device = gateway.devices_[ieee];
-        device.ieeeAddress = ieee; device.networkAddress = node;
+        device.ieeeAddress = ieee; device.zigbee.ensure().networkAddress = node;
         EndpointDescriptor endpoint;
         endpoint.endpoint = 1; endpoint.profileId = 0x0104;
         endpoint.inputClusters.push_back(6); endpoint.inputClusters.push_back(8);
-        device.endpoints.push_back(endpoint);
+        device.zigbee.ensure().endpoints.push_back(endpoint);
         gateway.nodeAddresses_[node] = ieee;
         gateway.coordinatorIeeeAddress_.assign(8, 1);
         gateway.startInterview(node, false);
         assert(gateway.interviews_.count(node));
-        assert(device.configuredSignature.empty());
+        assert(device.zigbee.read().configuredSignature.empty());
         while (gateway.interviews_.count(node)) gateway.completeInterviewOperation(node);
-        assert(device.configuredSignature == gateway.deviceConfigurationSignature(device));
+        assert(device.zigbee.read().configuredSignature == gateway.deviceConfigurationSignature(device));
         std::vector<Device> saved;
         std::string error;
         assert(loadDevices(std::string(directory) + "/devices.json", &saved, &error));
-        assert(saved.size() == 1 && saved[0].configuredSignature == device.configuredSignature);
+        assert(saved.size() == 1 && saved[0].zigbee.read().configuredSignature == device.zigbee.read().configuredSignature);
         // Ordinary announcements and short-address migrations retain completed bindings.
         gateway.registerNode(node, eui);
         assert(gateway.interviews_.empty());
@@ -472,22 +472,22 @@ public:
         // Restarts load the successful marker; RAM cannot override its persistent value.
         Gateway restarted("/dev/null", 115200, directory, "", "", "");
         restarted.loadState(); restarted.coordinatorIeeeAddress_.assign(8, 1);
-        assert(restarted.devices_[ieee].configuredSignature == device.configuredSignature);
+        assert(restarted.devices_[ieee].zigbee.read().configuredSignature == device.zigbee.read().configuredSignature);
         restarted.startInterview(0xb710, false);
         assert(restarted.interviews_.empty());
         // Changed endpoint configuration must be applied again.
-        device.endpoints[0].inputClusters.push_back(0x0402);
+        device.zigbee.ensure().endpoints[0].inputClusters.push_back(0x0402);
         gateway.startInterview(0xb710, false);
         assert(gateway.interviews_.count(0xb710));
         gateway.interviews_.erase(0xb710);
-        device.endpoints[0].inputClusters.pop_back();
+        device.zigbee.ensure().endpoints[0].inputClusters.pop_back();
         // An explicit request forces discovery/configuration even with a matching marker.
         gateway.online_ = true; gateway.networkFormed_ = true; gateway.coordinatorInitializationStep_ = 0;
         assert(gateway.reconfigureDevice(ieee, &error));
         assert(gateway.interviews_[0xb710].forceConfiguration);
         assert(gateway.interviews_[0xb710].operations[0].type == Gateway::InterviewActiveEndpoints);
         gateway.interviews_.erase(0xb710);
-        device.configuredSignature.clear();
+        device.zigbee.ensure().configuredSignature.clear();
         // Rejected binding responses must not create a successful marker.
         gateway.startInterview(0xb710, false);
         Gateway::InterviewOperation& bind = gateway.interviews_[0xb710].operations[0];
@@ -497,7 +497,7 @@ public:
         gateway.handleApsMessage(0xb710, 0, 0x8021, 0, 0, 0, 0, 0, 0, 200, -50, rejectedBind);
         assert(gateway.interviews_[0xb710].configurationFailed);
         while (gateway.interviews_.count(0xb710)) gateway.completeInterviewOperation(0xb710);
-        assert(device.configuredSignature.empty());
+        assert(device.zigbee.read().configuredSignature.empty());
         // Nor may rejected or empty Configure Reporting responses create a marker.
         for (unsigned int empty = 0; empty < 2; ++empty) {
             gateway.startInterview(0xb710, false);
@@ -510,7 +510,7 @@ public:
             gateway.handleApsMessage(0xb710, 0x0104, reporting.cluster, 1, 1, 0, 0, 0, 0, 200, -50, response);
             assert(gateway.interviews_[0xb710].configurationFailed);
             while (gateway.interviews_.count(0xb710)) gateway.completeInterviewOperation(0xb710);
-            assert(device.configuredSignature.empty());
+            assert(device.zigbee.read().configuredSignature.empty());
         }
         unlink((std::string(directory) + "/devices.json").c_str());
         unlink(values.c_str());
@@ -639,18 +639,18 @@ public:
         GatewayView sensors;
         Device matter;
         matter.source = "matter";
-        matter.externalId = "matter:0000000000000001:0000000000000002:0001";
-        matter.hasAirQuality = true;
-        matter.airQualityKnown = true;
-        matter.airQuality = "moderate";
-        matter.hasCo2 = true;
-        matter.co2Known = true;
-        matter.co2Ppm = 758.5;
-        matter.co2Unit = "ppb";
-        matter.hasPm25 = true;
-        matter.pm25Known = true;
-        matter.pm25MicrogramsM3 = 12.75;
-        matter.pm25Unit = "ug/m3";
+        matter.external.ensure().externalId = "matter:0000000000000001:0000000000000002:0001";
+        matter.airQuality.setPresent(true);
+        matter.airQuality.ensure().known = true;
+        matter.airQuality.ensure().value = "moderate";
+        matter.co2.setPresent(true);
+        matter.co2.ensure().known = true;
+        matter.co2.ensure().ppm = 758.5;
+        matter.co2.ensure().unit = "ppb";
+        matter.pm25.setPresent(true);
+        matter.pm25.ensure().known = true;
+        matter.pm25.ensure().microgramsM3 = 12.75;
+        matter.pm25.ensure().unit = "ug/m3";
         sensors.devices.push_back(matter);
         const std::string sensorJson = sensors.statusJson();
         assert(sensorJson.find("\"has_air_quality\":true,\"air_quality_known\":true,"
@@ -746,17 +746,17 @@ public:
             const std::string sensorIeee = "0x00124b0000000002";
             Device contact;
             contact.ieeeAddress = contactIeee;
-            contact.networkAddress = contactNode;
-            contact.hasContact = true;
+            contact.zigbee.ensure().networkAddress = contactNode;
+            contact.contact.setPresent(true);
             contact.sensorRefreshIntervalMinutes = 5;
             gateway.devices_[contactIeee] = contact;
             gateway.nodeAddresses_[contactNode] = contactIeee;
             Device sensor;
             sensor.ieeeAddress = sensorIeee;
-            sensor.networkAddress = sensorNode;
+            sensor.zigbee.ensure().networkAddress = sensorNode;
             EndpointDescriptor endpoint;
             endpoint.inputClusters.push_back(0x0402);
-            sensor.endpoints.push_back(endpoint);
+            sensor.zigbee.ensure().endpoints.push_back(endpoint);
             gateway.devices_[sensorIeee] = sensor;
             gateway.nodeAddresses_[sensorNode] = sensorIeee;
             const long now = time(0);
@@ -801,7 +801,7 @@ public:
             assert(gateway.nextSensorRefreshAt_.empty());
             gateway.devices_[sensorIeee].sensorRefreshIntervalMinutes = 60;
             gateway.nextSensorRefreshAt_[sensorNode] = now - 1;
-            gateway.devices_[sensorIeee].networkAddress = 0x1234; /* stale mapping */
+            gateway.devices_[sensorIeee].zigbee.ensure().networkAddress = 0x1234; /* stale mapping */
             assert(gateway.nextPollDeadline(&source) == now + 120);
         }
         unlink((std::string(directory) + "/devices.json").c_str());
@@ -829,9 +829,9 @@ public:
         gateway.joinPermitCloseDeadline_ = now - 1;
         gateway.joinPermitRenewAt_ = now - 1;
         Device contact;
-        contact.hasContact = true;
+        contact.contact.setPresent(true);
         gateway.devices_["closed"] = contact;
-        contact.contactOpen = true;
+        contact.contact.ensure().open = true;
         contact.contactTriggerMode = true;
         gateway.devices_["trigger"] = contact;
         gateway.nextContactAlertAt_["closed"] = now - 1;
@@ -904,7 +904,7 @@ public:
         endpoint.endpoint = 1;
         endpoint.inputClusters.push_back(0x0402);
         gateway.devices_[ieee].ieeeAddress = ieee;
-        gateway.devices_[ieee].endpoints.push_back(endpoint);
+        gateway.devices_[ieee].zigbee.ensure().endpoints.push_back(endpoint);
         gateway.nodeAddresses_[node] = ieee;
 
         gateway.startInterview(node, false);
@@ -973,8 +973,8 @@ public:
         gateway.sceneProvisioning_["a"] = pending;
         pending.deadline = now - 1;
         gateway.sceneProvisioning_["b"] = pending;
-        gateway.devices_["a"].networkAddress = 1;
-        gateway.devices_["b"].networkAddress = 2;
+        gateway.devices_["a"].zigbee.ensure().networkAddress = 1;
+        gateway.devices_["b"].zigbee.ensure().networkAddress = 2;
         assert(gateway.nextPollDeadline(&source) == now + 10);
         assert(source == "scene_provisioning");
         gateway.coordinatorInitializationStep_ = 1;
@@ -1046,18 +1046,18 @@ public:
         device.ieeeAddress = "0xview";
         device.name = "Kitchen \"window\"\n";
         device.kind = "temperature/humidity";
-        device.hasContact = true; device.contactOpen = true;
-        device.hasTemperature = true; device.temperatureCelsius = 21.5;
-        device.hasHumidity = true; device.humidityPercent = 40.5;
-        device.hasOccupancy = true; device.occupied = true;
-        device.hasBattery = true; device.batteryPercent = 80;
-        device.hasLight = true; device.lightOn = true; device.hasBrightness = true; device.brightnessPercent = 50;
-        device.hasRemote = true; device.hasLowTemperatureAlert = true; device.lowTemperatureAlert = 5;
+        device.contact.setPresent(true); device.contact.ensure().open = true;
+        device.temperature.setPresent(true); device.temperature.ensure().celsius = 21.5;
+        device.humidity.setPresent(true); device.humidity.ensure().percent = 40.5;
+        device.occupancy.setPresent(true); device.occupancy.ensure().occupied = true;
+        device.battery.setPresent(true); device.battery.ensure().percent = 80;
+        device.light.setPresent(true); device.light.ensure().on = true; device.brightness.setPresent(true); device.brightness.ensure().percent = 50;
+        device.remote.setPresent(true); device.hasLowTemperatureAlert = true; device.lowTemperatureAlert = 5;
         device.hasHighTemperatureAlert = true; device.highTemperatureAlert = 30;
         device.manufacturerName = "Acme\t"; device.modelId = "Model\\1";
         endpoint.endpoint = 2; endpoint.profileId = 0x0104; endpoint.deviceId = 0x0101;
         endpoint.inputClusters.push_back(0x0006); endpoint.outputClusters.push_back(0x0008);
-        device.endpoints.push_back(endpoint);
+        device.zigbee.ensure().endpoints.push_back(endpoint);
         gateway->devices_[device.ieeeAddress] = device;
         gateway->addLog("view control\n\001");
     }
@@ -1128,14 +1128,14 @@ public:
         Device device;
         std::string error;
         device.ieeeAddress = "0x00124b00000000dd";
-        device.networkAddress = 0x4321;
+        device.zigbee.ensure().networkAddress = 0x4321;
         gateway.devices_[device.ieeeAddress] = device;
-        gateway.nodeAddresses_[device.networkAddress] = device.ieeeAddress;
+        gateway.nodeAddresses_[device.zigbee.ensure().networkAddress] = device.ieeeAddress;
         gateway.online_ = true;
         gateway.networkFormed_ = true;
         assert(gateway.refreshDevice(device.ieeeAddress, &error));
-        assert(gateway.interviews_[device.networkAddress].refreshOnly);
-        assert(gateway.interviews_[device.networkAddress].operations[0].type == Gateway::InterviewActiveEndpoints);
+        assert(gateway.interviews_[device.zigbee.read().networkAddress].refreshOnly);
+        assert(gateway.interviews_[device.zigbee.read().networkAddress].operations[0].type == Gateway::InterviewActiveEndpoints);
     }
     static void lightCommandEncoding() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
@@ -1144,13 +1144,13 @@ public:
         EndpointDescriptor level;
         std::string error;
         device.ieeeAddress = "0x00124b00000000cc";
-        device.networkAddress = 0x4321;
-        device.hasLight = true;
-        device.lightOn = false;
+        device.zigbee.ensure().networkAddress = 0x4321;
+        device.light.setPresent(true);
+        device.light.ensure().on = false;
         power.endpoint = 3; power.inputClusters.push_back(0x0006);
         level.endpoint = 7; level.inputClusters.push_back(0x0008);
-        device.endpoints.push_back(power);
-        device.endpoints.push_back(level);
+        device.zigbee.ensure().endpoints.push_back(power);
+        device.zigbee.ensure().endpoints.push_back(level);
         gateway.devices_[device.ieeeAddress] = device;
         gateway.online_ = true; gateway.networkFormed_ = true; gateway.coordinatorInitializationStep_ = 0; gateway.ezspVersion_ = 8;
 
@@ -1178,7 +1178,7 @@ public:
         assert(error == "device is not a light");
         Device nondimmable = device;
         nondimmable.ieeeAddress = "0x00124b00000000cd";
-        nondimmable.endpoints.erase(nondimmable.endpoints.begin() + 1);
+        nondimmable.zigbee.ensure().endpoints.erase(nondimmable.zigbee.ensure().endpoints.begin() + 1);
         gateway.devices_[nondimmable.ieeeAddress] = nondimmable;
         assert(!gateway.setLightState(nondimmable.ieeeAddress, "on", 1, &error));
         assert(error == "brightness is unavailable for this light");
@@ -1186,7 +1186,7 @@ public:
         assert(error == "invalid light state");
         Device unsupported = device;
         unsupported.ieeeAddress = "0x00124b00000000ce";
-        unsupported.endpoints.clear();
+        unsupported.zigbee.ensure().endpoints.clear();
         gateway.devices_[unsupported.ieeeAddress] = unsupported;
         assert(!gateway.setLightState(unsupported.ieeeAddress, "on", -1, &error));
         assert(error == "power control is unavailable for this light");
@@ -1198,14 +1198,14 @@ public:
         EndpointDescriptor identify;
         std::string error;
         device.ieeeAddress = "0x00124b00000000ee";
-        device.networkAddress = 0x4321;
+        device.zigbee.ensure().networkAddress = 0x4321;
         clientOnly.endpoint = 1;
         clientOnly.outputClusters.push_back(0x0003);
         identify.endpoint = 4;
         identify.profileId = 0x0104;
         identify.inputClusters.push_back(0x0003);
-        device.endpoints.push_back(clientOnly);
-        device.endpoints.push_back(identify);
+        device.zigbee.ensure().endpoints.push_back(clientOnly);
+        device.zigbee.ensure().endpoints.push_back(identify);
         gateway.devices_[device.ieeeAddress] = device;
         assert(!gateway.identifyDevice(device.ieeeAddress, &error));
         assert(error == "Zigbee network is not ready");
@@ -1220,10 +1220,10 @@ public:
         assert(command[20] == 5 && command[21] == 0x11 && command[23] == 0x00);
         assert(command[24] == 5 && command[25] == 0);
         assert(!gateway.identifyDevice("missing", &error) && error == "device is unknown");
-        gateway.devices_[device.ieeeAddress].networkAddress = 0xffff;
+        gateway.devices_[device.ieeeAddress].zigbee.ensure().networkAddress = 0xffff;
         assert(!gateway.identifyDevice(device.ieeeAddress, &error) && error == "device has no active network address");
-        gateway.devices_[device.ieeeAddress].networkAddress = 0x4321;
-        gateway.devices_[device.ieeeAddress].endpoints.erase(gateway.devices_[device.ieeeAddress].endpoints.begin() + 1);
+        gateway.devices_[device.ieeeAddress].zigbee.ensure().networkAddress = 0x4321;
+        gateway.devices_[device.ieeeAddress].zigbee.ensure().endpoints.erase(gateway.devices_[device.ieeeAddress].zigbee.ensure().endpoints.begin() + 1);
         assert(!gateway.identifyDevice(device.ieeeAddress, &error) && error == "device has no Identify server endpoint");
     }
     static void ezspUpgradeCompatibility() {
@@ -1396,7 +1396,7 @@ public:
         gateway.ashPendingData_.clear();
         gateway.ashTransmitQueue_.clear();
         gateway.ashTransmitSensitiveQueue_.clear();
-        gateway.devices_[state.ieeeAddress].iasZoneId = 4;
+        gateway.devices_[state.ieeeAddress].zigbee.ensure().iasZoneId = 4;
         response.assign(26, 0);
         response[1] = 4; response[2] = 1;
         response[3] = 0; response[4] = 5;
@@ -1424,7 +1424,7 @@ public:
         state.ieeeAddress = ieee;
         gateway->interviews_[node] = state;
         gateway->devices_[ieee].ieeeAddress = ieee;
-        gateway->devices_[ieee].endpoints.push_back(endpoint);
+        gateway->devices_[ieee].zigbee.ensure().endpoints.push_back(endpoint);
         gateway->buildConfigurationOperations(node);
     }
     static unsigned long operationCount(const Gateway& gateway, unsigned short node) {
@@ -1540,8 +1540,8 @@ public:
         gateway->interviewNode_ = 0x5678;
         gateway->nodeAddresses_[contactNode] = ieee;
         gateway->devices_[ieee].ieeeAddress = ieee;
-        gateway->devices_[ieee].hasContact = true;
-        gateway->devices_[ieee].contactOpen = true;
+        gateway->devices_[ieee].contact.setPresent(true);
+        gateway->devices_[ieee].contact.ensure().open = true;
         payload[1] = 0x04; payload[2] = 0x01; /* Home Automation profile */
         payload[3] = 0x00; payload[4] = 0x05; /* IAS Zone cluster */
         payload[12] = 99;
@@ -1550,8 +1550,8 @@ public:
         payload.push_back(0x19); payload.push_back(7); payload.push_back(0x00);
         payload.push_back(0x00); payload.push_back(0x00);
         gateway->handleIncomingMessage(payload);
-        return gateway->devices_[ieee].hasContact && !gateway->devices_[ieee].contactOpen &&
-               gateway->devices_[ieee].linkQuality == 99;
+        return gateway->devices_[ieee].contact.present() && !gateway->devices_[ieee].contact.read().open &&
+               gateway->devices_[ieee].zigbee.read().linkQuality == 99;
     }
     static bool frameLogsContainDecodedDetails() {
         const unsigned short node = 0x1234;
@@ -1588,7 +1588,7 @@ public:
         endpoint.outputClusters.push_back(0x0008);
         gateway.nodeAddresses_[node] = ieee;
         gateway.devices_[ieee].ieeeAddress = ieee;
-        gateway.devices_[ieee].endpoints.push_back(endpoint);
+        gateway.devices_[ieee].zigbee.ensure().endpoints.push_back(endpoint);
         gateway.classifyDevice(&gateway.devices_[ieee]);
         gateway.logs_.clear();
         gateway.logRemoteKeyEvent(node, 0x0006, 1, 0, 0x01, std::vector<unsigned char>());
@@ -1627,8 +1627,8 @@ public:
         EndpointDescriptor endpoint;
         endpoint.endpoint = 1;
         endpoint.outputClusters.push_back(6);
-        device.endpoints.push_back(endpoint);
-        device.hasRemote = true;
+        device.zigbee.ensure().endpoints.push_back(endpoint);
+        device.remote.setPresent(true);
         incoming.resize(22);
         incoming[3] = 6; incoming[18] = 3;
         incoming[19] = 1; incoming[20] = 42; incoming[21] = 1;
@@ -1653,11 +1653,11 @@ public:
         lightEndpoint.inputClusters.push_back(0x0004);
         lightEndpoint.inputClusters.push_back(0x0006);
         Device& remote = gateway.devices_[remoteIeee];
-        remote.ieeeAddress = remoteIeee; remote.networkAddress = 0x1234;
-        remote.hasRemote = true; remote.endpoints.push_back(remoteEndpoint);
+        remote.ieeeAddress = remoteIeee; remote.zigbee.ensure().networkAddress = 0x1234;
+        remote.remote.setPresent(true); remote.zigbee.ensure().endpoints.push_back(remoteEndpoint);
         Device& light = gateway.devices_[lightIeee];
-        light.ieeeAddress = lightIeee; light.networkAddress = 0x2345;
-        light.hasLight = true; light.endpoints.push_back(lightEndpoint);
+        light.ieeeAddress = lightIeee; light.zigbee.ensure().networkAddress = 0x2345;
+        light.light.setPresent(true); light.zigbee.ensure().endpoints.push_back(lightEndpoint);
         gateway.nodeAddresses_[0x1234] = remoteIeee;
         gateway.coordinatorIeeeAddress_.assign(8, 0x11);
         gateway.online_ = true; gateway.networkFormed_ = true;
@@ -1710,11 +1710,11 @@ public:
             Device& remote = gateway.devices_[remoteIeee];
             EndpointDescriptor endpoint; endpoint.endpoint = 1; endpoint.outputClusters.push_back(6);
             remote.ieeeAddress = remoteIeee; remote.modelId = "TRADFRI on/off switch";
-            remote.softwareBuildId = versions[v]; remote.hasRemote = true;
-            remote.endpoints.push_back(endpoint);
+            remote.softwareBuildId = versions[v]; remote.remote.setPresent(true);
+            remote.zigbee.ensure().endpoints.push_back(endpoint);
             Device& light = gateway.devices_[lightIeee];
             endpoint.outputClusters.clear(); endpoint.inputClusters.push_back(4); endpoint.inputClusters.push_back(6);
-            light.ieeeAddress = lightIeee; light.hasLight = true; light.endpoints.push_back(endpoint);
+            light.ieeeAddress = lightIeee; light.light.setPresent(true); light.zigbee.ensure().endpoints.push_back(endpoint);
             SceneGroup group; group.id = 42; group.members.push_back(lightIeee);
             gateway.sceneGroups_.push_back(group);
             NativeRemoteBinding binding; binding.ieeeAddress = remoteIeee; binding.groupId = 42;
@@ -1743,7 +1743,7 @@ public:
         gateway.nodeAddresses_[node] = ieee;
         gateway.devices_[ieee].ieeeAddress = ieee;
         gateway.devices_[ieee].name = "Styrbar";
-        gateway.devices_[ieee].endpoints.push_back(endpoint);
+        gateway.devices_[ieee].zigbee.ensure().endpoints.push_back(endpoint);
         gateway.classifyDevice(&gateway.devices_[ieee]);
         incoming[1] = 0x04; incoming[2] = 0x01; /* Home Automation */
         incoming[3] = 0x05; incoming[4] = 0x00; /* Scenes */
@@ -1780,12 +1780,12 @@ public:
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         Device& remote = gateway.devices_[remoteIeee];
         EndpointDescriptor remoteEndpoint; remoteEndpoint.endpoint = 1; remoteEndpoint.outputClusters.push_back(0x0006);
-        remote.ieeeAddress = remoteIeee; remote.hasRemote = true; remote.endpoints.push_back(remoteEndpoint);
+        remote.ieeeAddress = remoteIeee; remote.remote.setPresent(true); remote.zigbee.ensure().endpoints.push_back(remoteEndpoint);
         gateway.nodeAddresses_[node] = remoteIeee;
         Device& light = gateway.devices_["light"];
         EndpointDescriptor lightEndpoint; lightEndpoint.endpoint = 1; lightEndpoint.inputClusters.push_back(0x0004);
         lightEndpoint.inputClusters.push_back(0x0005); lightEndpoint.inputClusters.push_back(0x0006);
-        light.ieeeAddress = "light"; light.networkAddress = 0x2222; light.hasLight = true; light.endpoints.push_back(lightEndpoint);
+        light.ieeeAddress = "light"; light.zigbee.ensure().networkAddress = 0x2222; light.light.setPresent(true); light.zigbee.ensure().endpoints.push_back(lightEndpoint);
         SceneGroup group; group.id = 10; group.name = "Room"; group.members.push_back("light");
         Scene scene; scene.id = 1; scene.name = "Bright";
         SceneLightState state; state.ieeeAddress = "light"; state.on = true; state.brightnessPercent = -1;
@@ -1812,9 +1812,9 @@ public:
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         std::string error;
         gateway.devices_["0xlight1"].ieeeAddress = "0xlight1";
-        gateway.devices_["0xlight1"].hasLight = true;
+        gateway.devices_["0xlight1"].light.setPresent(true);
         gateway.devices_["0xlight2"].ieeeAddress = "0xlight2";
-        gateway.devices_["0xlight2"].hasLight = true;
+        gateway.devices_["0xlight2"].light.setPresent(true);
         const char* configuration =
             "G\t1\tTest\nM\t1\t0xlight1\nM\t1\t0xlight2\nS\t1\t1\tScene\n"
             "T\t1\t1\t0xlight1\t1\t50\nT\t1\t1\t0xlight1\t0\t-1\n";
@@ -1822,9 +1822,9 @@ public:
     }
     static bool rejectsInvalidSceneCrossReferences() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
-        Device light; light.ieeeAddress = "light1"; light.hasLight = true;
-        Device otherLight; otherLight.ieeeAddress = "light2"; otherLight.hasLight = true;
-        Device remote; remote.ieeeAddress = "remote1"; remote.hasRemote = true;
+        Device light; light.ieeeAddress = "light1"; light.light.setPresent(true);
+        Device otherLight; otherLight.ieeeAddress = "light2"; otherLight.light.setPresent(true);
+        Device remote; remote.ieeeAddress = "remote1"; remote.remote.setPresent(true);
         gateway.devices_[light.ieeeAddress] = light;
         gateway.devices_[otherLight.ieeeAddress] = otherLight;
         gateway.devices_[remote.ieeeAddress] = remote;
@@ -1861,16 +1861,16 @@ public:
             Gateway gateway("/dev/null", 115200, path.str(), "", "", "");
             Device& light = gateway.devices_[lightIeee];
             EndpointDescriptor lightEndpoint;
-            light.ieeeAddress = lightIeee; light.hasLight = true; light.networkAddress = 0x2345;
+            light.ieeeAddress = lightIeee; light.light.setPresent(true); light.zigbee.ensure().networkAddress = 0x2345;
             lightEndpoint.endpoint = 1;
             lightEndpoint.inputClusters.push_back(4); lightEndpoint.inputClusters.push_back(5);
             lightEndpoint.inputClusters.push_back(6); lightEndpoint.inputClusters.push_back(8);
-            light.endpoints.push_back(lightEndpoint);
+            light.zigbee.ensure().endpoints.push_back(lightEndpoint);
             Device& remote = gateway.devices_[remoteIeee];
             EndpointDescriptor remoteEndpoint;
-            remote.ieeeAddress = remoteIeee; remote.hasRemote = true; remote.networkAddress = 0x1234;
+            remote.ieeeAddress = remoteIeee; remote.remote.setPresent(true); remote.zigbee.ensure().networkAddress = 0x1234;
             remoteEndpoint.endpoint = 1; remoteEndpoint.outputClusters.push_back(6);
-            remote.endpoints.push_back(remoteEndpoint);
+            remote.zigbee.ensure().endpoints.push_back(remoteEndpoint);
             gateway.online_ = true; gateway.networkFormed_ = true;
             if (!gateway.setSceneConfiguration(encoded, &error)) return false;
             if (gateway.sceneProvisioning_[lightIeee].commands.size() != 2 ||
@@ -1904,11 +1904,11 @@ public:
             Gateway restarted("/dev/null", 115200, path.str(), "", "", "");
             Device& light = restarted.devices_[lightIeee];
             EndpointDescriptor endpoint;
-            light.ieeeAddress = lightIeee; light.networkAddress = 0x2345; light.hasLight = true;
+            light.ieeeAddress = lightIeee; light.zigbee.ensure().networkAddress = 0x2345; light.light.setPresent(true);
             endpoint.endpoint = 1;
             endpoint.inputClusters.push_back(4); endpoint.inputClusters.push_back(5);
             endpoint.inputClusters.push_back(6); endpoint.inputClusters.push_back(8);
-            light.endpoints.push_back(endpoint);
+            light.zigbee.ensure().endpoints.push_back(endpoint);
             restarted.loadScenes();
             if (!restarted.sceneProvisioning_.empty() || !restarted.nativeBindOperations_.empty() ||
                 restarted.nativeBindingStates_[remoteIeee] != "configured; not verified since restart") return false;
@@ -1982,11 +1982,11 @@ public:
         nativeEndpoint.inputClusters.push_back(0x0006);
         EndpointDescriptor fallbackEndpoint; fallbackEndpoint.endpoint = 1; fallbackEndpoint.inputClusters.push_back(0x0006);
         Device& native = gateway.devices_["native"];
-        native.ieeeAddress = "native"; native.networkAddress = 0x1001; native.hasLight = true;
-        native.endpoints.push_back(nativeEndpoint);
+        native.ieeeAddress = "native"; native.zigbee.ensure().networkAddress = 0x1001; native.light.setPresent(true);
+        native.zigbee.ensure().endpoints.push_back(nativeEndpoint);
         Device& fallback = gateway.devices_["fallback"];
-        fallback.ieeeAddress = "fallback"; fallback.networkAddress = 0x1002; fallback.hasLight = true;
-        fallback.endpoints.push_back(fallbackEndpoint);
+        fallback.ieeeAddress = "fallback"; fallback.zigbee.ensure().networkAddress = 0x1002; fallback.light.setPresent(true);
+        fallback.zigbee.ensure().endpoints.push_back(fallbackEndpoint);
         SceneGroup mixed; mixed.id = 3; mixed.name = "Mixed";
         mixed.members.push_back("native"); mixed.members.push_back("fallback");
         Scene scene; scene.id = 1; scene.name = "On";
@@ -1997,12 +1997,12 @@ public:
         std::string error;
         if (!gateway.activateScene(3, 1, &error) || !gateway.sceneRetries_[3].inFlight ||
             gateway.logsJson().find("profile=0x104 cluster=0x5") == std::string::npos ||
-            gateway.devices_["fallback"].lightOn || gateway.selectedScenes_.count(3) != 0) return false;
+            gateway.devices_["fallback"].light.read().on || gateway.selectedScenes_.count(3) != 0) return false;
         std::vector<unsigned char> reply(6, 0);
         reply[0] = gateway.sceneRetries_[3].ezspSequence; reply[3] = 0x38; reply[5] = 0;
         gateway.handleEzspFrame(reply);
-        if (gateway.selectedScenes_[3] != 1 || !gateway.devices_["fallback"].lightOn ||
-            gateway.devices_["native"].lightOn || gateway.logsJson().find("Scene recalled: Mixed / On") == std::string::npos) return false;
+        if (gateway.selectedScenes_[3] != 1 || !gateway.devices_["fallback"].light.read().on ||
+            gateway.devices_["native"].light.read().on || gateway.logsJson().find("Scene recalled: Mixed / On") == std::string::npos) return false;
         SceneGroup fallbackOnly; fallbackOnly.id = 4; fallbackOnly.name = "Fallback";
         fallbackOnly.members.push_back("fallback");
         Scene fallbackScene; fallbackScene.id = 2; fallbackScene.name = "Off";
@@ -2010,7 +2010,7 @@ public:
         fallbackScene.states.push_back(offState); fallbackOnly.scenes.push_back(fallbackScene);
         gateway.sceneGroups_.push_back(fallbackOnly);
         if (!gateway.activateScene(4, 2, &error) || gateway.sceneRetries_[4].retryAt != LONG_MAX ||
-            gateway.selectedScenes_[4] != 2 || gateway.devices_["fallback"].lightOn ||
+            gateway.selectedScenes_[4] != 2 || gateway.devices_["fallback"].light.read().on ||
             gateway.logsJson().find("profile=0x104 cluster=0x6") == std::string::npos) return false;
         return true;
     }
@@ -2024,11 +2024,11 @@ public:
         for (int i = 0; i < 2; ++i) {
             std::string ieee = i == 0 ? "0xlight1" : "0xlight2";
             Device& device = gateway.devices_[ieee];
-            device.ieeeAddress = ieee; device.networkAddress = 0x1234 + i;
+            device.ieeeAddress = ieee; device.zigbee.ensure().networkAddress = 0x1234 + i;
             EndpointDescriptor endpoint; endpoint.endpoint = 3; endpoint.profileId = 0x0104;
             endpoint.inputClusters.push_back(4); endpoint.inputClusters.push_back(5);
             endpoint.inputClusters.push_back(6);
-            device.endpoints.push_back(endpoint);
+            device.zigbee.ensure().endpoints.push_back(endpoint);
             group.members.push_back(ieee);
             SceneLightState state; state.ieeeAddress = ieee; state.on = true; state.brightnessPercent = -1;
             scene.states.push_back(state);
@@ -2075,10 +2075,10 @@ public:
         for (int i = 0; i < 3; ++i) {
             std::ostringstream name; name << "light" << i;
             Device& light = gateway.devices_[name.str()];
-            light.ieeeAddress = name.str(); light.networkAddress = 0x1234 + i;
+            light.ieeeAddress = name.str(); light.zigbee.ensure().networkAddress = 0x1234 + i;
             EndpointDescriptor endpoint; endpoint.endpoint = 1;
             endpoint.inputClusters.push_back(4); endpoint.inputClusters.push_back(5);
-            endpoint.inputClusters.push_back(6); light.endpoints.push_back(endpoint);
+            endpoint.inputClusters.push_back(6); light.zigbee.ensure().endpoints.push_back(endpoint);
             group.members.push_back(name.str());
         }
         for (int i = 1; i <= 3; ++i) {
@@ -2091,9 +2091,9 @@ public:
         }
         gateway.sceneGroups_.push_back(group);
         Device& remote = gateway.devices_["remote"];
-        remote.ieeeAddress = "remote"; remote.hasRemote = true;
+        remote.ieeeAddress = "remote"; remote.remote.setPresent(true);
         EndpointDescriptor endpoint; endpoint.endpoint = 1; endpoint.outputClusters.push_back(6);
-        remote.endpoints.push_back(endpoint); gateway.nodeAddresses_[0x4321] = "remote";
+        remote.zigbee.ensure().endpoints.push_back(endpoint); gateway.nodeAddresses_[0x4321] = "remote";
         RemoteSceneBinding binding; binding.ieeeAddress = "remote"; binding.action = "on";
         binding.groupId = 1;
         binding.sceneIds.push_back(1); binding.sceneIds.push_back(2); binding.sceneIds.push_back(3);
@@ -2337,27 +2337,27 @@ static void testDevicePersistence() {
     std::vector<Device> loaded;
     assert(ensureDirectory(directory, &error));
     input.ieeeAddress = "0x00124b0000000001";
-    input.networkAddress = 0x1234;
+    input.zigbee.ensure().networkAddress = 0x1234;
     input.name = "Kitchen \"window\"\\\n";
     input.kind = "contact";
-    input.hasContact = true;
-    input.contactOpen = true;
-    input.hasTemperature = true;
-    input.temperatureCelsius = 19.75;
-    input.hasHumidity = true;
-    input.humidityPercent = 47.25;
-    input.hasOccupancy = true;
-    input.occupied = true;
-    input.hasBattery = true;
-    input.batteryPercent = 76;
-    input.hasLight = true;
-    input.lightOn = true;
-    input.hasBrightness = true;
-    input.brightnessPercent = 63;
-    input.hasRemote = true;
-    input.linkQuality = 91;
+    input.contact.setPresent(true);
+    input.contact.ensure().open = true;
+    input.temperature.setPresent(true);
+    input.temperature.ensure().celsius = 19.75;
+    input.humidity.setPresent(true);
+    input.humidity.ensure().percent = 47.25;
+    input.occupancy.setPresent(true);
+    input.occupancy.ensure().occupied = true;
+    input.battery.setPresent(true);
+    input.battery.ensure().percent = 76;
+    input.light.setPresent(true);
+    input.light.ensure().on = true;
+    input.brightness.setPresent(true);
+    input.brightness.ensure().percent = 63;
+    input.remote.setPresent(true);
+    input.zigbee.ensure().linkQuality = 91;
     input.lastSeen = 123456;
-    input.iasZoneId = 17;
+    input.zigbee.ensure().iasZoneId = 17;
     input.contactInitialAlertMinutes = 20;
     input.contactReminderAlertMinutes = 7;
     input.sensorRefreshIntervalMinutes = 17;
@@ -2372,59 +2372,58 @@ static void testDevicePersistence() {
     endpoint.inputClusters.push_back(0x0402);
     endpoint.inputClusters.push_back(0x0405);
     endpoint.outputClusters.push_back(0x0003);
-    input.endpoints.push_back(endpoint);
+    input.zigbee.ensure().endpoints.push_back(endpoint);
     devices.push_back(input);
     Device nondimmable = input;
     nondimmable.ieeeAddress = "0x00124b0000000002";
-    nondimmable.networkAddress = 0x1235;
-    nondimmable.hasBrightness = false;
-    nondimmable.brightnessPercent = -1;
+    nondimmable.zigbee.ensure().networkAddress = 0x1235;
+    nondimmable.brightness.setPresent(false);
     devices.push_back(nondimmable);
     Device matter;
     matter.ieeeAddress = "matter:0000000000000001:0000000000000002:0001";
-    matter.externalId = matter.ieeeAddress;
-    matter.component = "endpoint";
+    matter.external.ensure().externalId = matter.ieeeAddress;
+    matter.external.ensure().component = "endpoint";
     matter.source = "matter";
     matter.kind = "switch";
-    matter.matterNode = "0000000000000002";
-    matter.matterEndpoint = 1;
-    matter.matterServers.push_back(6);
-    matter.matterServers.push_back(1037);
-    matter.hasActor = true;
-    matter.hasCo2 = true;
-    matter.co2Known = true;
-    matter.co2Ppm = 758.5;
-    matter.co2Unit = "ppb";
+    matter.matter.ensure().node = "0000000000000002";
+    matter.matter.ensure().endpoint = 1;
+    matter.matter.ensure().servers.push_back(6);
+    matter.matter.ensure().servers.push_back(1037);
+    matter.actor.setPresent(true);
+    matter.co2.setPresent(true);
+    matter.co2.ensure().known = true;
+    matter.co2.ensure().ppm = 758.5;
+    matter.co2.ensure().unit = "ppb";
     devices.push_back(matter);
     assert(saveDevices(filename, devices, &error));
     assert(loadDevices(filename, &loaded, &error));
     assert(loaded.size() == 3);
     assert(loaded[0].ieeeAddress == input.ieeeAddress);
-    assert(loaded[0].networkAddress == input.networkAddress);
+    assert(loaded[0].zigbee.read().networkAddress == input.zigbee.read().networkAddress);
     assert(loaded[0].name == input.name && loaded[0].kind == input.kind);
-    assert(loaded[0].hasContact && loaded[0].contactOpen && loaded[0].hasTemperature);
-    assert(loaded[0].temperatureCelsius == input.temperatureCelsius);
-    assert(loaded[0].hasHumidity && loaded[0].humidityPercent == input.humidityPercent);
-    assert(loaded[0].hasOccupancy && loaded[0].occupied);
-    assert(loaded[0].hasBattery && loaded[0].batteryPercent == input.batteryPercent);
-    assert(loaded[0].hasLight && loaded[0].lightOn && loaded[0].hasBrightness && loaded[0].brightnessPercent == 63 && loaded[0].hasRemote);
-    assert(loaded[0].linkQuality == input.linkQuality && loaded[0].lastSeen == input.lastSeen);
-    assert(loaded[0].iasZoneId == input.iasZoneId);
+    assert(loaded[0].contact.present() && loaded[0].contact.read().open && loaded[0].temperature.present());
+    assert(loaded[0].temperature.read().celsius == input.temperature.read().celsius);
+    assert(loaded[0].humidity.present() && loaded[0].humidity.read().percent == input.humidity.read().percent);
+    assert(loaded[0].occupancy.present() && loaded[0].occupancy.read().occupied);
+    assert(loaded[0].battery.present() && loaded[0].battery.read().percent == input.battery.read().percent);
+    assert(loaded[0].light.present() && loaded[0].light.read().on && loaded[0].brightness.present() && loaded[0].brightness.read().percent == 63 && loaded[0].remote.present());
+    assert(loaded[0].zigbee.read().linkQuality == input.zigbee.read().linkQuality && loaded[0].lastSeen == input.lastSeen);
+    assert(loaded[0].zigbee.read().iasZoneId == input.zigbee.read().iasZoneId);
     assert(loaded[0].contactInitialAlertMinutes == 20 && loaded[0].contactReminderAlertMinutes == 7);
     assert(loaded[0].sensorRefreshIntervalMinutes == 17);
     assert(loaded[0].manufacturerName == "eWeLink" && loaded[0].modelId == "TH01");
-    assert(loaded[0].endpoints.size() == 1);
-    assert(loaded[0].endpoints[0].endpoint == 1 && loaded[0].endpoints[0].profileId == 0x0104);
-    assert(loaded[0].endpoints[0].deviceId == 0x0302 && loaded[0].endpoints[0].deviceVersion == 1);
-    assert(loaded[0].endpoints[0].inputClusters.size() == 4);
-    assert(loaded[0].endpoints[0].inputClusters[2] == 0x0402 && loaded[0].endpoints[0].outputClusters[0] == 0x0003);
-    assert(loaded[1].ieeeAddress == nondimmable.ieeeAddress && !loaded[1].hasBrightness && loaded[1].brightnessPercent == -1);
-    assert(loaded[2].source == "matter" && loaded[2].externalId == matter.externalId);
-    assert(loaded[2].matterNode == matter.matterNode && loaded[2].matterEndpoint == 1);
-    assert(loaded[2].matterServers.size() == 2 && loaded[2].matterServers[0] == 6 &&
-           loaded[2].matterServers[1] == 1037);
-    assert(loaded[2].hasActor && loaded[2].hasCo2 && loaded[2].co2Known &&
-           loaded[2].co2Ppm == 758.5 && loaded[2].co2Unit == "ppb");
+    assert(loaded[0].zigbee.read().endpoints.size() == 1);
+    assert(loaded[0].zigbee.read().endpoints[0].endpoint == 1 && loaded[0].zigbee.read().endpoints[0].profileId == 0x0104);
+    assert(loaded[0].zigbee.read().endpoints[0].deviceId == 0x0302 && loaded[0].zigbee.read().endpoints[0].deviceVersion == 1);
+    assert(loaded[0].zigbee.read().endpoints[0].inputClusters.size() == 4);
+    assert(loaded[0].zigbee.read().endpoints[0].inputClusters[2] == 0x0402 && loaded[0].zigbee.read().endpoints[0].outputClusters[0] == 0x0003);
+    assert(loaded[1].ieeeAddress == nondimmable.ieeeAddress && !loaded[1].brightness.present());
+    assert(loaded[2].source == "matter" && loaded[2].external.read().externalId == matter.external.read().externalId);
+    assert(loaded[2].matter.read().node == matter.matter.read().node && loaded[2].matter.read().endpoint == 1);
+    assert(loaded[2].matter.read().servers.size() == 2 && loaded[2].matter.read().servers[0] == 6 &&
+           loaded[2].matter.read().servers[1] == 1037);
+    assert(loaded[2].actor.present() && loaded[2].co2.present() && loaded[2].co2.read().known &&
+           loaded[2].co2.read().ppm == 758.5 && loaded[2].co2.read().unit == "ppb");
     unlink(filename.c_str());
     rmdir(directory.c_str());
 }
@@ -2453,7 +2452,7 @@ static void testDeviceLoadRejectsCorruptDuplicatesAndNumbers() {
     }
     assert(loadDevices(filename, &loaded, &error));
     assert(loaded.size() == 2 && loaded[0].ieeeAddress == "ieee-a" && loaded[0].name == "first" &&
-           loaded[1].ieeeAddress == "ieee-c" && loaded[1].brightnessPercent == -1);
+           loaded[1].ieeeAddress == "ieee-c");
     Device sentinel; sentinel.ieeeAddress = "unchanged"; loaded.clear(); loaded.push_back(sentinel);
     {
         std::ofstream output(filename.c_str());
@@ -2682,15 +2681,15 @@ static void testMatterAlertSettingsSurviveRestart() {
         std::vector<Device> loaded = restarted.devices();
         bool restoredBeforeSnapshot = false;
         for (unsigned long i = 0; i < loaded.size(); ++i)
-            if (loaded[i].source == "matter" && loaded[i].externalId == endpointId &&
+            if (loaded[i].source == "matter" && loaded[i].external.read().externalId == endpointId &&
                 loaded[i].valueAlerts.find("temperature") != loaded[i].valueAlerts.end()) restoredBeforeSnapshot = true;
         assert(restoredBeforeSnapshot);
         bool restoredReading = false;
         for (unsigned long i = 0; i < loaded.size(); ++i) {
-            if (loaded[i].source == "matter" && loaded[i].externalId == endpointId) {
-                restoredReading = loaded[i].co2Known && loaded[i].co2Ppm == 750 && loaded[i].co2Unit == "ppb" &&
-                                  loaded[i].pm25Known && loaded[i].pm25MicrogramsM3 == 11 &&
-                                  loaded[i].pm25Unit == "ug/m3";
+            if (loaded[i].source == "matter" && loaded[i].external.read().externalId == endpointId) {
+                restoredReading = loaded[i].co2.read().known && loaded[i].co2.read().ppm == 750 && loaded[i].co2.read().unit == "ppb" &&
+                                  loaded[i].pm25.read().known && loaded[i].pm25.read().microgramsM3 == 11 &&
+                                  loaded[i].pm25.read().unit == "ug/m3";
             }
         }
         assert(restoredReading);
@@ -2698,7 +2697,7 @@ static void testMatterAlertSettingsSurviveRestart() {
         loaded = restarted.devices();
         bool restoredAfterSnapshot = false;
         for (unsigned long i = 0; i < loaded.size(); ++i) {
-            if (loaded[i].source != "matter" || loaded[i].externalId != endpointId) continue;
+            if (loaded[i].source != "matter" || loaded[i].external.read().externalId != endpointId) continue;
             std::map<std::string, DeviceValueAlert>::const_iterator restored = loaded[i].valueAlerts.find("temperature");
             restoredAfterSnapshot = restored != loaded[i].valueAlerts.end() && restored->second.hasHigh &&
                                     restored->second.high == 28.5 && restored->second.hysteresis == 1.5;
@@ -2926,17 +2925,17 @@ static void testGenericCapabilities() {
     device.ieeeAddress = "0x00124b0000000002";
     temperature.push_back(0x1a); temperature.push_back(0x09); /* 23.30 C */
     assert(applyZclAttribute(&device, 0x0402, 0x0000, temperature, 123));
-    assert(device.hasTemperature && device.temperatureCelsius == 23.3 && device.lastSeen == 123);
+    assert(device.temperature.present() && device.temperature.read().celsius == 23.3 && device.lastSeen == 123);
     humidity.push_back(0xb8); humidity.push_back(0x13); /* 50.48 % */
     assert(applyZclAttribute(&device, 0x0405, 0x0000, humidity, 123));
-    assert(device.hasHumidity && device.humidityPercent == 50.48 && device.lastSeen == 123);
+    assert(device.humidity.present() && device.humidity.read().percent == 50.48 && device.lastSeen == 123);
     xiaomi.push_back(8); /* length */
     xiaomi.push_back(0x64); xiaomi.push_back(0x29); xiaomi.push_back(0xa8); xiaomi.push_back(0x08); /* 22.16 C */
     xiaomi.push_back(0x65); xiaomi.push_back(0x21); xiaomi.push_back(0xb8); xiaomi.push_back(0x13); /* 50.48 % */
     device = Device();
     assert(applyZclAttribute(&device, 0x0000, 0xff01, xiaomi, 124));
-    assert(device.hasTemperature && device.temperatureCelsius == 22.16);
-    assert(device.hasHumidity && device.humidityPercent == 50.48);
+    assert(device.temperature.present() && device.temperature.read().celsius == 22.16);
+    assert(device.humidity.present() && device.humidity.read().percent == 50.48);
     {
         std::vector<unsigned char> temperatureOnly;
         std::vector<unsigned char> humidityOnly;
@@ -2948,17 +2947,17 @@ static void testGenericCapabilities() {
         unknown.push_back(4); unknown.push_back(0x99); unknown.push_back(0x21); unknown.push_back(1); unknown.push_back(0);
         device = Device();
         assert(applyZclAttribute(&device, 0x0000, 0xff01, temperatureOnly, 125));
-        assert(device.hasTemperature && !device.hasHumidity && device.temperatureCelsius == 22.16);
+        assert(device.temperature.present() && !device.humidity.present() && device.temperature.read().celsius == 22.16);
         device = Device();
         assert(applyZclAttribute(&device, 0x0000, 0xff01, humidityOnly, 126));
-        assert(!device.hasTemperature && device.hasHumidity && device.humidityPercent == 50.48);
+        assert(!device.temperature.present() && device.humidity.present() && device.humidity.read().percent == 50.48);
         device = Device();
         assert(!applyZclAttribute(&device, 0x0000, 0xff01, unknown, 127));
-        assert(!device.hasTemperature && !device.hasHumidity && device.lastSeen == 0);
+        assert(!device.temperature.present() && !device.humidity.present() && device.lastSeen == 0);
     }
     occupancy.push_back(1);
     assert(applyZclAttribute(&device, 0x0406, 0x0000, occupancy, 123));
-    assert(device.hasOccupancy && device.occupied && device.lastSeen == 123);
+    assert(device.occupancy.present() && device.occupancy.read().occupied && device.lastSeen == 123);
     {
         std::vector<unsigned char> response;
         response.push_back(0x00); response.push_back(0x00); /* measured value */
@@ -2966,37 +2965,37 @@ static void testGenericCapabilities() {
         response.push_back(0x29); /* signed 16-bit */
         response.push_back(0x1a); response.push_back(0x09); /* 23.30 C */
         assert(applyZclReadAttributeResponse(&device, 0x0402, response, 126));
-        assert(device.temperatureCelsius == 23.3 && device.lastSeen == 126);
+        assert(device.temperature.read().celsius == 23.3 && device.lastSeen == 126);
     }
     battery.push_back(170);
     assert(applyZclAttribute(&device, 0x0001, 0x0021, battery, 124));
-    assert(device.hasBattery && device.batteryPercent == 85 && device.lastSeen == 124);
+    assert(device.battery.present() && device.battery.read().percent == 85 && device.lastSeen == 124);
     zone.push_back(1); zone.push_back(0);
     assert(applyIasZoneStatus(&device, zone, 125));
-    assert(device.hasContact && device.contactOpen && device.lastSeen == 125);
+    assert(device.contact.present() && device.contact.read().open && device.lastSeen == 125);
     zone[0] = 0;
     assert(applyIasZoneStatus(&device, zone, 126));
-    assert(device.hasContact && !device.contactOpen && device.lastSeen == 126);
+    assert(device.contact.present() && !device.contact.read().open && device.lastSeen == 126);
 
     device = Device();
     std::vector<unsigned char> waterType;
     waterType.push_back(0x2a); waterType.push_back(0x00); /* IAS water sensor */
     assert(applyZclAttribute(&device, 0x0500, 0x0001, waterType, 127));
-    assert(device.hasWaterLeak && device.hasContact && device.kind == "water leak");
+    assert(device.waterLeak.present() && device.contact.present() && device.kind == "water leak");
     zone[0] = 1;
     assert(applyIasZoneStatus(&device, zone, 128));
-    assert(device.waterLeakKnown && device.waterDetected && device.contactOpen);
+    assert(device.waterLeak.read().known && device.waterLeak.read().detected && device.contact.read().open);
     zone[0] = 0;
     assert(applyIasZoneStatus(&device, zone, 129));
-    assert(device.waterLeakKnown && !device.waterDetected && !device.contactOpen);
+    assert(device.waterLeak.read().known && !device.waterLeak.read().detected && !device.contact.read().open);
 
     device = Device();
     std::vector<unsigned char> on(1, 1);
     std::vector<unsigned char> level(1, 127);
     assert(applyZclAttribute(&device, 0x0006, 0x0000, on, 126));
-    assert(device.hasLight && device.lightOn && device.lastSeen == 126);
+    assert(device.light.present() && device.light.read().on && device.lastSeen == 126);
     assert(applyZclAttribute(&device, 0x0008, 0x0000, level, 127));
-    assert(device.hasBrightness && device.brightnessPercent == 50 && device.lastSeen == 127);
+    assert(device.brightness.present() && device.brightness.read().percent == 50 && device.lastSeen == 127);
     assert(isLightAttribute(0x0006, 0x0000) && isLightAttribute(0x0008, 0x0000));
     assert(!isLightAttribute(0x0008, 0x0001));
 }
@@ -3036,8 +3035,8 @@ static void testZclRejectsMalformedAttributes() {
     wrongType.push_back(0); wrongType.push_back(0); wrongType.push_back(0); /* attribute + success */
     wrongType.push_back(0x21); wrongType.push_back(0); wrongType.push_back(0); /* unsigned instead of signed temperature */
     assert(!applyZclReadAttributeResponse(&device, 0x0402, wrongType, 10));
-    assert(!device.hasTemperature && !device.hasHumidity && !device.hasOccupancy && !device.hasBattery &&
-           !device.hasContact && !device.hasLight && device.lastSeen == 0);
+    assert(!device.temperature.present() && !device.humidity.present() && !device.occupancy.present() && !device.battery.present() &&
+           !device.contact.present() && !device.light.present() && device.lastSeen == 0);
 }
 
 static void testTh01SignedHumidity() {
@@ -3048,7 +3047,7 @@ static void testTh01SignedHumidity() {
     device.manufacturerName = "eWeLink"; device.modelId = "TH01";
     unsigned observed = 0;
     assert(applyZclReadAttributeResponse(&device, 0x0405, response, 101, &observed));
-    assert(device.hasHumidity && device.humidityPercent == 83.53 && device.lastSeen == 101);
+    assert(device.humidity.present() && device.humidity.read().percent == 83.53 && device.lastSeen == 101);
     assert(observed == ZclObservedHumidity);
     response[4] = 0xff; response[5] = 0xff; /* negative/invalid */
     assert(!applyZclReadAttributeResponse(&device, 0x0405, response, 102));
@@ -3056,7 +3055,7 @@ static void testTh01SignedHumidity() {
     assert(!applyZclReadAttributeResponse(&device, 0x0405, response, 102));
     response.resize(5); /* truncated signed value */
     assert(!applyZclReadAttributeResponse(&device, 0x0405, response, 102));
-    assert(device.humidityPercent == 83.53 && device.lastSeen == 101);
+    assert(device.humidity.read().percent == 83.53 && device.lastSeen == 101);
     response.assign(wire, wire + sizeof(wire)); response[3] = 0x21;
     assert(applyZclReadAttributeResponse(&device, 0x0405, response, 103));
 }
@@ -3645,7 +3644,7 @@ static void testSharedJsonUtilities() {
 
 static void testTrvzbProtocol() {
     puts("unit: TRVZB types, ranges, signed values, firmware gates and weekly schedules");
-    Device d; d.modelId="TRVZB"; d.softwareBuildId="1.0.8";
+    Device d; d.modelId="TRVZB"; d.softwareBuildId="1.0.8"; d.normalizeComponents();
     std::vector<unsigned char> bytes; std::string error;
     assert(thermostatEncode(d,"occupied_heating_setpoint","21.5",&bytes,&error));
     assert(bytes.size()==5 && bytes[0]==0x12 && bytes[2]==0x29 && bytes[3]==0x66 && bytes[4]==8);
@@ -3655,10 +3654,10 @@ static void testTrvzbProtocol() {
     assert(!thermostatEncode(d,"temperature_sensor_select","2",&bytes,&error));
     std::vector<unsigned char> reconnected(1,3);
     assert(applyThermostatAttribute(&d,0xfc11,0x600e,0x20,reconnected,10));
-    assert(d.thermostat.values[ThermostatField::temperature_sensor_select]==1);
+    assert(d.thermostat.read().values[ThermostatField::temperature_sensor_select]==1);
     reconnected[0]=255;
     assert(applyThermostatAttribute(&d,0xfc11,0x6014,0x20,reconnected,10));
-    assert(d.thermostat.values[ThermostatField::temporary_mode_select]==255);
+    assert(d.thermostat.read().values[ThermostatField::temporary_mode_select]==255);
     assert(!thermostatEncode(d,"valve_opening_degree","50",&bytes,&error));
     d.softwareBuildId="v1.3.0";
     assert(thermostatEncode(d,"valve_opening_degree","50",&bytes,&error));
@@ -3666,34 +3665,99 @@ static void testTrvzbProtocol() {
     assert(bytes[3]==244);
     std::vector<unsigned char> signedValue(1,244);
     assert(applyThermostatAttribute(&d,0x0201,0x10,0x28,signedValue,10));
-    assert(d.thermostat.values[ThermostatField::local_temperature_calibration]==-1.2);
+    assert(d.thermostat.read().values[ThermostatField::local_temperature_calibration]==-1.2);
     assert(!applyThermostatAttribute(&d,0x0201,0x10,0x20,signedValue,10));
     signedValue.assign(2,0); signedValue[1]=0x80;
     assert(!applyThermostatAttribute(&d,0x0201,0,0x29,signedValue,10));
     signedValue[0]=0x34; signedValue[1]=8;
     assert(applyThermostatAttribute(&d,0x0201,0,0x29,signedValue,10));
-    assert(d.temperatureObservation.at==10 && d.temperatureCelsius==21);
+    assert(d.temperature.read().observation.at==10 && d.temperature.read().celsius==21);
     assert(applyThermostatAttribute(&d,0x0201,0,0x29,signedValue,20));
-    assert(d.temperatureObservation.at==20);
-    std::vector<unsigned char> on(1,1); assert(!applyZclAttribute(&d,6,0,on,21)); assert(!d.hasLight);
+    assert(d.temperature.read().observation.at==20);
+    std::vector<unsigned char> on(1,1); assert(!applyZclAttribute(&d,6,0,on,21)); assert(!d.light.present());
     assert(thermostatSchedule("00:00/18 07:00/21.5 22:00/17",1,&bytes));
     assert(bytes.size()==15 && bytes[0]==3 && bytes[1]==2 && bytes[2]==1);
     assert(applyThermostatSchedule(&d,bytes));
-    assert(d.thermostat.schedules[1]=="00:00/18 07:00/21.5 22:00/17");
+    assert(d.thermostat.read().schedules.find(1)->second=="00:00/18 07:00/21.5 22:00/17");
     assert(!thermostatSchedule("07:00/20",1,&bytes));
     assert(!thermostatSchedule("00:00/18 00:00/20",1,&bytes));
     assert(!thermostatSchedule("00:00/18 24:00/20",1,&bytes));
     assert(!thermostatSchedule("00:00/18.1",1,&bytes));
     assert(!thermostatSchedule("00:00/18 01:00/20 02:00/20 03:00/20 04:00/20 05:00/20 06:00/20",1,&bytes));
     assert(!thermostatSchedule("",1,&bytes));
-    d.thermostat.values[ThermostatField::smart_temperature_control]=2;
+    d.thermostat.ensure().values[ThermostatField::smart_temperature_control]=2;
     assert(!thermostatEncode(d,"temperature_accuracy","-0.4",&bytes,&error));
-    d.thermostat.unsupported.insert(ThermostatField::child_lock);
+    d.thermostat.ensure().unsupported.insert(ThermostatField::child_lock);
     assert(!thermostatEncode(d,"child_lock","1",&bytes,&error));
     assert(thermostatJson(d).find("\"schedules\":[null,\"00:00/18")!=std::string::npos);
 }
 
+static void testDeviceComponents() {
+    puts("unit: optional device components and deep-copy snapshot isolation");
+    Device empty;
+    assert(!empty.temperature.present() && !empty.thermostat.present() && !empty.matter.present());
+    assert(!empty.temperature.read().known && empty.temperature.read().celsius==0);
+    assert(!empty.temperature.present() && !empty.thermostat.present());
+    Device d;d.ieeeAddress="synthetic-components";d.temperature.ensure().known=true;d.temperature.ensure().celsius=0;
+    d.thermostat.ensure().values[ThermostatField::occupied_heating_setpoint]=21;
+    d.thermostat.ensure().schedules[0]="original";d.thermostat.ensure().pending.insert(ThermostatField::system_mode);
+    EndpointDescriptor endpoint;endpoint.inputClusters.push_back(513);d.zigbee.ensure().endpoints.push_back(endpoint);
+    d.matter.ensure().servers.push_back(513);d.external.ensure().component="endpoint";
+#define COMPONENT_COPY(name) d.name.ensure();
+    COMPONENT_COPY(humidity) COMPONENT_COPY(contact) COMPONENT_COPY(waterLeak) COMPONENT_COPY(airQuality)
+    COMPONENT_COPY(co2) COMPONENT_COPY(pm25) COMPONENT_COPY(occupancy) COMPONENT_COPY(battery)
+    COMPONENT_COPY(light) COMPONENT_COPY(brightness) COMPONENT_COPY(remote) COMPONENT_COPY(actor)
+    COMPONENT_COPY(power) COMPONENT_COPY(wifiSignal)
+#undef COMPONENT_COPY
+    Device copy(d),assigned;assigned=d;
+#define DISTINCT_COMPONENT(name) assert(&copy.name.read()!=&d.name.read() && &assigned.name.read()!=&d.name.read());
+    DISTINCT_COMPONENT(temperature) DISTINCT_COMPONENT(thermostat) DISTINCT_COMPONENT(zigbee)
+    DISTINCT_COMPONENT(matter) DISTINCT_COMPONENT(external) DISTINCT_COMPONENT(humidity) DISTINCT_COMPONENT(contact)
+    DISTINCT_COMPONENT(waterLeak) DISTINCT_COMPONENT(airQuality) DISTINCT_COMPONENT(co2) DISTINCT_COMPONENT(pm25)
+    DISTINCT_COMPONENT(occupancy) DISTINCT_COMPONENT(battery) DISTINCT_COMPONENT(light) DISTINCT_COMPONENT(brightness)
+    DISTINCT_COMPONENT(remote) DISTINCT_COMPONENT(actor) DISTINCT_COMPONENT(power) DISTINCT_COMPONENT(wifiSignal)
+#undef DISTINCT_COMPONENT
+    copy.temperature.ensure().celsius=30;copy.thermostat.ensure().schedules[0]="changed";
+    copy.zigbee.ensure().endpoints[0].inputClusters.clear();copy.matter.ensure().servers.clear();copy.external.ensure().component="changed";
+    assert(d.temperature.read().celsius==0 && d.thermostat.read().schedules.find(0)->second=="original");
+    assert(d.zigbee.read().endpoints[0].inputClusters.size()==1 && d.matter.read().servers.size()==1 && d.external.read().component=="endpoint");
+    const Device& self=copy;copy=self;assert(copy.temperature.read().celsius==30);
+    copy=empty;assert(!copy.temperature.present() && !copy.thermostat.present());
+    Automation::SnapshotPtr snapshot=Automation::capture(d);
+    d.temperature.ensure().celsius=35;d.thermostat.ensure().values[ThermostatField::occupied_heating_setpoint]=25;
+    assert(snapshot->record->temperature.read().celsius==0);
+    assert(snapshot->record->thermostat.read().values.get(ThermostatField::occupied_heating_setpoint,0)==21);
+    char folderTemplate[]="/tmp/microhad-components-test-XXXXXX";assert(mkdtemp(folderTemplate));const std::string folder=folderTemplate;
+    empty.ieeeAddress="saved-empty";empty.thermostatSourceId="saved-setting";empty.thermostatStaleMinutes=23;
+    std::vector<Device> records(1,empty),loaded;std::string error;
+    assert(saveDevices(folder+"/devices.json",records,&error) && loadDevices(folder+"/devices.json",&loaded,&error));
+    assert(loaded.size()==1 && !loaded[0].temperature.present() && !loaded[0].thermostat.present() && !loaded[0].matter.present());
+    assert(loaded[0].thermostatSourceId=="saved-setting" && loaded[0].thermostatStaleMinutes==23);
+    assert(saveDeviceCache(folder+"/cache.pb",records,&error) && loadDeviceCache(folder+"/cache.pb",&loaded,&error));
+    assert(loaded.size()==1 && !loaded[0].temperature.present() && !loaded[0].thermostat.present() && !loaded[0].matter.present());
+    {
+        Gateway gateway("/dev/null",115200,folder,"","","");
+        MatterEndpoint endpoint;endpoint.id="synthetic-matter";endpoint.node="0000000000000002";endpoint.endpoint=1;
+        endpoint.servers.push_back(1026);std::vector<MatterEndpoint> inventory(1,endpoint);
+        assert(gateway.reconcileMatterDevices(inventory,&error));
+        std::vector<Device> current=gateway.devices();assert(current.size()==1);
+        assert(current[0].temperature.present() && !current[0].temperature.read().known);
+        assert(!current[0].thermostat.present() && !current[0].contact.present() && !current[0].light.present() && !current[0].zigbee.present());
+        MatterReading reading;reading.node=endpoint.node;reading.endpoint=1;reading.cluster=1026;reading.attribute=0;
+        reading.known=true;reading.numberValue=0;
+        assert(gateway.applyMatterReading(reading,&error));
+        assert(gateway.reconcileMatterDevices(inventory,&error));current=gateway.devices();
+        assert(current[0].temperature.present() && current[0].temperature.read().known && current[0].temperature.read().celsius==0);
+        assert(!current[0].thermostat.present() && !current[0].actor.present());
+        inventory[0].servers.clear();inventory[0].servers.push_back(6);
+        assert(gateway.reconcileMatterDevices(inventory,&error));current=gateway.devices();
+        assert(!current[0].temperature.present() && current[0].actor.present());
+    }
+    unlink((folder+"/devices.json").c_str());unlink((folder+"/cache.pb").c_str());rmdir(folder.c_str());
+}
+
 void runUnitTests() {
+    {DeviceCacheIsolation cache;testDeviceComponents();}
     { DeviceCacheIsolation cache; GatewayTestPeer::deviceCacheBatching(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::genericThermostats(); }
     { DeviceCacheIsolation cache; testTrvzbProtocol(); }

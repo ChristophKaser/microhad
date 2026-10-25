@@ -108,19 +108,19 @@ void automationControls(){
     {
         Gateway* gateway=new Gateway("/dev/null",115200,root,"","","",0,root+"/history.bin");
         GatewayRunner runner(gateway);
-        Device thermostat;thermostat.ieeeAddress="trv";thermostat.name="Office thermostat";thermostat.source="zigbee";thermostat.networkAddress=0x1234;
-        EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.inputClusters.push_back(513);thermostat.endpoints.push_back(endpoint);
-        thermostat.thermostat.values[ThermostatField::control_sequence_of_operation]=2;
-        thermostat.thermostat.values[ThermostatField::occupied_heating_setpoint]=20;
-        thermostat.thermostat.values[ThermostatField::system_mode]=4;
-        thermostat.thermostat.scheduleSupported=true;
+        Device thermostat;thermostat.ieeeAddress="trv";thermostat.name="Office thermostat";thermostat.source="zigbee";thermostat.zigbee.ensure().networkAddress=0x1234;
+        EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.inputClusters.push_back(513);thermostat.zigbee.ensure().endpoints.push_back(endpoint);
+        thermostat.thermostat.ensure().values[ThermostatField::control_sequence_of_operation]=2;
+        thermostat.thermostat.ensure().values[ThermostatField::occupied_heating_setpoint]=20;
+        thermostat.thermostat.ensure().values[ThermostatField::system_mode]=4;
+        thermostat.thermostat.ensure().scheduleSupported=true;
         GatewayIntegrationTestPeer::automationDevice(gateway,thermostat);
         Device matter=thermostat;matter.ieeeAddress="matter-trv";matter.name="Matter thermostat";matter.source="matter";
-        matter.matterNode="0000000000000072";matter.matterEndpoint=2;matter.matterServers.push_back(513);
+        matter.matter.ensure().node="0000000000000072";matter.matter.ensure().endpoint=2;matter.matter.ensure().servers.push_back(513);
         assert(applyMatterThermostat(&matter,65531,"thermostat_list","[0,17,18,27,28,65532]",100));
         assert(applyMatterThermostat(&matter,65532,"thermostat","35",100));
         GatewayIntegrationTestPeer::automationDevice(gateway,matter);
-        Device light;light.ieeeAddress="lamp";light.name="Lamp";light.hasLight=true;
+        Device light;light.ieeeAddress="lamp";light.name="Lamp";light.light.setPresent(true);
         GatewayIntegrationTestPeer::automationDevice(gateway,light);
         SceneGroup group;group.id=7;group.name="Downstairs";Scene scene;scene.id=2;scene.name="Evening";group.scenes.push_back(scene);
         std::vector<SceneGroup> groups(1,group);GatewayIntegrationTestPeer::automationGroups(gateway,groups);
@@ -150,7 +150,7 @@ void automationControls(){
             "local old=scenes.get('7');persistent.changes=0;events.on({type='device.changed',device='trv',field='thermostat'},function(e)"
             "assert(e.old.values.occupied_heating_setpoint==20);assert(e.value.values.occupied_heating_setpoint==20);"
             "assert(e.value.error=='timeout');assert(old.scene_id==nil);persistent.changes=persistent.changes+1 end)",true,&error));
-        thermostat.thermostat.error="timeout";GatewayIntegrationTestPeer::automationDevice(gateway,thermostat);
+        thermostat.thermostat.ensure().error="timeout";GatewayIntegrationTestPeer::automationDevice(gateway,thermostat);
         AutomationRunnerTestPeer::publish(runner);assert(until(root,"changes",1));
         assert(worker.setEnabled("main.lua",false,&error));
         // Exercise the coordinator action path, including generation retirement.
@@ -174,7 +174,7 @@ void automationControls(){
         // Real recall completion updates the scene catalog without changing its configuration.
         GatewayIntegrationTestPeer::completeAutomationScene(gateway,7,2,false);AutomationRunnerTestPeer::publish(runner);
         assert(worker.validate("draft.lua","local g=scenes.get('7');assert(g.scene_id=='2' and g.scene_name=='Evening' and g.off==false)",&error));
-        light.lightOn=true;GatewayIntegrationTestPeer::automationDevice(gateway,light);AutomationRunnerTestPeer::publish(runner);
+        light.light.ensure().on=true;GatewayIntegrationTestPeer::automationDevice(gateway,light);AutomationRunnerTestPeer::publish(runner);
         assert(worker.validate("draft.lua","assert(scenes.get('7').scene_id=='2')",&error));
         GatewayIntegrationTestPeer::completeAutomationScene(gateway,7,0,true);AutomationRunnerTestPeer::publish(runner);
         assert(worker.validate("draft.lua","local g=scenes.get('7');assert(g.off==true and g.scene_id=='2')",&error));
@@ -220,9 +220,9 @@ void runAutomationIntegrationTests(){
     }
     {
         Delivery delivery;NotificationWorker notifications(root,"","","",&delivery);assert(notifications.start(&error));
-        Device lamp;lamp.ieeeAddress="0x00124b0000000042";lamp.name="Lamp";lamp.source="zigbee";lamp.hasLight=true;lamp.hasBrightness=true;lamp.kind="light";lamp.networkAddress=0x1234;
-        EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.inputClusters.push_back(6);endpoint.inputClusters.push_back(8);lamp.endpoints.push_back(endpoint);
-        Device duplicate=lamp;duplicate.ieeeAddress="0x00124b0000000043";duplicate.networkAddress=0x1235;duplicate.name="lamp";std::vector<Device> fixtures;fixtures.push_back(lamp);fixtures.push_back(duplicate);assert(saveDevices(root+"/devices.json",fixtures,&error));
+        Device lamp;lamp.ieeeAddress="0x00124b0000000042";lamp.name="Lamp";lamp.source="zigbee";lamp.light.setPresent(true);lamp.brightness.setPresent(true);lamp.kind="light";lamp.zigbee.ensure().networkAddress=0x1234;
+        EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.inputClusters.push_back(6);endpoint.inputClusters.push_back(8);lamp.zigbee.ensure().endpoints.push_back(endpoint);
+        Device duplicate=lamp;duplicate.ieeeAddress="0x00124b0000000043";duplicate.zigbee.ensure().networkAddress=0x1235;duplicate.name="lamp";std::vector<Device> fixtures;fixtures.push_back(lamp);fixtures.push_back(duplicate);assert(saveDevices(root+"/devices.json",fixtures,&error));
         SceneGroup group;group.id=1;group.name="Office";Scene scene;scene.id=2;scene.name="Evening";group.scenes.push_back(scene);assert(saveSceneConfiguration(root+"/scenes.conf",std::vector<SceneGroup>(1,group),std::vector<RemoteSceneBinding>(),&error));
         Gateway* gateway=new Gateway("/dev/null",115200,root,"","","",&notifications,root+"/history.bin");GatewayIntegrationTestPeer::attachSerial(gateway,serial[0]);
         GatewayRunner runner(gateway);ExternalHttpDeviceWorker external(root,&runner);gateway->setShellyTransport(&external);assert(runner.start(&error));
@@ -287,14 +287,14 @@ void runAutomationIntegrationTests(){
         Automation::CatalogPtr changed=runner.acquireAutomationCatalog();
         assert(before!=changed&&before->names==changed->names);
         assert(AutomationRunnerTestPeer::sharedInventory(runner,sensorId));
-        assert(changed->devices.find(sensorId)->second->record->temperatureCelsius==18);
+        assert(changed->devices.find(sensorId)->second->record->temperature.read().celsius==18);
         assert(before->devices.find(sensorId)->second->metadata==changed->devices.find(sensorId)->second->metadata);
         assert(before->devices.find("0x00124b0000000042")->second==changed->devices.find("0x00124b0000000042")->second);
         assert(!before->devices.find(sensorId)->second->has(Automation::Temperature));
         assert(changed->devices.find(sensorId)->second->values[Automation::Temperature]==18);
         assert(runner.applyShellyEvent("1234567890abcdef",2,0,18,&error));assert(runner.applyShellyEvent("1234567890abcdef",2,0,19,&error));assert(until(root,"values",3));assert(until(root,"changes",2));
         assert(changed->devices.find(sensorId)->second->values[Automation::Temperature]==18);
-        assert(changed->devices.find(sensorId)->second->record->temperatureCelsius==18);
+        assert(changed->devices.find(sensorId)->second->record->temperature.read().celsius==18);
         const std::string oldName=changed->devices.find(sensorId)->second->metadata->name;
         assert(runner.setDeviceSettings(sensorId,"Renamed temperature",false,0,false,0,false,0,0,false,0,&error));
         Automation::CatalogPtr renamed=runner.acquireAutomationCatalog();

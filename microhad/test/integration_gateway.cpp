@@ -759,7 +759,7 @@ void testIasEnrollmentAndZoneIdExhaustion() {
     std::vector<Device> persisted;
     std::string error;
     assert(loadDevices(directory + "/devices.json", &persisted, &error));
-    assert(persisted.size() == 1 && persisted[0].ieeeAddress == targetIeee && persisted[0].iasZoneId == 0);
+    assert(persisted.size() == 1 && persisted[0].ieeeAddress == targetIeee && persisted[0].zigbee.read().iasZoneId == 0);
     gateway.stop(); close(serial[1]);
     unlink((directory + "/devices.json").c_str());
     rmdir(directory.c_str());
@@ -788,7 +788,7 @@ void testIasEnrollmentAndZoneIdExhaustion() {
     bool targetUnassigned = false;
     for (frame = 0; frame < exhaustedDevices.size(); ++frame) {
         if (exhaustedDevices[frame].ieeeAddress == "0x00124b0000007fff")
-            targetUnassigned = exhaustedDevices[frame].iasZoneId == -1;
+            targetUnassigned = exhaustedDevices[frame].zigbee.read().iasZoneId == -1;
     }
     assert(targetUnassigned);
     exhausted.stop(); close(serial[1]);
@@ -826,7 +826,7 @@ void testDeviceAnnounceRejoinAndNodeReuse() {
     assert(interview[6] == 0x34 && interview[7] == 0x12);
     std::vector<Device> devices = gateway.devices();
     assert(devices.size() == 1 && devices[0].ieeeAddress == "0x0807060504030201");
-    assert(devices[0].networkAddress == 0x1234 && devices[0].lastSeen != 0);
+    assert(devices[0].zigbee.read().networkAddress == 0x1234 && devices[0].lastSeen != 0);
 
     announce = deviceAnnounceMessage(0x1235, euiA);
     sendApsCallbackV8(serial[1], 1, apsPayload(0x0000, 0x0013, 0, 91, announce), 1);
@@ -835,7 +835,7 @@ void testDeviceAnnounceRejoinAndNodeReuse() {
     interview = firstAshData(announceWire);
     assert(interview[3] == 0x34 && interview[6] == 0x35 && interview[7] == 0x12);
     devices = gateway.devices();
-    assert(devices.size() == 1 && devices[0].networkAddress == 0x1235);
+    assert(devices.size() == 1 && devices[0].zigbee.read().networkAddress == 0x1235);
 
     announce = deviceAnnounceMessage(0x1235, euiB);
     sendApsCallbackV8(serial[1], 2, apsPayload(0x0000, 0x0013, 0, 92, announce), 2);
@@ -847,8 +847,8 @@ void testDeviceAnnounceRejoinAndNodeReuse() {
     bool stalePreserved = false, replacementMapped = false;
     unsigned long i;
     for (i = 0; i < devices.size(); ++i) {
-        if (devices[i].ieeeAddress == "0x0807060504030201") stalePreserved = devices[i].networkAddress == 0xffff;
-        if (devices[i].ieeeAddress == "0x0102030405060708") replacementMapped = devices[i].networkAddress == 0x1235;
+        if (devices[i].ieeeAddress == "0x0807060504030201") stalePreserved = devices[i].zigbee.read().networkAddress == 0xffff;
+        if (devices[i].ieeeAddress == "0x0102030405060708") replacementMapped = devices[i].zigbee.read().networkAddress == 0x1235;
     }
     assert(stalePreserved && replacementMapped);
 
@@ -866,8 +866,8 @@ void testDeviceAnnounceRejoinAndNodeReuse() {
     assert(persisted.size() == 2);
     stalePreserved = false; replacementMapped = false;
     for (i = 0; i < persisted.size(); ++i) {
-        if (persisted[i].ieeeAddress == "0x0807060504030201") stalePreserved = persisted[i].networkAddress == 0xffff;
-        if (persisted[i].ieeeAddress == "0x0102030405060708") replacementMapped = persisted[i].networkAddress == 0x1235;
+        if (persisted[i].ieeeAddress == "0x0807060504030201") stalePreserved = persisted[i].zigbee.read().networkAddress == 0xffff;
+        if (persisted[i].ieeeAddress == "0x0102030405060708") replacementMapped = persisted[i].zigbee.read().networkAddress == 0x1235;
     }
     assert(stalePreserved && replacementMapped);
     gateway.stop(); close(serial[1]);
@@ -973,12 +973,12 @@ void testCompleteSensorInterview() {
 
     std::vector<Device> devices = gateway.devices();
     assert(devices.size() == 1 && devices[0].manufacturerName == "Acme" && devices[0].modelId == "ModelX");
-    assert(devices[0].hasTemperature && devices[0].temperatureCelsius > 23.4 && devices[0].temperatureCelsius < 23.6);
-    assert(devices[0].hasHumidity && devices[0].humidityPercent == 50.0);
+    assert(devices[0].temperature.present() && devices[0].temperature.read().celsius > 23.4 && devices[0].temperature.read().celsius < 23.6);
+    assert(devices[0].humidity.present() && devices[0].humidity.read().percent == 50.0);
     std::vector<Device> persisted;
     std::string error;
     assert(loadDevices(directory + "/devices.json", &persisted, &error));
-    assert(persisted.size() == 1 && persisted[0].endpoints.size() == 1);
+    assert(persisted.size() == 1 && persisted[0].zigbee.read().endpoints.size() == 1);
     assert(persisted[0].manufacturerName == "Acme" && persisted[0].modelId == "ModelX");
     assert(gateway.logsJson().find("Sensor interview completed") != std::string::npos);
     gateway.stop(); close(serial[1]);
@@ -1019,8 +1019,8 @@ void testReadNodeDescriptorFromConfigurationQuery() {
     assert(status.find("\"max_incoming_transfer_size\":13398") != std::string::npos);
     std::vector<Device> persisted;
     assert(loadDevices(directory + "/devices.json", &persisted, &error));
-    assert(persisted.size() == 1 && persisted[0].nodeDescriptor.size() == sizeof(descriptorBytes));
-    assert(persisted[0].nodeDescriptor[12] == 0x5a);
+    assert(persisted.size() == 1 && persisted[0].zigbee.read().nodeDescriptor.size() == sizeof(descriptorBytes));
+    assert(persisted[0].zigbee.read().nodeDescriptor[12] == 0x5a);
     gateway.stop(); close(serial[1]);
     unlink((directory + "/devices.json").c_str());
     rmdir(directory.c_str());
@@ -1134,7 +1134,7 @@ void testInterviewWakeContactAndRefreshOnly() {
     std::vector<unsigned char> resumed = firstAshData(readAvailable(serial[1]));
     assert(resumed[3] == 0x34 && resumed[10] == 0x05 && resumed[11] == 0x00);
     assert(waking.logsJson().find("Resuming paused interview on device traffic") != std::string::npos);
-    assert(waking.devices()[0].temperatureCelsius > 23.4 && waking.devices()[0].temperatureCelsius < 23.6);
+    assert(waking.devices()[0].temperature.read().celsius > 23.4 && waking.devices()[0].temperature.read().celsius < 23.6);
     waking.stop(); close(serial[1]);
 
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, serial) == 0);
@@ -1154,13 +1154,13 @@ void testInterviewWakeContactAndRefreshOnly() {
     acknowledgement = static_cast<unsigned char>((GatewayIntegrationTestPeer::ashSendSequence(contact) + 1) & 7);
     sendApsCallbackV8(serial[1], receiveSequence, apsPayload(0x0104, 0x0500, 1, 80, zone), acknowledgement);
     contact.poll(); readAvailable(serial[1]);
-    assert(contact.devices()[0].contactOpen);
+    assert(contact.devices()[0].contact.read().open);
     zone[3] = 0;
     receiveSequence = GatewayIntegrationTestPeer::ashReceiveSequence(contact);
     sendApsCallbackV8(serial[1], receiveSequence, apsPayload(0x0104, 0x0500, 1, 80, zone),
                       (GatewayIntegrationTestPeer::ashSendSequence(contact) + 1) & 7);
     contact.poll(); readAvailable(serial[1]);
-    assert(!contact.devices()[0].contactOpen);
+    assert(!contact.devices()[0].contact.read().open);
     std::vector<unsigned char> endpointResponse;
     endpointResponse.push_back(endpointRequest[21]); endpointResponse.push_back(0);
     endpointResponse.push_back(0x34); endpointResponse.push_back(0x12);
@@ -1237,7 +1237,7 @@ void testSensorRefreshIntervalsAndPeriodicRead() {
     std::vector<std::vector<unsigned char> > frames = decodeFrames(wire);
     unsigned long i;
     for (i = 0; i < frames.size(); ++i) assert(frames[i].empty() || (frames[i][0] & 0x80) != 0);
-    assert(gateway.devices()[0].temperatureCelsius == 24.0);
+    assert(gateway.devices()[0].temperature.read().celsius == 24.0);
     assert(gateway.logsJson().find("Sensor attribute refresh completed") != std::string::npos);
 
     GatewayIntegrationTestPeer::expireSensorRefresh(&gateway, node);
@@ -1277,7 +1277,7 @@ void testManualRefreshRejectionsAndSerialFailure() {
     GatewayIntegrationTestPeer::startDeviceInterview(&busy, 0x1234);
     busy.poll(); readAvailable(serial[1]);
     assert(!busy.refreshDevice(sensor, &error) && error == "device interview is already in progress");
-    assert(busy.devices()[0].temperatureCelsius == 15.0);
+    assert(busy.devices()[0].temperature.read().celsius == 15.0);
     assert(busy.logsJson().find("Manual refresh rejected; interview is busy") != std::string::npos);
     busy.stop(); close(serial[1]);
 
@@ -1293,7 +1293,7 @@ void testManualRefreshRejectionsAndSerialFailure() {
     disconnected.poll();
     assert(!disconnected.isOnline());
     assert(disconnected.logsJson().find("Serial read failed: end of file") != std::string::npos);
-    assert(disconnected.devices()[0].temperatureCelsius == 15.0);
+    assert(disconnected.devices()[0].temperature.read().celsius == 15.0);
     disconnected.stop();
 }
 
