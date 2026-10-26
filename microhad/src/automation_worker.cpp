@@ -87,6 +87,13 @@ struct AutomationWorker::Impl {
         Script(Impl* o):owner(o),L(0),runtime(LUA_NOREF),validation(false),failed(false),enabled(true),generation(0),instructions(0),instructionLimit(0),nextStatus(0),loaded(0),validated(0),lastEvent(0),lastCallback(0),listeners(0),timers(0),suspended(0),persistent(Value::object()),depth(0){}
         ~Script(){owner->release(this);}
     };
+    struct HistoryRead {
+        Script* script;
+        std::string token;
+        SensorHistory::Query* query;
+        HistoryRead(Script* s,const std::string& t,SensorHistory::Query* q):script(s),token(t),query(q){}
+    };
+    std::deque<HistoryRead> historyReads;
     enum { HeapLimit = 2 * 1024 * 1024 };
     lua_State* lua;int factory;size_t heap,publishedHeap;Script* active;
     struct ScriptScope {
@@ -102,7 +109,12 @@ struct AutomationWorker::Impl {
     // One allocator and budget include libraries, scripts, validation and coroutines.
     static void* allocate(void* opaque,void* old,size_t oldSize,size_t newSize){Impl* self=static_cast<Impl*>(opaque);if(!old)oldSize=0;if(!newSize){free(old);self->heap-=oldSize;return 0;}if(newSize>HeapLimit||self->heap-oldSize>HeapLimit-newSize)return 0;void* memory=realloc(old,newSize);if(memory)self->heap=self->heap-oldSize+newSize;return memory;}
     static void hook(lua_State* L,lua_Debug*){void* opaque=0;lua_getallocf(L,&opaque);Script* s=static_cast<Impl*>(opaque)->active;if(!s){luaL_error(L,"missing script execution context");return;}s->instructions+=100;lua_Debug frame;if(lua_getstack(L,128,&frame))luaL_error(L,"callback recursion limit exceeded");if(s->instructions>=s->instructionLimit)luaL_error(L,"callback instruction budget exceeded");}
-    void release(Script* s){if(!s->L)return;luaL_unref(lua,LUA_REGISTRYINDEX,s->runtime);s->runtime=LUA_NOREF;s->L=0;lua_gc(lua,LUA_GCCOLLECT);}
+    void cancelHistory(Script* s,const std::string& token="") {
+        for(std::deque<HistoryRead>::iterator it=historyReads.begin();it!=historyReads.end();) {
+            if(it->script==s&&(token.empty()||it->token==token)){delete it->query;it=historyReads.erase(it);}else ++it;
+        }
+    }
+    void release(Script* s){cancelHistory(s);if(!s->L)return;luaL_unref(lua,LUA_REGISTRYINDEX,s->runtime);s->runtime=LUA_NOREF;s->L=0;lua_gc(lua,LUA_GCCOLLECT);}
     static int loadBasis(lua_State* L){
         luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L,1);luaL_requiref(L,"table",luaopen_table,1);lua_pop(L,1);luaL_requiref(L,"string",luaopen_string,1);lua_pop(L,1);luaL_requiref(L,"math",luaopen_math,1);lua_pop(L,1);luaL_requiref(L,"coroutine",luaopen_coroutine,1);lua_pop(L,1);
         if(luaL_loadbufferx(L,kRuntime,sizeof(kRuntime)-1,"@automation-runtime","t")!=LUA_OK)return lua_error(L);
@@ -190,6 +202,67 @@ struct AutomationWorker::Impl {
     static int resolveId(lua_State* L){Script* s=script(L);std::string err;const Automation::DeviceSnapshot* d=s->owner->resolve(stringArg(L,1),&err);if(!d)return failure(L,err);lua_pushlstring(L,d->metadata->id.data(),d->metadata->id.size());return 1;}
     static int deviceGet(lua_State* L){Script* s=script(L);std::string err;const Automation::DeviceSnapshot* d=s->owner->resolve(stringArg(L,1),&err);if(!d)return failure(L,err);push(L,Automation::snapshot(*d));return 1;}
     static int deviceList(lua_State* L){Script* s=script(L);Value f=Value::object();if(!lua_isnoneornil(L,1)&&(!readValue(L,1,&f)||f.type!=Value::Object))return luaL_error(L,"invalid device filter");for(std::map<std::string,Value>::const_iterator it=f.fields.begin();it!=f.fields.end();++it)if((it->first!="source"&&it->first!="kind"&&it->first!="online"&&it->first!="name")||(it->first=="online"?it->second.type!=Value::Boolean:it->second.type!=Value::String))return luaL_error(L,"invalid device filter field");Value list=Value::array();for(std::map<std::string,Automation::SnapshotPtr>::const_iterator it=s->owner->catalogState->devices.begin();it!=s->owner->catalogState->devices.end();++it){Value v=Automation::snapshot(*it->second);bool match=true;for(std::map<std::string,Value>::const_iterator filter=f.fields.begin();filter!=f.fields.end();++filter)if(v.fields[filter->first]!=filter->second)match=false;if(match)list.items.push_back(v);}push(L,list);return 1;}
+    static int historyCancel(lua_State* L){Script* s=script(L);s->owner->cancelHistory(s,stringArg(L,1));return 0;}
+    static int historyBegin(lua_State* L) {
+        Script* s=script(L);std::string token=stringArg(L,1),target=stringArg(L,2),err;
+        if(s->validation)return failure(L,"history unavailable during validation");
+        if(s->owner->historyReads.size()>=16)return failure(L,"history query queue full");
+        Value options;if(!readValue(L,3,&options)||options.type!=Value::Object)return failure(L,"invalid history options");
+        for(std::map<std::string,Value>::const_iterator it=options.fields.begin();it!=options.fields.end();++it)
+            if(it->first!="field"&&it->first!="value"&&it->first!="since"&&it->first!="before"&&it->first!="limit")return failure(L,"unknown history option");
+        Value field=options.fields["field"];
+        if(field.type!=Value::String)return failure(L,"history field must be a string");
+        static const char* names[]={"temperature_celsius","humidity_percent","contact_open","power_watts","occupied","battery_percent","co2_ppm","pm25_micrograms_m3","air_quality"};
+        unsigned char metric=0;for(unsigned int i=0;i<sizeof(names)/sizeof(names[0]);++i)if(field.string==names[i])metric=i+1;
+        if(!metric)return failure(L,"field has no recorded history");
+        const bool boolean=metric==SensorHistory::Contact||metric==SensorHistory::Occupancy;
+        bool filtered=options.fields.count("value")!=0;float number=0;
+        if(filtered) {
+            const Value& v=options.fields["value"];
+            if(boolean){if(v.type!=Value::Boolean)return failure(L,"history value must be boolean");number=v.boolean?1:0;}
+            else if(metric==SensorHistory::AirQuality) {
+                if(v.type!=Value::String)return failure(L,"history value must be an air-quality string");
+                bool found=false;for(int n=0;n<=6;++n)if(SensorHistory::valueText(metric,n)==v.string&&!v.string.empty()){number=n;found=true;break;}
+                if(!found)return failure(L,"invalid air-quality value");
+            } else {if(v.type!=Value::Number||!std::isfinite(v.number)||!std::isfinite(static_cast<float>(v.number)))return failure(L,"history value must be finite number");number=v.number;}
+        }
+        double before=0,since=0,limit=128;
+        const char* keys[]={"before","since","limit"};double* targets[]={&before,&since,&limit};
+        const double maxima[]={1125899906842623.0,4294967295.0,256.0};
+        for(unsigned int i=0;i<3;++i)if(options.fields.count(keys[i])) {
+            const Value& v=options.fields[keys[i]];
+            if(v.type!=Value::Number||!std::isfinite(v.number)||v.number!=floor(v.number)||v.number<(i==2?1:0)||v.number>maxima[i])return failure(L,"invalid history range or limit");
+            *targets[i]=v.number;
+        }
+        const Automation::DeviceSnapshot* d=s->owner->resolve(target,&err);if(!d)return failure(L,err);
+        GatewayRunner* gateway=s->owner->gateway;
+        if(!gateway||!gateway->historyStore())return failure(L,"history unavailable");
+        SensorHistory::Query* query=gateway->historyStore()->beginQuery(gateway->historyDeviceIds(d->metadata->id),metric,
+            static_cast<uint64_t>(before),static_cast<uint32_t>(since),static_cast<unsigned int>(limit),filtered,number,&err);
+        if(!query)return failure(L,err);
+        s->owner->historyReads.push_back(HistoryRead(s,token,query));lua_pushboolean(L,1);return 1;
+    }
+    void historyStep() {
+        if(historyReads.empty())return;
+        HistoryRead read=historyReads.front();historyReads.pop_front();std::string err;
+        bool ok=gateway&&gateway->historyStore()&&gateway->historyStore()->stepQuery(read.query,&err);
+        if(ok&&!read.query->done){historyReads.push_back(read);return;}
+        Value result=Value::object();result.fields["token"]=Value(read.token);
+        if(!ok)result.fields["error"]=Value(err.empty()?"history unavailable":err);
+        else {
+            Value page=Value::object();page.fields["samples"]=Value::array();
+            for(size_t i=0;i<read.query->samples.size();++i) {
+                const SensorHistory::ValueRecord& r=read.query->samples[i];Value sample=Value::object();
+                sample.fields["cursor"]=Value(static_cast<double>(r.cursor));sample.fields["at"]=Value(static_cast<double>(r.timestamp));
+                sample.fields["unit"]=Value(SensorHistory::metricUnit(r.metric));
+                sample.fields["value"]=r.metric==SensorHistory::Contact||r.metric==SensorHistory::Occupancy?Value(r.value!=0):
+                    r.metric==SensorHistory::AirQuality?Value(SensorHistory::valueText(r.metric,r.value)):Value(static_cast<double>(r.value));
+                page.fields["samples"].items.push_back(sample);
+            }
+            page.fields["next_before"]=Value(static_cast<double>(read.query->nextBefore));result.fields["page"]=page;
+        }
+        delete read.query;call(read.script,"history_result",&result);
+    }
     static int action(lua_State* L){AUTOMATION_PROFILE("auto.action");Script* s=script(L);Automation::Action a;a.operation=stringArg(L,1);std::string err;const Automation::DeviceSnapshot* d=s->owner->resolve(stringArg(L,2),&err);if(!readValue(L,3,&a.args))return luaL_error(L,"invalid action arguments");if(!d)return failure(L,err);
         bool dimmable=d->metadata->brightness;
         if((a.operation=="actor"&&!d->metadata->actor)||(a.operation=="light"&&(!d->metadata->light||(a.args.fields.count("brightness")&&!dimmable))))return failure(L,"unsupported device capability");
@@ -306,7 +379,7 @@ struct AutomationWorker::Impl {
         lua_rawgeti(L,LUA_REGISTRYINDEX,s->owner->factory);
         lua_newtable(L);
 #define B(name,fn) s->owner->bind(s,name,fn)
-        B("watch",watch);B("now",now);B("monotonic",clock);B("script_id",id);B("calendar",calendar);B("handle",handle);B("handle_id",handleId);B("limit",limit);B("spent",spent);B("begin",begin);B("finish",finish);B("discard",discard);B("read_state",readState);B("write_state",writeState);B("serializable",serializable);B("failed",failed);B("failure",failureLog);B("log",log);B("dump",dump);B("resolve",resolveId);B("device_get",deviceGet);B("device_list",deviceList);B("action",action);B("scene",scene);B("scene_get",sceneGet);B("notify",notify);
+        B("watch",watch);B("now",now);B("monotonic",clock);B("script_id",id);B("calendar",calendar);B("handle",handle);B("handle_id",handleId);B("limit",limit);B("spent",spent);B("begin",begin);B("finish",finish);B("discard",discard);B("read_state",readState);B("write_state",writeState);B("serializable",serializable);B("failed",failed);B("failure",failureLog);B("log",log);B("dump",dump);B("resolve",resolveId);B("history_begin",historyBegin);B("history_cancel",historyCancel);B("device_get",deviceGet);B("device_list",deviceList);B("action",action);B("scene",scene);B("scene_get",sceneGet);B("notify",notify);
 #undef B
         lua_call(L,1,1);s->runtime=luaL_ref(L,LUA_REGISTRYINDEX);return 0;
     }
@@ -395,7 +468,8 @@ struct AutomationWorker::Impl {
                 }
             }
             for(std::map<std::string,Script*>::iterator it=scripts.begin();it!=scripts.end();++it){Script* s=it->second;if(s->L){if(overflow)error(s,"event queue limit reached; reports dropped","queue");std::deque<Value> errors;errors.swap(s->errors);for(size_t i=0;i<errors.size();++i)call(s,"event",&errors[i]);call(s,"tick");}status(s,false);}
-            pthread_mutex_lock(&mutex);busy=false;pthread_cond_broadcast(&ready);timespec until;clock_gettime(CLOCK_REALTIME,&until);until.tv_nsec+=10000000;if(until.tv_nsec>=1000000000){++until.tv_sec;until.tv_nsec-=1000000000;}if(requests.empty()&&events.empty()&&running)pthread_cond_timedwait(&ready,&mutex,&until);pthread_mutex_unlock(&mutex);
+            historyStep();
+            pthread_mutex_lock(&mutex);busy=!historyReads.empty();pthread_cond_broadcast(&ready);timespec until;clock_gettime(CLOCK_REALTIME,&until);until.tv_nsec+=10000000;if(until.tv_nsec>=1000000000){++until.tv_sec;until.tv_nsec-=1000000000;}if(requests.empty()&&events.empty()&&historyReads.empty()&&running)pthread_cond_timedwait(&ready,&mutex,&until);pthread_mutex_unlock(&mutex);
         }for(std::map<std::string,Script*>::iterator it=scripts.begin();it!=scripts.end();++it){if(gateway)gateway->automationGeneration(it->first,0);delete it->second;}scripts.clear();if(lua){lua_close(lua);lua=0;factory=LUA_NOREF;}pthread_mutex_lock(&mutex);publishedHeap=heap;pthread_mutex_unlock(&mutex);}
     bool request(Request* r){pthread_mutex_lock(&mutex);if(!running||requests.size()>=64){pthread_mutex_unlock(&mutex);r->error="automation worker unavailable or queue full";return false;}requests.push_back(r);pthread_cond_broadcast(&ready);while(!r->done)pthread_cond_wait(&ready,&mutex);pthread_mutex_unlock(&mutex);return r->result;}
 };

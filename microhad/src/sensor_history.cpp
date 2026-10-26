@@ -26,6 +26,8 @@ void* sensorHistorySnapshotHookData = 0;
 void (*sensorHistoryPersistenceCopyHook)(void*) = 0;
 void* sensorHistoryPersistenceCopyHookData = 0;
 bool sensorHistoryFailPersistenceSync = false;
+void (*sensorHistoryQueryPageHook)(void*) = 0;
+void* sensorHistoryQueryPageHookData = 0;
 #endif
 
 namespace {
@@ -892,4 +894,100 @@ bool SensorHistory::readForDevices(const std::vector<std::string>& deviceIds, ui
 bool SensorHistory::readJson(const std::string& path, const std::string& address, uint64_t before,
                              std::string* json, std::string* error, ReadStats* stats) {
     SensorHistory reader(path); if (!reader.initialize(error)) return false; return reader.readForDevice(address, before, json, error, stats);
+}
+
+
+struct SensorHistory::Query::State {
+    std::vector<ReadPage> pages;
+    size_t position;
+    uint64_t before;
+    uint32_t since;
+    unsigned int limit;
+    bool filterValue;
+    float value;
+    State() : position(0), before(0), since(0), limit(128), filterValue(false), value(0) {}
+};
+SensorHistory::Query::Query() : nextBefore(0), done(false), state(new State) {}
+SensorHistory::Query::~Query() { delete state; }
+std::string SensorHistory::metricUnit(unsigned char metric) { return unitForMetric(metric); }
+std::string SensorHistory::valueText(unsigned char metric,float value) {
+    return metric==AirQuality ? qualityText(value) : "";
+}
+SensorHistory::Query* SensorHistory::beginQuery(const std::vector<std::string>& ids,
+        unsigned char metric,uint64_t before,uint32_t since,unsigned int limit,
+        bool filterValue,float value,std::string* error) const {
+    if(ids.empty()||metric<1||metric>maximumMetric||limit<1||limit>256) {
+        if(error)*error="invalid history query";
+        return 0;
+    }
+    Query* query=new Query;Query::State& q=*query->state;
+    q.before=before;q.since=since;q.limit=limit;q.filterValue=filterValue;q.value=value;
+    pthread_mutex_lock(&values_.mutex);
+    if(!values_.initialized) {
+        pthread_mutex_unlock(&values_.mutex);delete query;
+        if(error)*error="history unavailable";
+        return 0;
+    }
+    std::set<unsigned int> seen;
+    for(size_t n=0;n<ids.size();++n) {
+        std::string id=ids[n];
+        if(id.find(':')==std::string::npos)id="zigbee:"+id;
+        std::map<std::string,std::vector<unsigned int> >::const_iterator pair=values_.pairPages.find(pairKey(id,metric));
+        if(pair==values_.pairPages.end())continue;
+        for(size_t i=0;i<pair->second.size();++i) {
+            unsigned int index=pair->second[i];const Page& page=values_.pages[index];
+            if((!before||page.oldest<before)&&(!since||(page.newest>>18)>=since)&&seen.insert(index).second)
+                q.pages.push_back(ReadPage(index,page));
+        }
+    }
+    pthread_mutex_unlock(&values_.mutex);
+    std::sort(q.pages.begin(),q.pages.end(),newestPageFirst);
+    query->done=q.pages.empty();return query;
+}
+bool SensorHistory::stepQuery(Query* query,std::string* error,ReadStats* stats) const {
+    if(query->done)return true;
+    Query::State& q=*query->state;
+    const ReadPage& snapshot=q.pages[q.position++];
+    int fd=open(values_.path.c_str(),O_RDONLY);
+    if(fd<0){if(error)*error="cannot read paged history";return false;}
+    unsigned char header[fileHeaderBytes],bytes[pageBytes],confirmed[pageHeaderBytes];
+    const off_t base=fileHeaderBytes+static_cast<off_t>(snapshot.index)*pageBytes;
+    bool ok=pread(fd,header,sizeof(header),0)==fileHeaderBytes&&fileHeaderValid(header);
+    if(ok) {
+        if(stats){++stats->pagesRead;stats->bytesRead+=fileHeaderBytes+pageBytes+pageHeaderBytes;}
+        ok=pread(fd,bytes,sizeof(bytes),base)==pageBytes&&
+           pread(fd,confirmed,sizeof(confirmed),base)==pageHeaderBytes&&
+           memcmp(bytes,confirmed,pageHeaderBytes)==0;
+    }
+    close(fd);
+    std::string owner;unsigned char metric=0;uint32_t generation=0;
+    if(!ok||!pageHeaderValid(bytes,&owner,&metric,&generation)||owner!=snapshot.page.id||
+       metric!=snapshot.page.metric||generation!=snapshot.page.generation) {
+        if(error)*error="history page changed or unreadable; retry query";
+        return false;
+    }
+#ifdef MICROHAD_TESTING
+    if(sensorHistoryQueryPageHook)sensorHistoryQueryPageHook(sensorHistoryQueryPageHookData);
+#endif
+    for(unsigned int i=0;i<snapshot.page.recordCount;++i) {
+        const unsigned char* rec=bytes+pageHeaderBytes+i*recordBytes;
+        uint32_t timestamp=get32(rec);uint64_t cursor=recordCursor(timestamp,snapshot.index,i);
+        if(cursor<snapshot.page.oldest||cursor>snapshot.page.newest)continue;
+        if(stats)++stats->recordsChecked;
+        float value=decodeFloat(rec+4);
+        if(rec[8]!=recordCrc(bytes,rec)||!timestamp||!std::isfinite(value)||
+           (metric==AirQuality&&qualityText(value).empty())) {
+            if(error)*error="invalid history record; retry query";
+            return false;
+        }
+        if((q.before&&cursor>=q.before)||timestamp<q.since||(q.filterValue&&value!=q.value))continue;
+        query->samples.push_back(ValueRecord(cursor,timestamp,metric,value));
+    }
+    std::sort(query->samples.begin(),query->samples.end(),newerRecord);
+    if(query->samples.size()>q.limit)query->samples.resize(q.limit);
+    query->done=q.position==q.pages.size()||
+        (query->samples.size()==q.limit&&q.pages[q.position].page.newest<=query->samples.back().cursor);
+    // Conservative continuation avoids an extra page read just to prove exhaustion.
+    if(query->done&&query->samples.size()==q.limit)query->nextBefore=query->samples.back().cursor;
+    return true;
 }

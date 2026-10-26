@@ -41,6 +41,9 @@ public:
     }
 };
 
+extern void (*sensorHistoryQueryPageHook)(void*);
+extern void* sensorHistoryQueryPageHookData;
+
 namespace {
 using Automation::Value;
 class Delivery:public NotificationWorker::DeliveryHook {
@@ -100,6 +103,61 @@ struct ThermostatPeer {
         close(fd);return 0;
     }
 };
+
+struct HistoryProgress {
+    AutomationWorker* worker;
+    std::string root;
+    unsigned pages;
+    HistoryProgress():worker(0),pages(0){}
+    static void page(void* opaque) {
+        HistoryProgress* progress=static_cast<HistoryProgress*>(opaque);++progress->pages;
+        if(progress->pages==1) {
+            Automation::Event event;event.data=Value::object();event.data.fields["type"]=Value("device.value");
+            assert(progress->worker->enqueue(event));
+        } else if(progress->pages==2) {
+            // The event callback must have run in the normal loop between reads.
+            assert(state(progress->root).fields["interleaved"]==Value(1.));
+        }
+    }
+};
+void automationHistory() {
+    puts("integration: cooperative Lua history pages and event interleaving");
+    char directory[]="/tmp/microhad-automation-history-XXXXXX";assert(mkdtemp(directory));std::string root=directory,error;
+    {
+        Gateway* gateway=new Gateway("/dev/null",115200,root,"","","",0,root+"/history.bin");
+        GatewayRunner runner(gateway);SensorHistory* store=gateway->historyStore();assert(store->initialize(&error));
+        Device window;window.ieeeAddress="0x00124b0000000001";window.name="Window";window.source="zigbee";
+        window.contact.ensure().known=true;window.contact.ensure().open=false;
+        GatewayIntegrationTestPeer::automationDevice(gateway,window);AutomationRunnerTestPeer::publish(runner);
+        for(unsigned int i=0;i<600;++i)assert(store->appendNumeric("zigbee:"+window.ieeeAddress,SensorHistory::Contact,i%2,"",1700000000+i));
+        AutomationWorker worker(root,&runner,0);assert(worker.start(&error));
+        assert(!worker.validate("draft.lua","history.query('Window',{field='contact_open'})",&error));
+        HistoryProgress progress;progress.worker=&worker;progress.root=root;
+        sensorHistoryQueryPageHookData=&progress;sensorHistoryQueryPageHook=HistoryProgress::page;
+        assert(worker.save("main.lua",
+            "events.on({type='device.value'},function()persistent.interleaved=1;shared.interleaved=true end);"
+            "triggers.register('read','Read',function()"
+            "local p=assert(history.query('Window',{field='contact_open',limit=256}));"
+            "assert(#p.samples==256 and p.samples[1].at==1700000599 and p.samples[1].value==true);"
+            "assert(p.samples[256].at==1700000344 and shared.interleaved);"
+            "assert(not pcall(function()p.samples[1].value=false end));"
+            "local q=assert(history.query('Window',{field='contact_open',value=true,limit=1,before=p.next_before}));"
+            "assert(q.samples[1].at==1700000343);"
+            "local e=assert(history.query('Window',{field='battery_percent'}));assert(#e.samples==0);"
+            "for _,options in ipairs({{field='last_seen'},{field='contact_open',limit=257},{field='contact_open',limit=0},"
+            "{field='contact_open',since=-1},{field='contact_open',before=0.5},{field='contact_open',value=1},"
+            "{field='contact_open',unknown=true}})do local v,err=history.query('Window',options);assert(v==nil and type(err)=='string')end;"
+            "assert(not history.query('missing',{field='contact_open'}));persistent.finished=1 end)",true,&error));
+        // Merely loading a script with history calls must perform no reads.
+        assert(worker.waitIdle());assert(progress.pages==0);
+        assert(worker.trigger("main","read",&error));
+        if(!until(root,"finished",1)){fprintf(stderr,"history logs: %s\n",worker.logsJson("").c_str());assert(false);}
+        assert(worker.waitIdle());assert(progress.pages==3); // two pages, then one for the older match
+        sensorHistoryQueryPageHook=0;sensorHistoryQueryPageHookData=0;
+        worker.stop();
+    }
+    clean(root);
+}
 
 void automationControls(){
     puts("integration: Lua thermostat validation/actions/snapshots and scene selection queries");
@@ -198,6 +256,7 @@ void automationControls(){
 }
 
 void runAutomationIntegrationTests(){
+    automationHistory();
     automationControls();
     puts("integration: automation HTTP workflow, coordinator readings/actions, source watcher and restart");
     char path[]="/tmp/microhad-automation-integration-XXXXXX";assert(mkdtemp(path));std::string root=path,error;
@@ -346,9 +405,14 @@ void runAutomationIntegrationTests(){
         std::string next=root+"/automations/.ssh-next";FILE* f=fopen(next.c_str(),"w");assert(f);fputs("persistent.ssh=1",f);fclose(f);assert(rename(next.c_str(),(root+"/automations/main.lua").c_str())==0);usleep(350000);assert(!state(root).fields.count("ssh"));
         assert(request(port,"POST","/api/automations/refresh","").find("200 OK")!=std::string::npos);assert(until(root,"ssh",1));
         const Value refreshed=state(root);
-        const std::string refreshedList=automations.listJson();
+        Value refreshedList;assert(Automation::parse(automations.listJson(),&refreshedList));
         assert(request(port,"POST","/api/automations/refresh","").find("200 OK")!=std::string::npos);
-        assert(state(root)==refreshed);assert(automations.listJson()==refreshedList);
+        assert(state(root)==refreshed);
+        Value nextList;assert(Automation::parse(automations.listJson(),&nextList));
+        refreshedList.fields.erase("heap_bytes");nextList.fields.erase("heap_bytes");
+        for(size_t i=0;i<refreshedList.fields["scripts"].items.size();++i)refreshedList.fields["scripts"].items[i].fields.erase("heap_bytes");
+        for(size_t i=0;i<nextList.fields["scripts"].items.size();++i)nextList.fields["scripts"].items[i].fields.erase("heap_bytes");
+        assert(nextList==refreshedList);
         f=fopen(next.c_str(),"w");assert(f);fputs("persistent.ssh=2",f);fclose(f);assert(rename(next.c_str(),(root+"/automations/main.lua").c_str())==0);assert(request(port,"POST","/api/automations/refresh","").find("200 OK")!=std::string::npos);assert(until(root,"ssh",2));
         assert(request(port,"POST","/api/automations/save","filename=../evil.lua&source=x").find("400 Bad Request")!=std::string::npos);
         assert(request(port,"POST","/api/automations/save","filename=large.lua.disabled&source="+encode("--"+std::string(32000,'x'))).find("200 OK")!=std::string::npos);

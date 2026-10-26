@@ -19,9 +19,15 @@ local function fixture(used)
     -- Each resume still uses less than the instruction budget.
     spent=function() return used or 150000,10 end,
   }
+  host.history_begin=function(token,target,options)
+    if target=='missing' then return nil,'unknown device' end
+    host.history_token=token
+    return true
+  end
+  host.history_cancel=function(token) host.history_cancelled=token end
   local runtime = factory(host)
   return runtime, function(value) clock=value;minute=value end,
-    function() return failures end, function() return clock_calls end, function(kind)return watched[kind]or 0 end, function()return latest_handle end
+    function() return failures end, function() return clock_calls end, function(kind)return watched[kind]or 0 end, function()return latest_handle end, host
 end
 
 for _,cron in ipairs({false,true}) do
@@ -180,4 +186,125 @@ do
   t.register('id','Queue',function()end)
   for _=1,128 do assert(runtime.trigger('id')=='') end
   assert(runtime.trigger('id')=='callback queue limit reached')
+end
+
+-- History suspends only the caller and resumes only after a completed read.
+do
+  local runtime,advance,failures,_,_,latest=fixture()
+  local env=runtime.env
+  assert(not pcall(env.history.query,'window',{field='contact_open'}))
+  local resumed,other=false,false
+  runtime.initialize(function()
+    env.automation.after(1,function()
+      local page=assert(env.history.query('window',{field='contact_open',limit=1}))
+      assert(page.samples[1].value==true)
+      assert(not pcall(function()page.samples[1].value=false end))
+      resumed=true
+    end)
+    env.automation.after(1,function()other=true end)
+  end)
+  advance(1);runtime.tick();local token=tostring(latest())
+  runtime.tick();assert(other and not resumed)
+  runtime.history_result({token='stale',page={samples={}}});runtime.tick();assert(not resumed)
+  runtime.history_result({token=token,page={samples={{at=1,value=true}},next_before=0}})
+  assert(not resumed);runtime.tick();assert(resumed and failures()==0)
+end
+
+-- Immediate errors do not suspend; cancellation discards delayed completions.
+do
+  local runtime,advance,failures,_,_,latest=fixture()
+  local env=runtime.env;local resumed=false
+  runtime.initialize(function()
+    env.automation.after(1,function()
+      local page,err=env.history.query('missing',{field='contact_open'})
+      assert(page==nil and err=='unknown device')
+      env.history.query('window',{field='contact_open'})
+      resumed=true
+    end)
+  end)
+  advance(1);runtime.tick();local token=tostring(latest())
+  -- Timer ID, callback ID, then the two query IDs.
+  assert(env.automation.cancel(latest()-2))
+  runtime.history_result({token=token,page={samples={}}});runtime.tick()
+  assert(not resumed and failures()==0)
+end
+
+-- Exercise the shipped reminder, including state changes during a history read.
+do
+  local now,open,sample,query_error,send_ok=100,false,nil,nil,true
+  local callback,on_open,after_query
+  local sent,queries=0,0
+  local state={}
+  local env={
+    persistent=state,math=math,
+    automation={now=function()return now end,cron=function(spec,fn)assert(spec=='*/15 7-22 * * *');callback=fn end},
+    events={on=function(filter,fn)assert(filter.field=='contact_open' and filter.value==true);on_open=fn end},
+    devices={get=function()return {id='window',name='Window',contact_open=open}end},
+    history={query=function(_,options)
+      queries=queries+1;assert(options.field=='contact_open' and options.value==true and options.limit==1)
+      if after_query then local fn=after_query;after_query=nil;fn()end
+      if query_error then return nil,query_error end
+      return {samples=sample and {{at=sample,value=true}} or {}}
+    end},
+    notify={send=function()if send_ok then sent=sent+1;return true end;return nil,'disabled'end},
+    log=function()end,
+  }
+  local function load_example()assert(loadfile('automation/examples/window-airing.lua','t',env))()end
+  load_example();assert(state.observed_since==100)
+  now=14500;callback();assert(sent==0) -- exactly four hours
+  now=14501;callback();assert(sent==1)
+  callback();load_example();callback();assert(sent==1) -- survives reload
+  open=true;on_open();callback();assert(sent==1)
+  open=false;sample=14501;now=28902;send_ok=false;callback();assert(sent==1)
+  send_ok=true;callback();assert(sent==2)
+  -- A fresh installation can immediately use an old retained opening.
+  state.last_open_at=nil;state.alerted_for=nil;state.observed_since=now
+  load_example();sample=100;callback();assert(sent==3 and state.last_open_at==100)
+  -- Retention eviction and reload must not duplicate an alert.
+  sample=nil;load_example();callback();assert(sent==3)
+  -- Read errors never become evidence of a missing opening.
+  state.alerted_for=nil;query_error='unreadable';callback();assert(sent==3)
+  query_error=nil;open=nil;local before=queries;callback();assert(queries==before)
+  open=false;after_query=function()open=true end;callback();assert(sent==3)
+  -- A quick open/close while suspended must override the old history snapshot.
+  open=false;after_query=function()on_open()end;callback();assert(sent==3)
+  now=now+14401;callback();assert(sent==4)
+end
+
+-- Query identities must use serial IDs, not recyclable userdata addresses.
+do
+  local runtime,advance,failures,_,_,_,host=fixture()
+  local original=host.handle
+  host.handle=function(id)original(id);return setmetatable({id=id},{__tostring=function()return 'reused-address'end})end
+  host.handle_id=function(handle)return handle.id end
+  local completed=0
+  runtime.initialize(function()
+    for _=1,2 do runtime.env.automation.after(1,function()
+      assert(runtime.env.history.query('window',{field='contact_open'}))
+      completed=completed+1
+    end)end
+  end)
+  advance(1);runtime.tick();local first=host.history_token
+  runtime.tick();local second=host.history_token
+  assert(first~=second)
+  runtime.history_result({token=second,page={samples={}}})
+  runtime.history_result({token=first,page={samples={}}})
+  runtime.tick();runtime.tick();assert(completed==2 and failures()==0)
+end
+
+-- Instruction-budget failure after submission releases the native query.
+do
+  local runtime,advance,failures,_,_,_,host=fixture()
+  runtime.initialize(function()
+    runtime.env.automation.after(1,function()
+      runtime.env.history.query('window',{field='contact_open'})
+    end)
+  end)
+  local original=host.history_begin
+  host.history_begin=function(...)
+    host.spent=function()return 200000 end
+    return original(...)
+  end
+  advance(1);runtime.tick()
+  assert(failures()==1 and host.history_cancelled==host.history_token)
 end

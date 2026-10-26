@@ -618,8 +618,7 @@ std::string GatewayRunner::logsJson() const {
     return json;
 }
 #endif
-bool GatewayRunner::readHistoryJson(const std::string& address, uint64_t before,
-                                    std::string* json, std::string* error, uint32_t since) const {
+std::vector<std::string> GatewayRunner::historyDeviceIds(const std::string& address) const {
     std::vector<std::string> historyIds(1, address);
     if (address.size()==40 && address.substr(0,7)=="matter:") {
         ViewLease* lease=const_cast<GatewayRunner*>(this)->acquireView();
@@ -635,7 +634,11 @@ bool GatewayRunner::readHistoryJson(const std::string& address, uint64_t before,
             delete lease;
         }
     }
-    return historyStore_ != 0 && historyStore_->readForDevices(historyIds, before, json, error, 0, since);
+    return historyIds;
+}
+bool GatewayRunner::readHistoryJson(const std::string& address, uint64_t before,
+                                    std::string* json, std::string* error, uint32_t since) const {
+    return historyStore_ != 0 && historyStore_->readForDevices(historyDeviceIds(address), before, json, error, 0, since);
 }
 
 bool GatewayRunner::registerShelly(const std::string& id, const std::string& name, const std::string& oldName,

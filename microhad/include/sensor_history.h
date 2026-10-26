@@ -67,6 +67,28 @@ public:
         ValueRecord(uint64_t c = 0, unsigned long t = 0, unsigned char m = 0, float v = 0)
             : cursor(c), timestamp(t), value(v), metric(m) {}
     };
+    // An indexed query owns only metadata and a bounded result set; no open file.
+    struct Query {
+        std::vector<ValueRecord> samples;
+        uint64_t nextBefore;
+        bool done;
+        ~Query();
+    private:
+        struct State;
+        State* state;
+        Query();
+        Query(const Query&);
+        Query& operator=(const Query&);
+        friend class SensorHistory;
+    };
+    Query* beginQuery(const std::vector<std::string>& deviceIds, unsigned char metric,
+                      uint64_t before, uint32_t since, unsigned int limit,
+                      bool filterValue, float value, std::string* error) const;
+    // Reads at most one data page. Caller must yield to its normal loop between steps.
+    bool stepQuery(Query* query, std::string* error, ReadStats* stats = 0) const;
+    static std::string metricUnit(unsigned char metric);
+    static std::string valueText(unsigned char metric, float value);
+
     struct Page {
         bool allocated;
         std::string id;

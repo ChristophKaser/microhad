@@ -62,6 +62,70 @@ std::vector<SensorHistory::ValueRecord> samplesIn(const std::string& json) {
 
 void runSensorHistoryUnitTests() {
     fprintf(stderr, "unit: paged sensor history v3\n");
+    const std::string queryPath=historyPath();
+    {
+        SensorHistory history(queryPath);std::string error;
+        assert(history.initialize(&error));
+        const std::string id="zigbee:0x00124b0000000001";
+        for(unsigned int i=0;i<600;++i)
+            assert(history.appendNumeric(id,SensorHistory::Contact,i%2,"",1700000000+i));
+        assert(history.appendNumeric(id,SensorHistory::Temperature,21,"celsius",1700000600));
+        std::vector<std::string> ids(1,"0x00124b0000000001");
+        SensorHistory::Query* query=history.beginQuery(ids,SensorHistory::Contact,0,0,256,false,0,&error);
+        assert(query&&!query->done&&query->samples.empty());
+        SensorHistory::ReadStats stats;
+        assert(history.stepQuery(query,&error,&stats)&&stats.pagesRead==1&&!query->done);
+        assert(history.stepQuery(query,&error,&stats)&&stats.pagesRead==2&&query->done);
+        assert(query->samples.size()==256&&query->samples.front().timestamp==1700000599&&query->samples.back().timestamp==1700000344);
+        uint64_t before=query->nextBefore;delete query;
+        query=history.beginQuery(ids,SensorHistory::Contact,before,0,256,false,0,&error);
+        unsigned long prior=stats.pagesRead;
+        while(!query->done){assert(history.stepQuery(query,&error,&stats));assert(stats.pagesRead==++prior);}
+        assert(query->samples.size()==256&&query->samples.front().timestamp==1700000343&&query->samples.back().timestamp==1700000088);
+        before=query->nextBefore;delete query;
+        query=history.beginQuery(ids,SensorHistory::Contact,before,0,256,false,0,&error);
+        while(!query->done)assert(history.stepQuery(query,&error));
+        assert(query->samples.size()==88&&query->nextBefore==0);delete query;
+        query=history.beginQuery(ids,SensorHistory::Contact,0,1700000590,10,true,1,&error);
+        SensorHistory::ReadStats filtered;
+        while(!query->done)assert(history.stepQuery(query,&error,&filtered));
+        assert(query->samples.size()==5&&filtered.pagesRead==1&&query->nextBefore==0);delete query;
+        query=history.beginQuery(ids,SensorHistory::Contact,0,0,1,true,1,&error);
+        SensorHistory::ReadStats latest;
+        assert(history.stepQuery(query,&error,&latest)&&query->done&&latest.pagesRead==1);
+        assert(query->samples[0].timestamp==1700000599);delete query;
+        query=history.beginQuery(ids,SensorHistory::Battery,0,0,1,false,0,&error);
+        SensorHistory::ReadStats empty;
+        assert(query->done&&history.stepQuery(query,&error,&empty)&&empty.pagesRead==0);delete query;
+        assert(!history.beginQuery(ids,SensorHistory::Contact,0,0,257,false,0,&error));
+        // Append after snapshot: the new record is excluded from this query.
+        query=history.beginQuery(ids,SensorHistory::Contact,0,0,1,false,0,&error);
+        assert(history.appendNumeric(id,SensorHistory::Contact,0,"",1700000600));
+        assert(history.stepQuery(query,&error)&&query->done&&query->samples[0].timestamp==1700000599);delete query;
+        // A page with a backward clock adjustment still intersects since.
+        assert(history.appendNumeric(id,SensorHistory::Contact,1,"",1699999990));
+        query=history.beginQuery(ids,SensorHistory::Contact,0,1700000600,10,false,0,&error);
+        while(!query->done)assert(history.stepQuery(query,&error));
+        assert(query->samples.size()==1&&query->samples[0].timestamp==1700000600);delete query;
+    }
+    removeHistoryFiles(queryPath);
+    // Same-timestamp records across pages use exact physical cursors.
+    const std::string queryTies=historyPath();
+    {
+        SensorHistory history(queryTies);std::string error;std::vector<std::string> ids(1,"synthetic:ties");
+        for(unsigned int i=0;i<500;++i)assert(history.appendNumeric(ids[0],SensorHistory::Contact,i%2,"",1700000000));
+        uint64_t before=0;unsigned int total=0;
+        do {
+            SensorHistory::Query* query=history.beginQuery(ids,SensorHistory::Contact,before,0,128,false,0,&error);assert(query);
+            while(!query->done)assert(history.stepQuery(query,&error));
+            for(size_t i=0;i<query->samples.size();++i){assert(!before||query->samples[i].cursor<before);if(i)assert(query->samples[i].cursor<query->samples[i-1].cursor);}
+            total+=query->samples.size();before=query->nextBefore;delete query;
+        }while(before);
+        assert(total==500);
+        SensorHistory::Query* query=history.beginQuery(ids,SensorHistory::Contact,0,0,128,false,0,&error);
+        assert(unlink(history.path().c_str())==0);assert(!history.stepQuery(query,&error));delete query;
+    }
+    removeHistoryFiles(queryTies);
     const std::string numericTypedPath=historyPath();
     {
         SensorHistory history(numericTypedPath);
@@ -354,6 +418,8 @@ void runSensorHistoryUnitTests() {
         assert(history.persistForTests(0, &error));
         const unsigned long writtenBeforeEviction = history.persistenceWritesForTests();
         assert(writtenBeforeEviction == 255);
+        SensorHistory::Query* pendingQuery=history.beginQuery(std::vector<std::string>(1,zigbeeId),SensorHistory::Contact,0,0,1,false,0,&error);
+        assert(pendingQuery&&!pendingQuery->done);
         EvictionContext context; context.history = &history; context.id = collisionId;
         sensorHistorySnapshotHook = evictAfterSnapshot;
         sensorHistorySnapshotHookData = &context;
@@ -361,6 +427,7 @@ void runSensorHistoryUnitTests() {
         sensorHistorySnapshotHook = 0;
         sensorHistorySnapshotHookData = 0;
         assert(json == "{\"samples\":[],\"next_before\":0}");
+        assert(!history.stepQuery(pendingQuery,&error));delete pendingQuery;
         assert(history.persistForTests(0, &error));
         assert(history.persistenceWritesForTests() == writtenBeforeEviction);
         FILE* resident = fopen(collisionFlash.c_str(), "rb"); assert(resident != 0);

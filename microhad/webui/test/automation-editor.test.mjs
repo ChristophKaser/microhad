@@ -173,3 +173,15 @@ test('thermostat and scene-query completions use supported capabilities', () => 
   assert(suggest('scenes.get("', data).some(item => item.value === 'Living room'))
   assert(suggest('scenes.').some(item => item.caption === 'scenes.get(group)'))
 })
+
+test('history queries offer the API, devices, options and recorded fields', () => {
+  assert.ok(gatewayApi['history.query'])
+  assert.ok(completions('history.', 8, catalog).some(item => item.value === 'query'))
+  const options = 'history.query("Window", { '
+  const keys = completions(options, options.length, catalog).map(item => item.value)
+  for (const key of ['field', 'value', 'since', 'before', 'limit']) assert.ok(keys.includes(key + ' = '))
+  const fields = 'history.query("Window", { field = "'
+  const values = completions(fields, fields.length, catalog).map(item => item.value)
+  assert.ok(values.includes('contact_open'))
+  assert.ok(!values.includes('last_seen'))
+})

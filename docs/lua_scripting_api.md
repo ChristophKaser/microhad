@@ -315,6 +315,63 @@ Registers a local-time five-field cron schedule (`minute hour day-of-month month
 day-of-week`) and returns a cancelable handle. Missed calendar runs are not
 replayed after downtime. DST follows the gateway's local system clock.
 
+## Value history
+
+### `history.query(device, options)`
+
+Reads retained history by stable device ID or unique name. Call only inside a
+callback: the calling coroutine suspends until the query finishes, then receives
+an immutable page or `nil, error`. Top-level initialization and validation cannot
+read history. Other callbacks and events continue to run between storage pages.
+
+```lua
+automation.every(900, function()
+  local page, err = history.query("Living room window", {
+    field = "contact_open", value = true, limit = 1,
+  })
+  if page and page.samples[1] then
+    log("info", "Last recorded opening", { at = page.samples[1].at })
+  elseif err then
+    log("warn", "History query failed", { error = err })
+  end
+end)
+```
+
+`options.field` is required. Supported fields are `temperature_celsius`,
+`humidity_percent`, `contact_open`, `power_watts`, `occupied`, `battery_percent`,
+`co2_ppm`, `pm25_micrograms_m3`, and `air_quality`. Other fields have no queryable
+recorded history. Sources excluded from history return empty results.
+
+Optional options:
+
+- `value`: equality filter, applied before the result limit. Use booleans for
+  contact/occupancy, an air-quality string for air quality, and finite numbers
+  for other fields. Numeric comparisons use the history's stored float precision.
+- `since`: inclusive Unix timestamp in seconds, default zero. No predecessor
+  samples outside this interval are included.
+- `before`: exclusive history cursor, default zero (newest records).
+- `limit`: integer from 1 to 256, default 128.
+
+The page contains newest-first `samples`, each with `cursor`, `at` (Unix seconds),
+`value`, and `unit`. Boolean readings are Lua booleans; air quality uses its usual
+string labels. `next_before` is zero when exhausted; otherwise pass it as `before`
+to continue with the same filters. Continuation is conservative: the next page
+may be empty if no further matching records remain.
+
+Reads run in the automation thread, with at most one history storage page read
+per normal worker-loop iteration globally. Concurrent reads take turns. Queries
+keep only indexed page metadata and a bounded result set, and read until the
+requested number of matches is established or eligible history is exhausted.
+There are at most 16 outstanding queries; capacity errors can be retried later.
+Reload, disable, removal, or callback cancellation discards unfinished queries.
+Scripts that never call this API perform no history reads or query allocation.
+
+A query uses the indexed pages present when it starts, rather than a transactional
+snapshot. Later appends are excluded; reused or unreadable pages return an error
+so the caller can retry. Retained history can be incomplete or evicted, and no
+matching record does not prove a value never occurred. Recheck current device
+state after a query before sending a notification or controlling a device.
+
 ## Notifications and logs
 
 ### `notify.send(title, body[, options])`

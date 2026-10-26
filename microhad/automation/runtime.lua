@@ -68,6 +68,7 @@ end
 -- budget interrupts a public API, conservative extra interest is safe; losing
 -- interest in a still-live listener/waiter would drop events.
 local function unwatch(t)
+  if t.wait and t.wait.kind=='history' then host.history_cancel(t.wait.token) end
   if t.watched then local kind=t.watched;t.watched=nil;host.watch(kind,false)end
 end
 local function resume(h,t)
@@ -205,6 +206,17 @@ env.devices={get=function(target)local v,e=host.device_get(target);return v and 
   end,
   refresh=function(target)return host.action('refresh',target,{})end}
 env.scenes={get=function(group)local v,e=host.scene_get(group);return v and immutable(v),e end,activate=function(group,scene)return host.scene(group,scene)end,off=function(group)return host.scene(group,nil)end}
+env.history={query=function(target,options)
+  assert(current and not initializing,'history.query is only available in callbacks')
+  strict(target,'string','device');strict(options,'table','history options')
+  local token=tostring(host.handle_id(handle()))
+  -- Record ownership before calling native code: even an instruction-budget
+  -- interruption after submission must cancel the pending native context.
+  current.wait={kind='history',token=token}
+  local ok,err=host.history_begin(token,target,options)
+  if not ok then current.wait=nil;return nil,err end
+  return co.yield(current.wait)
+end}
 env.notify={send=host.notify};env.log=host.log
 local function unwrap(value,seen)
   if type(value)~='table'then return value end
@@ -235,6 +247,15 @@ function runtime.event(event)
   local snapshot
   for _,entry in pairs(listeners) do if matches(entry.filter,event)then snapshot=snapshot or immutable(event);start(entry.fn,{snapshot},event.chain_id,event.chain_depth)end end
   for _,task in pairs(tasks)do if task.wait and task.wait.kind=='event' and matches(task.wait.filter,event)then snapshot=snapshot or immutable(event);unwatch(task);task.wait=nil;task.args={snapshot}end end
+end
+function runtime.history_result(result)
+  for _,task in pairs(tasks) do
+    if task.wait and task.wait.kind=='history' and task.wait.token==result.token then
+      task.wait=nil
+      task.args=result.error and pack(nil,result.error) or pack(immutable(result.page))
+      return
+    end
+  end
 end
 function runtime.tick()
   if next(tasks)==nil and next(timers)==nil then return end

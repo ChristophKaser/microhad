@@ -16,6 +16,7 @@ export const gatewayApi: Record<string, Spec> = {
   'automation.cancel': ['handle', 'boolean', 'Cancel a timer or suspended callback.'],
   'automation.sleep': ['seconds', 'nil', 'Suspend the current callback.'],
   'automation.cron': ['expression, callback', 'handle', 'Schedule using five cron fields: minute hour day month weekday.'],
+  'history.query': ['target, history_options', 'page | nil, error', 'Read retained value history; suspends this callback while one storage page is read per worker turn. Newest-first samples and next_before cursor.'],
   'devices.get': ['target', 'device | nil, error', 'Read an immutable device snapshot by stable ID or unique name.'],
   'devices.list': ['filter', 'device[]', 'List snapshots; optional filter supports source, kind, online, name.'],
   'devices.actor': ['target, on', 'boolean | nil, error', 'Set an actor using a boolean.'],
@@ -35,8 +36,9 @@ export const snapshotFields = ['id', 'name', 'source', 'kind', 'online', 'last_s
 export const remoteActions = ['on', 'off', 'toggle', 'move-to-level', 'move', 'step', 'stop', 'arrow_left', 'arrow_right', 'arrow_left_hold', 'arrow_right_hold', 'arrow_left_release', 'arrow_right_release', 'matter_press', 'matter_hold', 'matter_release', 'matter_multi_press']
 const sources = ['zigbee', 'shelly', 'fritz_box', 'matter']
 const keywords = ['and','break','do','else','elseif','end','false','for','function','goto','if','in','local','nil','not','or','repeat','return','then','true','until','while']
-const namespaces = ['triggers', 'events', 'automation', 'devices', 'scenes', 'notify', 'persistent', 'shared', 'math', 'string', 'table']
+const namespaces = ['history', 'triggers', 'events', 'automation', 'devices', 'scenes', 'notify', 'persistent', 'shared', 'math', 'string', 'table']
 export const argumentTypes: Record<string, string> = {
+  history_options: 'table {field: string, value?: boolean | number | string, since?: integer, before?: integer, limit?: integer 1–256}',
   id: 'string (stable trigger ID)', filter: 'table (optional for devices.list)', callback: 'function', handle: 'handle', timeout: 'number? (seconds)', seconds: 'number (0 < seconds <= 63072000)', payload: 'JSON value?', expression: 'string (five cron fields)', target: 'string (ID or unique name)', field: 'string (thermostat field name)', on: 'boolean', state: 'table {on?: boolean, brightness?: integer 0–100}', group: 'string (ID or unique name)', scene: 'string (ID or unique name)', title: 'string', body: 'string', options: 'table? {device_id?: string, tag?: string}', level: 'string (debug/info/warn/error)', message: 'string', fields: 'JSON value?', value: 'any', label: 'string?',
 }
 const globals = ['assert', 'error', 'ipairs', 'next', 'pairs', 'pcall', 'select', 'tonumber', 'tostring', 'type', 'xpcall', 'rawequal', '_VERSION', '_G']
@@ -105,7 +107,7 @@ export function completions(source: string, offset: number, catalog: Catalog): C
     }
     return list
   }
-  if ((key === 'device' || key === 'device_id') || call?.call.startsWith('devices.') && call.call !== 'devices.list' && call.argument === 0 && !table) result = deviceValues(key === 'device_id')
+  if ((key === 'device' || key === 'device_id') || (call?.call.startsWith('devices.') && call.call !== 'devices.list' || call?.call === 'history.query') && call.argument === 0 && !table) result = deviceValues(key === 'device_id')
   else if (call?.call === 'devices.thermostat' && call.argument === 1 && !table) {
     const target = context.slice(context.lastIndexOf('(') + 1).match(/^\s*(["'])(.*?)\1/)?.[2]
     const device = catalog.devices.find(d => d.ieee_address === target || d.name.toLowerCase() === target?.toLowerCase())
@@ -119,6 +121,7 @@ export function completions(source: string, offset: number, catalog: Catalog): C
   else if (key === 'source') result = values(sources, 'device source')
   else if (key === 'kind') result = values([...new Set(catalog.devices.map(d => d.kind))], 'device kind')
   else if (key === 'name' && call?.call === 'devices.list') result = values([...new Set(catalog.devices.map(d => d.name))], 'device name')
+  else if (key === 'field' && call?.call === 'history.query') result = values(['temperature_celsius','humidity_percent','contact_open','power_watts','occupied','battery_percent','co2_ppm','pm25_micrograms_m3','air_quality'], 'history field')
   else if (key === 'field' && eventCall) result = values(snapshotFields.filter(field => !selectedDevice || !fieldCapabilities[field] || selectedDevice[fieldCapabilities[field]]), 'snapshot field')
   else if (key === 'action' && eventCall) result = values(remoteActions.filter(action => !selectedDevice || (selectedDevice.source === 'matter') === action.startsWith('matter_')), 'remote action')
   else if (call?.call === 'devices.actor' && call.argument === 1 || ['on', 'online'].includes(key ?? '') || key === 'value' && /(?:contact_open|water_detected|occupied|light_on|actor_on|online)/.test(tableText)) result = ['true','false'].map(v => entry(v, 'boolean'))
@@ -132,6 +135,7 @@ export function completions(source: string, offset: number, catalog: Catalog): C
   } else if (!inString && table && ['{', ',', ';'].includes(ts.slice(-1)[0])) {
     let keys: string[] = []
     if (eventCall && call.argument === 0) keys = filterKeys.filter(k => !eventType || eventType === 'remote.action' || !['action','endpoint','position','press_count'].includes(k))
+    else if (call?.call === 'history.query' && call.argument === 1) keys = ['field','value','since','before','limit']
     else if (call?.call === 'devices.light' && call.argument === 1) keys = ['on','brightness']
     else if (call?.call === 'devices.list') keys = ['source','kind','online','name']
     else if (call?.call === 'notify.send' && call.argument === 2) keys = ['device_id','tag','recipients']

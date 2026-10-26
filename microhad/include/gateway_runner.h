@@ -8,6 +8,7 @@
 #include <vector>
 #include "gateway.h"
 #include "automation_types.h"
+#include "sensor_history.h"
 
 class Gateway;
 class GatewayView;
@@ -56,6 +57,8 @@ public:
 #ifdef MICROHAD_TESTING
     std::string logsJson() const;
 #endif
+    std::vector<std::string> historyDeviceIds(const std::string& address) const;
+    SensorHistory* historyStore() const { return historyStore_; }
     bool readHistoryJson(const std::string& address, uint64_t before,
                          std::string* json, std::string* error, uint32_t since = 0) const;
     bool registerShelly(const std::string& id, const std::string& name, const std::string& oldName,
