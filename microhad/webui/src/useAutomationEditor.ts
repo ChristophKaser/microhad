@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { Catalog } from './automationCompletion'
-import type { attachEditor } from './aceAutomation'
+import type { attachEditor } from './codemirrorAutomation'
 
 export function useAutomationEditor(selected: string, source: string, setSource: (value: string) => void, catalog: Catalog, textarea: RefObject<HTMLTextAreaElement>) {
   const container = useRef<HTMLDivElement>(null)
@@ -12,7 +12,7 @@ export function useAutomationEditor(selected: string, source: string, setSource:
   useEffect(() => {
     let active = true
     setReady(false); setWarning('')
-    if (selected) void import('./aceAutomation').then(({ attachEditor }) => {
+    if (selected) void import('./codemirrorAutomation').then(({ attachEditor }) => {
       if (!active || !container.current) return
       instance.current = attachEditor(container.current, latest.current.source, value => latest.current.setSource(value), () => latest.current.catalog,
         () => { if (active) setWarning('Live syntax checking is unavailable.') })

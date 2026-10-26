@@ -1,4 +1,4 @@
-// Ace snippet placeholders are editable with Tab / Shift+Tab. Device placeholders
+// Editor snippet placeholders are editable with Tab / Shift+Tab. Device placeholders
 // accept the same live ID/name completions as hand-written calls.
 export const automationSnippets = [
   {

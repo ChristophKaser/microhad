@@ -3,10 +3,70 @@ MicroHAD licenses and third-party notices
 MicroHAD contains or depends on these third-party software libraries.
 Thank you to everyone involved in them.
 
+@codemirror/autocomplete 6.20.4
+Authors: Marijn Haverbeke
+License: MIT
+  LICENSE: text 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07
+
+@codemirror/commands 6.11.1
+Authors: Marijn Haverbeke
+License: MIT
+  LICENSE: text 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07
+
+@codemirror/language 6.13.1
+Authors: Marijn Haverbeke
+License: MIT
+  LICENSE: text 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07
+
+@codemirror/legacy-modes 6.5.5
+Authors: Marijn Haverbeke
+License: MIT
+  LICENSE: text 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07
+
+@codemirror/lint 6.9.7
+Authors: Marijn Haverbeke
+License: MIT
+  LICENSE: text 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07
+
+@codemirror/state 6.7.6
+Authors: Marijn Haverbeke
+License: MIT
+  LICENSE: text 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07
+
+@codemirror/streamparser 6.0.0
+Authors: Marijn Haverbeke
+License: MIT
+  LICENSE: text 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07
+
+@codemirror/view 6.43.15
+Authors: Marijn Haverbeke
+License: MIT
+  LICENSE: text 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07
+
 @kurkle/color 0.3.4
 Authors: Jukka Kurkela
 License: MIT
   LICENSE.md: text 89ba0032731489153d552db918b727feb05128cf9eca20092875a9ad14147671
+
+@lezer/common 1.5.4
+Authors: Marijn Haverbeke <marijn@haverbeke.berlin>
+License: MIT
+  LICENSE: text 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba
+
+@lezer/highlight 1.2.5
+Authors: Marijn Haverbeke <marijn@haverbeke.berlin>
+License: MIT
+  LICENSE: text 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba
+
+@lezer/lr 1.4.11
+Authors: Marijn Haverbeke <marijn@haverbeke.berlin>
+License: MIT
+  LICENSE: text 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba
+
+@marijn/find-cluster-break 1.0.4
+Authors: Marijn Haverbeke <marijn@haverbeke.berlin>
+License: MIT
+  LICENSE: text 9360b00fdd091f05c783b568bdd46c679c41b72415599252de98949462ea1acb
 
 abstract-bits 0.2.0
 Authors: puddly
@@ -192,6 +252,11 @@ Authors: nanpuyue <nanpuyue@gmail.com>
 License: MIT OR Apache-2.0
   LICENSE-APACHE: text a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2
   LICENSE-MIT: text 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3
+
+crelt 1.0.7
+Authors: Marijn Haverbeke <marijn@haverbeke.berlin>
+License: MIT
+  LICENSE: text 23852ebf6aef7fadffc92514b3c5df163a8651f2c3ed0dbb494cb49d93bd5de5
 
 critical-section 1.2.0
 Authors: The critical-section authors
@@ -908,6 +973,11 @@ Authors: Peter Glotfelty <peter.glotfelty@microsoft.com>
 License: MIT
   LICENSE: text 8bce3b45e49ecd1461f223b46de133d8f62cd39f745cfdaf81bee554b908bd42
 
+style-mod 4.1.4
+Authors: Marijn Haverbeke <marijn@haverbeke.berlin>
+License: MIT
+  LICENSE: text cb4474e26547397169061d3586c00022cda5330a1b64fa13e872319f3b63aff1
+
 subtle 2.6.1
 Authors: Isis Lovecruft <isis@patternsinthevoid.net>, Henry de Valence <hdevalence@hdevalence.ca>
 License: BSD-3-Clause
@@ -1014,6 +1084,11 @@ License: MIT
   LICENSE-APACHE: text c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08
   LICENSE-MIT: text cdc52ff9219a75ecc314567c862e31a369afe276ee75884f4211cf8cbacd2667
 
+w3c-keyname 2.2.8
+Authors: Marijn Haverbeke <marijn@haverbeke.berlin>
+License: MIT
+  LICENSE: text 869c30f368eb08735e779027b9f4bc9fea2f39624351856aebe42741f0bc0884
+
 wnaf 0.14.1
 Authors: RustCrypto Developers
 License: Apache-2.0 OR MIT
@@ -1113,6 +1188,30 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+TEXT 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07
+MIT License
+
+Copyright (C) 2018-2021 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 
 TEXT 0613408568889f5739e5ae252b722a2659c02002839ad970a63dc5e9174b27cf
@@ -1882,6 +1981,28 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+TEXT 23852ebf6aef7fadffc92514b3c5df163a8651f2c3ed0dbb494cb49d93bd5de5
+Copyright (C) 2020 by Marijn Haverbeke <marijn@haverbeke.berlin>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 
 TEXT 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3
@@ -3435,6 +3556,30 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+TEXT 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba
+MIT License
+
+Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 
 TEXT 57a4d75c1d095bb94754a478f3cd15e60ac66a5c5627d844be01a918eea5fe88
@@ -6142,6 +6287,28 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+TEXT 869c30f368eb08735e779027b9f4bc9fea2f39624351856aebe42741f0bc0884
+Copyright (C) 2016 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+
 TEXT 898b1ae9821e98daf8964c8d6c7f61641f5f5aa78ad500020771c0939ee0dea1
 Copyright (c) 2019 Tokio Contributors
 
@@ -6648,6 +6815,30 @@ Except as otherwise noted (below and/or in individual files), Rand is
 licensed under the Apache License, Version 2.0 <LICENSE-APACHE> or
 <http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
 <LICENSE-MIT> or <http://opensource.org/licenses/MIT>, at your option.
+
+
+TEXT 9360b00fdd091f05c783b568bdd46c679c41b72415599252de98949462ea1acb
+MIT License
+
+Copyright (C) 2024 by Marijn Haverbeke <marijn@haverbeke.berlin>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 
 TEXT 946c9835d8034d24404f8cfec5f4654cee5dad17e944afc3d06d742cf2882831
@@ -9329,6 +9520,28 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+TEXT cb4474e26547397169061d3586c00022cda5330a1b64fa13e872319f3b63aff1
+Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 
 TEXT cdc52ff9219a75ecc314567c862e31a369afe276ee75884f4211cf8cbacd2667

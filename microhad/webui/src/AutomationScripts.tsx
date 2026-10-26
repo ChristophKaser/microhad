@@ -18,7 +18,7 @@ export function AutomationScripts({ onDirtyChange, devices = [], groups = [] }: 
   const [since, setSince] = useState('')
   const [cleared, setCleared] = useState(0)
   const editor = useRef<HTMLTextAreaElement>(null)
-  const aceEditor = useAutomationEditor(selected, source, setSource, { devices, groups }, editor)
+  const codeEditor = useAutomationEditor(selected, source, setSource, { devices, groups }, editor)
   const dirty = selected !== '' && (!exists || source !== saved)
   const script = scripts.find(item => item.filename === selected)
   const scriptId = selected.replace(/\.lua(?:\.disabled)?$/, '')
@@ -81,7 +81,7 @@ export function AutomationScripts({ onDirtyChange, devices = [], groups = [] }: 
     window.addEventListener('keydown', keyboard); return () => window.removeEventListener('keydown', keyboard)
   })
   const jumpToLine = (line?: number) => {
-    if (line) aceEditor.jump(line)
+    if (line) codeEditor.jump(line)
   }
   const logs = visibleAutomationLogs(records, scriptId, severity, since ? new Date(since).getTime() / 1000 : 0, cleared)
   const timestamp = (epoch?: number) => epoch ? new Date(epoch * 1000).toLocaleString() : '—'
@@ -107,9 +107,9 @@ export function AutomationScripts({ onDirtyChange, devices = [], groups = [] }: 
         <button className="button primary" disabled={busy || !dirty} onClick={() => save(true)}>Save and reload</button>
         {error && <p role="alert" className="automation-error"><strong>Action failed</strong><br />{error}</p>}
       </div>
-      <div ref={aceEditor.container} className="automation-ace" hidden={!aceEditor.ready} />
-      {aceEditor.warning && <p role="status">{aceEditor.warning}</p>}
-      <textarea hidden={aceEditor.ready} ref={editor} className="automation-source" aria-label="Lua source" value={source} onChange={event => setSource(event.target.value)} spellCheck={false} />
+      <div ref={codeEditor.container} className="automation-codemirror" hidden={!codeEditor.ready} />
+      {codeEditor.warning && <p role="status">{codeEditor.warning}</p>}
+      <textarea hidden={codeEditor.ready} ref={editor} className="automation-source" aria-label="Lua source" value={source} onChange={event => setSource(event.target.value)} spellCheck={false} />
       <details open className="automation-log-section"><summary>Logs and status</summary><div className="automation-toolbar">
         <label>Severity <select value={severity} onChange={event => setSeverity(event.target.value)}><option value="">All</option>{['debug', 'info', 'warn', 'error'].map(level => <option key={level}>{level}</option>)}</select></label>
         <label>Since <input type="datetime-local" value={since} onChange={event => setSince(event.target.value)} /></label>

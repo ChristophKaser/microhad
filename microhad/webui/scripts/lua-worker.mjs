@@ -25,5 +25,13 @@ export async function generateLuaWorker() {
   const patched = patchLuaWorker(readFileSync(new URL('node_modules/ace-builds/src/worker-lua.js', root), 'utf8'))
   const output = new URL('node_modules/.cache/microhad-worker-lua.js', root)
   mkdirSync(fileURLToPath(new URL('node_modules/.cache/', root)), { recursive: true })
-  writeFileSync(output, (await transform(patched, { minify: true, target: 'es2020' })).code)
+  writeFileSync(output, (await transform(patched + `
+const parser = new (require('ace/mode/lua_worker').Worker)({on() {}, emit() {}}).parser;
+onmessage = ({data}) => {
+  let errors = [];
+  try { parser.parse(data.source); }
+  catch (error) { errors = [{row: error.line - 1, column: error.column, text: error.message}]; }
+  postMessage({id: data.id, errors});
+};
+`, { minify: true, target: 'es2020' })).code)
 }
