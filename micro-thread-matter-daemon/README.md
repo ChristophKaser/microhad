@@ -242,7 +242,7 @@ suppress duplicate and historical replay. Re-establishing a lost clock event
 subscription also schedules a sync if its startup event was evicted.
 
 There is no minute-by-minute UTC polling. The event subscription requests a
-five-minute maximum keepalive interval; if the accessory loses subscriptions on
+ten-minute maximum keepalive interval; if the accessory loses subscriptions on
 reboot, detection waits for the negotiated keepalive timeout and recovery, rather
 than promising immediate notification. Daily/DST refresh and offline-to-online
 recovery remain active. Accessories advertising neither event use those fallback

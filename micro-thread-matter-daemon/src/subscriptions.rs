@@ -444,7 +444,7 @@ async fn event_list<C: Crypto>(
 }
 
 /// Combined urgent StartUp/TimeFailure subscription. Priming chunks retain
-/// missed reboot events. A five-minute keepalive bounds recovery if an accessory
+/// missed reboot events. A ten-minute keepalive bounds recovery if an accessory
 /// loses the subscription itself on reboot; no clock-read timer is installed.
 pub async fn establish_clock_events<C: Crypto>(
     matter: &Matter<'_>,
@@ -487,7 +487,7 @@ pub async fn establish_clock_events<C: Crypto>(
         })
         .into_iter()
         .collect();
-    let (min, max) = interval_bounds(matter, crypto, fabric, node, icd_endpoint, 300).await?;
+    let (min, max) = interval_bounds(matter, crypto, fabric, node, icd_endpoint, 600).await?;
     let mut chunk = Exchange::initiate(matter, crypto, fabric, node)
         .await?
         .subscribe_with(|builder| {
