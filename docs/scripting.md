@@ -22,6 +22,10 @@ button is configured with a gateway-scene rule.
 
 ## Example scripts
 
+Browse the [examples directory](../microhad/automation/examples/) for complete
+Lua files and a [guide to each example](../microhad/automation/examples/README.md).
+Examples are reference files: deployment does not install or enable them.
+
 Copy each Lua example into its own script in **Automations**, replace the
 example names with your devices and configured scene groups, then **Validate**
 and **Save and reload**. Names must resolve uniquely; string stable IDs also
@@ -114,6 +118,8 @@ automation.cron("*/15 7-22 * * *", check_window)
 
 ### Low-battery warnings for any device
 
+[Complete script](../microhad/automation/examples/low-battery.lua).
+
 This script watches every device with a reported battery percentage; no device
 names need replacing. It warns once below 15% and again below 10%, with warning
 state saved across reloads and restarts. Both warnings reset when the battery
@@ -180,6 +186,8 @@ end
 
 ### Discover a remote's buttons
 
+[Complete script](../microhad/automation/examples/remote-discovery.lua).
+
 Save this first, press the buttons, and inspect the script's debug logs. Use
 the reported `action` and `endpoint` (and Matter `position` or `press_count`
 when present) in subsequent filters.
@@ -198,6 +206,8 @@ Matter switches produce these events. An existing gateway-scene rule also
 runs for the same button; remove conflicting rules when using Lua instead.
 
 ### Remote controls a light
+
+[Complete script](../microhad/automation/examples/remote-light.lua).
 
 This Zigbee example maps the on button to 65% brightness and the off button to
 off. For a light without dimming, omit `brightness`.
@@ -220,6 +230,8 @@ end)
 ```
 
 ### Remote toggles an actor (plug or relay)
+
+[Complete script](../microhad/automation/examples/remote-toggle-actor.lua).
 
 Read `actor_on` from a fresh snapshot before toggling. An unknown state is
 `nil`; do not treat it as off. Rapid presses before the device reports its
@@ -248,6 +260,8 @@ use `devices.actor(actor, true)` or `devices.actor(actor, false)`.
 
 ### Remote selects a scene or turns a group off
 
+[Complete script](../microhad/automation/examples/remote-scenes.lua).
+
 Create the group and its scenes in **Scenes & groups** first. This example
 selects Evening with the right arrow and switches the group off with the left
 arrow. Replace the actions with those emitted by your remote.
@@ -269,7 +283,8 @@ events.on({
 end)
 ```
 
-To select a scene on a schedule instead, use a separate script:
+To select a scene on a schedule instead, use the separate
+[scheduled-scene script](../microhad/automation/examples/scheduled-scene.lua):
 
 ```lua
 automation.cron("0 18 * * *", function()
@@ -282,6 +297,8 @@ This runs at 18:00 in the gateway's local time. Missed runs during downtime
 are not replayed.
 
 ### Get the current scene of a group
+
+[Complete script](../microhad/automation/examples/scene-inspection.lua).
 
 Use `scenes.get()` to read the gateway's selected scene and group-off state.
 For example, this button logs the selection without changing it:
@@ -314,6 +331,8 @@ reports or confirm that every light still matches. A pending recall can still
 show the previous selection. See [`scenes.get()`](lua_scripting_api.md#scenesgetgroup).
 
 ### Remote controls a thermostat
+
+[Complete script](../microhad/automation/examples/remote-thermostat.lua).
 
 This Zigbee remote selects heating at 21°C with its on button and off mode
 with its off button. Replace the actions with those reported by your remote.
@@ -350,6 +369,8 @@ Unsupported settings return an error rather than silently changing another
 capability. Cooling uses `occupied_cooling_setpoint` and mode `3` when supported.
 
 ### Set a thermostat weekly schedule
+
+[Complete script](../microhad/automation/examples/thermostat-weekly-schedule.lua).
 
 Weekly schedules execute on the thermostat itself. This example copies a
 heating schedule to Monday when the schedule button is pressed. Day fields
