@@ -234,13 +234,23 @@ accessory. It refreshes clocks daily, at transitions, and after service startup,
 without requiring an open dashboard. Failed updates retry after one minute,
 backing off to at most one hour. When a configured accessory returns online,
 its clock is synchronized again immediately through the operational queue.
-A read-only UTC check every minute also detects brief power cycles that never
-changed the cached online flag. An unset clock or drift beyond the read window
-(with a five-second tolerance) triggers restoration of UTC and the saved zone/DST
-schedule. Healthy checks leave the daily refresh deadline unchanged and do not
-rewrite the accessory's settings. None of these periodic checks or refreshes
-write gateway flash. Devices still need one initial dashboard sync to save their
-chosen zone.
+Clock recovery subscribes to Basic Information `StartUp` and Time
+Synchronization `TimeFailure` events, after reading the accessory's EventList
+attributes to select supported paths. Live events request urgent reporting;
+retained events in subscription priming recover missed restarts. Event numbers
+suppress duplicate and historical replay. Re-establishing a lost clock event
+subscription also schedules a sync if its startup event was evicted.
+
+There is no minute-by-minute UTC polling. The event subscription requests a
+five-minute maximum keepalive interval; if the accessory loses subscriptions on
+reboot, detection waits for the negotiated keepalive timeout and recovery, rather
+than promising immediate notification. Daily/DST refresh and offline-to-online
+recovery remain active. Accessories advertising neither event use those fallback
+paths, with a warning instead of repeatedly subscribing to unsupported events.
+The service logs the actual Basic Information and Time Synchronization EventList
+IDs when establishing clock recovery. Event cursors and refresh deadlines stay
+in RAM; no periodic gateway flash writes are added. Devices still need one
+initial dashboard sync to save their chosen zone.
 
 Accessories with room for multiple DST entries can change their clocks while
 the gateway is offline, until their supplied schedule expires. Single-entry

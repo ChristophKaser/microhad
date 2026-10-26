@@ -6,29 +6,6 @@ use std::time::{Duration, Instant};
 const KEY: u16 = 0x1004;
 pub const EPOCH: u64 = 946_684_800;
 const DAY: u64 = 86400;
-const CLOCK_CHECK_SECONDS: u64 = 60;
-
-/// Matter UTC microseconds, sampled immediately around accessory clock reads.
-pub fn utc_now_us() -> Result<u64, ()> {
-    let unix = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| ())?;
-    unix.as_secs()
-        .checked_sub(EPOCH)
-        .and_then(|s| s.checked_mul(1_000_000))
-        .and_then(|us| us.checked_add(u64::from(unix.subsec_micros())))
-        .ok_or(())
-}
-
-/// Account for the whole read round trip, so slow CASE work does not look like
-/// clock drift. Null UTC is the Matter indication that time was lost.
-pub fn clock_needs_sync(observed: Option<u64>, before: u64, after: u64) -> bool {
-    const TOLERANCE_US: u64 = 5_000_000;
-    after < before
-        || observed.is_none_or(|utc| {
-            utc < before.saturating_sub(TOLERANCE_US) || utc > after.saturating_add(TOLERANCE_US)
-        })
-}
 
 // AceTime uses one mutable transition cache. Keep its layout and allocation in
 // C, and hold this lock for the whole schedule calculation (also in tests).
@@ -141,7 +118,7 @@ pub struct Preference {
     pub endpoint: u16,
     pub name: String,
     pub next: Instant,
-    pub next_check: Instant,
+    pub last_event: Option<u64>,
     failures: u8,
 }
 pub struct Preferences {
@@ -173,7 +150,7 @@ impl Preferences {
                     endpoint,
                     name,
                     next: Instant::now(),
-                    next_check: Instant::now(),
+                    last_event: None,
                     failures: 0,
                 });
             }
@@ -214,7 +191,6 @@ impl Preferences {
         {
             p.name = name.to_owned();
             p.next = now;
-            p.next_check = now;
             p.failures = 0;
         } else {
             self.entries.push(Preference {
@@ -222,7 +198,7 @@ impl Preferences {
                 endpoint,
                 name: name.to_owned(),
                 next: now,
-                next_check: now,
+                last_event: None,
                 failures: 0,
             });
         }
@@ -258,23 +234,41 @@ impl Preferences {
         self.entries.retain(|p| p.node != node);
         Ok(())
     }
-    /// A real offline-to-online transition invalidates the previous deadline.
-    /// This is RAM-only; normal ICD wakes and every sensor report do not sync.
+    /// A genuine return or re-established clock subscription invalidates the
+    /// old deadline. All event bookkeeping remains in RAM.
     pub fn returned(&mut self, node: u64, now: Instant) {
         for p in self.entries.iter_mut().filter(|p| p.node == node) {
             p.next = now;
-            p.next_check = now;
             p.failures = 0;
         }
     }
-    pub fn checked(&mut self, node: u64, endpoint: u16, now: Instant) {
-        if let Some(p) = self
+    /// Suppress duplicate/history replay. The first priming report establishes
+    /// a baseline; service startup already schedules a full clock sync.
+    pub fn event(
+        &mut self,
+        node: u64,
+        endpoint: u16,
+        number: u64,
+        baseline: bool,
+        now: Instant,
+    ) -> bool {
+        let Some(p) = self
             .entries
             .iter_mut()
             .find(|p| p.node == node && p.endpoint == endpoint)
-        {
-            p.next_check = now + Duration::from_secs(CLOCK_CHECK_SECONDS);
+        else {
+            return false;
+        };
+        if p.last_event.is_some_and(|last| number <= last) {
+            return false;
         }
+        let trigger = !baseline;
+        p.last_event = Some(number);
+        if trigger {
+            p.next = now;
+            p.failures = 0;
+        }
+        trigger
     }
     pub fn completed(&mut self, node: u64, endpoint: u16, success: bool, now: Instant, delay: u64) {
         if let Some(p) = self
@@ -293,11 +287,6 @@ impl Preferences {
                 (60u64 << p.failures.saturating_sub(1).min(6)).min(3600)
             };
             p.next = now + Duration::from_secs(seconds);
-            p.next_check = if success {
-                now + Duration::from_secs(CLOCK_CHECK_SECONDS)
-            } else {
-                p.next
-            };
         }
     }
 }
@@ -318,19 +307,6 @@ mod tests {
             .trim()
             .parse()
             .unwrap()
-    }
-    #[test]
-    fn clock_loss_drift_and_slow_read_window() {
-        let before = 800_000_000_000_000;
-        let after = before + 20_000_000; // a slow CASE round trip
-        assert!(clock_needs_sync(None, before, after));
-        assert!(clock_needs_sync(Some(0), before, after));
-        assert!(!clock_needs_sync(Some(before), before, after));
-        assert!(!clock_needs_sync(Some(after), before, after));
-        assert!(!clock_needs_sync(Some(before - 5_000_000), before, after));
-        assert!(clock_needs_sync(Some(before - 5_000_001), before, after));
-        assert!(clock_needs_sync(Some(after + 5_000_001), before, after));
-        assert!(clock_needs_sync(Some(after), after, before)); // host clock changed
     }
     #[test]
     fn berlin_transitions_and_matter_units() {
@@ -456,20 +432,6 @@ mod tests {
             assert_eq!(prefs.entries[0].next.duration_since(now).as_secs(), 15);
             prefs.completed(2, 0, true, now, 999999);
             assert_eq!(prefs.entries[0].next.duration_since(now).as_secs(), DAY);
-            assert_eq!(
-                prefs.entries[0].next_check.duration_since(now).as_secs(),
-                60
-            );
-            let daily = prefs.entries[0].next;
-            prefs.checked(2, 0, now + Duration::from_secs(60));
-            assert_eq!(prefs.entries[0].next, daily);
-            assert_eq!(
-                prefs.entries[0].next_check.duration_since(now).as_secs(),
-                120
-            );
-            prefs.returned(2, now);
-            assert_eq!(prefs.entries[0].next, now);
-            assert_eq!(prefs.entries[0].next_check, now);
             prefs.set(2, 0, "Europe/Berlin", now).unwrap();
             assert_eq!(
                 before,
@@ -481,6 +443,7 @@ mod tests {
             let mut prefs = Preferences::open(store.clone()).unwrap();
             assert_eq!(prefs.entries.len(), 1);
             assert_eq!(prefs.entries[0].name, "Europe/Berlin");
+            assert_eq!(prefs.entries[0].last_event, None);
             assert!(prefs.entries[0].next <= Instant::now());
             assert!(prefs.set(2, 0, "invalid", now).is_err());
             prefs.remove(2).unwrap();

@@ -52,8 +52,6 @@ pub enum Action {
     },
     SyncTime { time_zone: String, offset_seconds: i32,
     },
-    // Internal, read-only unless UTC is lost or outside the read window.
-    CheckTime { time_zone: String },
     Bind {
         targets: Vec<BindingTarget>,
     },
@@ -457,7 +455,7 @@ impl Operation {
             Action::ReadSensor { cluster } => *cluster,
             Action::Bind { .. } => 59,
             Action::Identify => 3,
-            Action::SyncTime { .. } | Action::CheckTime { .. } => 56,
+            Action::SyncTime { .. } => 56,
             Action::Thermostat { .. } | Action::ThermostatRead { .. } => 513,
         };
         if !endpoint.servers.contains(&required_cluster) ||
@@ -630,23 +628,15 @@ impl Operation {
                             })
                             .await?
                     }
-                    Action::SyncTime { ref time_zone, .. } | Action::CheckTime { ref time_zone } => {
-                        let exchange = if matches!(self.action, Action::CheckTime { .. }) {
-                            let before = crate::time_sync::utc_now_us().map_err(|_| ErrorCode::InvalidData)?;
-                            let observed = exchange.time_synchronization().utc_time_read(self.endpoint).await?;
-                            let after = crate::time_sync::utc_now_us().map_err(|_| ErrorCode::InvalidData)?;
-                            if !crate::time_sync::clock_needs_sync(observed.into_option(), before, after) {
-                                return Ok(ResultValue { node: Id(self.node), endpoint: self.endpoint, cluster: 56,
-                                    attribute: 0, value: Value::Bool(false) });
-                            }
-                            log::info!("Matter accessory clock lost or drifted: node={:016x} endpoint={}; restoring", self.node, self.endpoint);
-                            Exchange::initiate(matter, &crypto, fabric, self.node).await?
-                        } else { exchange };
+                    Action::SyncTime { ref time_zone, offset_seconds,
+                    } => {
+                        const MATTER_EPOCH_UNIX_SECONDS: u64 = 946_684_800;
                         let unix = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .map_err(|_| ErrorCode::InvalidData)?;
                         // The gateway resolves the zone; the browser offset is retained
                         // only for compatibility with existing IPC clients.
+                        let _ = offset_seconds;
                         let capacity = exchange.time_synchronization()
                             .dst_offset_list_max_size_read(self.endpoint).await?;
                         let schedule = crate::time_sync::schedule(time_zone, unix.as_secs(), capacity.max(1))
@@ -670,8 +660,16 @@ impl Operation {
                                     entries.end()?.end()
                                 }).await?;
                         }
-                        // Exclude the preceding exchanges from accessory clock error.
-                        let utc_us = crate::time_sync::utc_now_us().map_err(|_| ErrorCode::InvalidData)?;
+                        // Sample UTC after the preceding exchanges so their latency
+                        // does not become accessory clock error.
+                        let unix = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map_err(|_| ErrorCode::InvalidData)?;
+                        let seconds = unix.as_secs().checked_sub(MATTER_EPOCH_UNIX_SECONDS)
+                            .ok_or(ErrorCode::InvalidData)?;
+                        let utc_us = seconds.checked_mul(1_000_000)
+                            .and_then(|value| value.checked_add(u64::from(unix.subsec_micros())))
+                            .ok_or(ErrorCode::InvalidData)?;
                         Exchange::initiate(matter, &crypto, fabric, self.node).await?.time_synchronization().set_utc_time(self.endpoint, |request| {
                             request.utc_time(utc_us)?
                                 .granularity(GranularityEnum::MicrosecondsGranularity)?
@@ -682,7 +680,7 @@ impl Operation {
                     Action::Read | Action::ReadLevel | Action::ReadSensor { .. } => unreachable!(),
                 }
             }
-            if matches!(self.action, Action::SyncTime { .. } | Action::CheckTime { .. }) {
+            if matches!(self.action, Action::SyncTime { .. }) {
                 return Ok(ResultValue { node: Id(self.node), endpoint: self.endpoint, cluster: 56,
                     attribute: 0, value: Value::Bool(true),
                 });

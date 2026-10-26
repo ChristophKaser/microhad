@@ -27,6 +27,7 @@ pub const MAX_DEVICE_SUBSCRIPTIONS: usize = MAX_ENDPOINTS * 12;
 const MAX_RETAINED_JOBS: usize = 16;
 const MAX_QUEUED_REPORT_VALUES: usize = 512;
 const SWITCH_EVENT_ATTRIBUTE: u32 = u32::MAX;
+const CLOCK_EVENT_ATTRIBUTE: u32 = u32::MAX - 1;
 const ICD_MANAGEMENT_CLUSTER: u32 = 0x0046;
 const MAX_ICD_CANDIDATES: usize = crate::icd::MAX_ICD_CLIENTS * MAX_ENDPOINTS;
 
@@ -141,7 +142,7 @@ struct SubscriptionState {
     last_received: Option<Instant>,
 }
 type SubscriptionWork<'a> =
-    Pin<Box<dyn Future<Output = Result<crate::subscriptions::DeviceSubscription, Error>> + 'a>>;
+    Pin<Box<dyn Future<Output = Result<Option<crate::subscriptions::DeviceSubscription>, Error>> + 'a>>;
 type ReportWork<'a> =
     Pin<Box<dyn Future<Output = Result<crate::subscriptions::IncomingMessage, Error>> + 'a>>;
 type IcdWork<'a> = Pin<
@@ -197,6 +198,7 @@ pub struct Manager<'a, C: Crypto> {
     compressed_fabric: u64,
     catalog: Catalog,
     time_preferences: crate::time_sync::Preferences,
+    unsupported_clock_events: Vec<SubscriptionKey>,
     address_refresh: crate::discovery::RefreshRequests,
     signals: crate::discovery::SignalBook,
     icd_registry: Option<crate::icd::ClientRegistry>,
@@ -294,6 +296,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             fabric,
             compressed_fabric,
             time_preferences,
+            unsupported_clock_events: Vec::new(),
             catalog,
             address_refresh,
             signals,
@@ -611,7 +614,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 last_received: None,
             });
             self.host_test_reports
-                .push_back(crate::subscriptions::ReceivedReport {
+                .push_back(crate::subscriptions::ReceivedReport { clock_events: Vec::new(),
                     fabric: self.fabric.get(),
                     node,
                     subscription_id,
@@ -668,6 +671,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             if crate::time_sync::zone(time_zone).is_err() { return Err(Failure::Malformed); }
             self.time_preferences.set(operation.node, operation.endpoint, time_zone, now)
                 .map_err(|_| Failure::Storage)?;
+            self.sync_subscriptions(now);
         }
         let timeout = if matches!(operation.action, crate::operations::Action::Delete { .. }) { 15 } else { 30 };
         let id = self.next_job;
@@ -750,6 +754,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         // Remove wake credentials first. A failed catalog write retains a visible retryable record.
         if let Some(registry) = &mut self.icd_registry { registry.remove(self.fabric, node).map_err(|_| Failure::Storage)?; }
         self.time_preferences.remove(node).map_err(|_| Failure::Storage)?;
+        self.unsupported_clock_events.retain(|key| key.node != node);
         self.catalog.remove(node).map_err(|_| Failure::Storage)?;
         self.snapshots.retain(|entry| entry.node != node);
         if self.work.as_ref().is_some_and(|(id, _, _)| *id == node) { self.work = None; }
@@ -994,16 +999,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 let id = active.id;
                 let node = active.node;
                 if let Some((endpoint, name)) = &active.time_zone {
-                    if result.as_ref().is_ok_and(|value| value.value == crate::operations::Value::Bool(false)) {
-                        self.time_preferences.checked(node, *endpoint, now);
-                    } else {
-                        let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs()).unwrap_or(0);
-                        let delay = crate::time_sync::schedule(name, unix, 1).ok()
-                            .map(|s| (s.intervals[0].end / 1_000_000 + crate::time_sync::EPOCH).saturating_sub(unix))
-                            .unwrap_or(60);
-                        self.time_preferences.completed(node, *endpoint, result.is_ok(), now, delay);
-                    }
+                    let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs()).unwrap_or(0);
+                    let delay = crate::time_sync::schedule(name, unix, 1).ok()
+                        .map(|s| (s.intervals[0].end / 1_000_000 + crate::time_sync::EPOCH).saturating_sub(unix))
+                        .unwrap_or(60);
+                    self.time_preferences.completed(node, *endpoint, result.is_ok(), now, delay);
                     if result.is_err() { log::warn!("Matter time synchronization failed: node={:016x} endpoint={}", node, endpoint); }
                 }
                 self.active = None;
@@ -1105,16 +1106,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         // Background clock maintenance shares the single operational slot and
         // never writes persistent state during periodic refreshes.
         for preference in self.time_preferences.entries.iter().filter(|p| {
-            (p.next <= now || p.next_check <= now) && self.node_awake(p.node, now) && self.catalog.nodes().iter()
+            p.next <= now && self.node_awake(p.node, now) && self.catalog.nodes().iter()
                 .any(|n| n.id == p.node && n.phase == Phase::Complete)
         }) {
             let operation = crate::operations::Operation {
                 node: preference.node, endpoint: preference.endpoint,
-                action: if preference.next <= now {
-                    crate::operations::Action::SyncTime { time_zone: preference.name.clone(), offset_seconds: 0 }
-                } else {
-                    crate::operations::Action::CheckTime { time_zone: preference.name.clone() }
-                },
+                action: crate::operations::Action::SyncTime { time_zone: preference.name.clone(), offset_seconds: 0 },
             };
             if operation.authorize(&self.snapshots).is_ok() {
                 self.active = Some(ActiveOperation {
@@ -1192,16 +1189,26 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 .and_then(|snapshot| snapshot.endpoints.iter()
                     .find(|endpoint| endpoint.servers.contains(&ICD_MANAGEMENT_CLUSTER)))
                 .map(|endpoint| endpoint.id);
-            let work: SubscriptionWork<'a> = if key.cluster == 59 && key.attribute == SWITCH_EVENT_ATTRIBUTE {
-                Box::pin(crate::subscriptions::establish_switch_events_for_device(
-                    self.matter, self.crypto, self.fabric, key.node, key.endpoint, icd_endpoint,
-                    ))
+            let work: SubscriptionWork<'a> = if key.attribute == CLOCK_EVENT_ATTRIBUTE {
+                let last = self.time_preferences.entries.iter().find(|p| p.node == key.node && p.endpoint == key.endpoint)
+                    .and_then(|p| p.last_event);
+                Box::pin(crate::subscriptions::establish_clock_events(
+                    self.matter, self.crypto, self.fabric, key.node, key.endpoint, last, icd_endpoint))
             } else {
-                Box::pin(crate::subscriptions::establish_device_attribute_with_interval(
-                    self.matter, self.crypto, self.fabric, key.node, key.endpoint, key.cluster, key.attribute, max_interval, icd_endpoint,
-                        ),
-                    )
-                };
+                let matter = self.matter;
+                let crypto = self.crypto;
+                let fabric = self.fabric;
+                Box::pin(async move {
+                    if key.cluster == 59 && key.attribute == SWITCH_EVENT_ATTRIBUTE {
+                        crate::subscriptions::establish_switch_events_for_device(
+                            matter, crypto, fabric, key.node, key.endpoint, icd_endpoint).await.map(Some)
+                    } else {
+                        crate::subscriptions::establish_device_attribute_with_interval(
+                            matter, crypto, fabric, key.node, key.endpoint, key.cluster, key.attribute,
+                            max_interval, icd_endpoint).await.map(Some)
+                    }
+                })
+            };
             self.subscription_work = Some((key, now + Duration::from_secs(30), work));
         }
     }
@@ -1221,18 +1228,29 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             if let Some(result) = result {
                 let key = *key;
                 self.subscription_work = None;
+                if matches!(result, Ok(None)) {
+                    // The accessory explicitly advertises neither recovery event.
+                    // Keep return/daily syncs, without retrying unsupported paths.
+                    self.unsupported_clock_events.push(key);
+                    self.subscriptions.retain(|entry| entry.key != key);
+                    self.sync_report_subscriptions();
+                    log::warn!("Matter clock events unsupported: node={:016x} endpoint={}; using reconnect recovery", key.node, key.endpoint);
+                    return true;
+                }
                 let failed = result
                     .as_ref()
                     .err()
                     .is_some_and(|error| error.code() == ErrorCode::RxTimeout);
                 let mut priming_report = None;
+                let mut clock_resumed = false;
                 if let Some(subscription) = self
                     .subscriptions
                     .iter_mut()
                     .find(|subscription| subscription.key == key)
                 {
                     match result {
-                        Ok(established) => {
+                        Ok(Some(established)) => {
+                            clock_resumed = key.attribute == CLOCK_EVENT_ATTRIBUTE && subscription.last_received.is_some();
                             let subscription_id = established.established.subscription_id;
                             subscription.id = Some(subscription_id);
                             subscription.failures = 0;
@@ -1246,8 +1264,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                                 subscription_id,
                                 values: established.priming_values,
                                 buttons: Vec::new(),
+                                clock_events: established.clock_events,
                             });
                         }
+                        Ok(None) => unreachable!(),
                         Err(_) => {
                             subscription.id = None;
                             subscription.failures = subscription.failures.saturating_add(1);
@@ -1257,7 +1277,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 }
                 if let Some(report) = priming_report {
                     self.sync_report_subscriptions();
-                    self.record_report(report);
+                    if clock_resumed { self.time_preferences.returned(key.node, now); }
+                    self.record_report_with_kind(report, true);
                 }
                 if failed {
                     self.mark_node_unreachable(key.node, now);
@@ -1661,7 +1682,16 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
     }
 
     fn sync_subscriptions(&mut self, now: Instant) {
-        let desired = subscription_keys(&self.snapshots, self.subscription_limit);
+        let mut desired = subscription_keys(&self.snapshots, self.subscription_limit);
+        for p in &self.time_preferences.entries {
+            let key = SubscriptionKey { node: p.node, endpoint: p.endpoint, cluster: 56, attribute: CLOCK_EVENT_ATTRIBUTE };
+            if !self.unsupported_clock_events.contains(&key) && self.snapshots.iter().any(|s| {
+                s.node == p.node && s.online && s.endpoints.iter().any(|e| e.id == p.endpoint && e.servers.contains(&56))
+            }) {
+                desired.insert(0, key);
+            }
+        }
+        desired.truncate(self.subscription_limit);
         self.subscriptions
             .retain(|subscription| desired.contains(&subscription.key));
         for key in desired {
@@ -1691,6 +1721,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         );
     }
     fn record_report(&mut self, report: crate::subscriptions::ReceivedReport) {
+        self.record_report_with_kind(report, false);
+    }
+    fn record_report_with_kind(&mut self, report: crate::subscriptions::ReceivedReport, priming: bool) {
         if report.fabric != self.fabric.get() {
             return;
         }
@@ -1702,6 +1735,18 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if became_online {
             self.time_preferences.returned(report.node, Instant::now());
             self.changed();
+        }
+        let key = self.subscriptions[index].key;
+        if key.attribute == CLOCK_EVENT_ATTRIBUTE {
+            let baseline = priming && self.time_preferences.entries.iter()
+                .find(|p| p.node == key.node && p.endpoint == key.endpoint).is_some_and(|p| p.last_event.is_none());
+            for event in &report.clock_events {
+                if (event.cluster == 40 && event.endpoint == 0) || (event.cluster == 56 && event.endpoint == key.endpoint) {
+                    if self.time_preferences.event(key.node, key.endpoint, event.number, baseline, Instant::now()) {
+                        log::info!("Matter clock recovery event: node={:016x} cluster={} event=0 number={}", key.node, event.cluster, event.number);
+                    }
+                }
+            }
         }
         let subscription = &mut self.subscriptions[index];
         subscription.last_received = Some(Instant::now());
@@ -1949,7 +1994,7 @@ mod tests {
             last_report: None,
             last_received: None,
         });
-        manager.record_report(crate::subscriptions::ReceivedReport {
+        manager.record_report(crate::subscriptions::ReceivedReport { clock_events: Vec::new(),
             fabric: 1,
             node: 2,
             subscription_id: 77,
@@ -2065,7 +2110,7 @@ mod tests {
             Some(crate::protobuf::NullableUintChoice::Null(true)));
         assert!(manager.subscription_health(2, true, 6, now).is_err());
         assert!(manager.subscription_health(99, false, 0, now).is_err());
-        manager.record_report(crate::subscriptions::ReceivedReport { fabric: 1, node: 2,
+        manager.record_report(crate::subscriptions::ReceivedReport { clock_events: Vec::new(), fabric: 1, node: 2,
             subscription_id: 1026, values: vec![], buttons: vec![],
         });
         let health = manager.subscription_health(2, false, 0, now + Duration::from_secs(1)).unwrap();
@@ -2107,7 +2152,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         fn report(value: f32) -> crate::subscriptions::ReceivedReport {
-            crate::subscriptions::ReceivedReport {
+            crate::subscriptions::ReceivedReport { clock_events: Vec::new(),
                 fabric: 1,
                 node: 2,
                 subscription_id: 77,
@@ -2168,7 +2213,7 @@ mod tests {
         // An empty Matter ReportData is a liveness keepalive even when it
         // contains no changed attribute values.
         manager.subscriptions[0].next_retry = Instant::now() - Duration::from_secs(1);
-        manager.record_report(crate::subscriptions::ReceivedReport {
+        manager.record_report(crate::subscriptions::ReceivedReport { clock_events: Vec::new(),
             fabric: 1,
             node: 2,
             subscription_id: 77,
@@ -2405,19 +2450,53 @@ mod tests {
         assert!(manager.time_preferences.entries[0].next > now);
         assert!(manager.jobs.is_empty());
         assert_eq!(before, std::fs::read(directory.join("credentials.bin")).unwrap());
-        // A brief power cycle can happen while the cached online flag stays true.
-        // Healthy minute checks must not postpone the daily schedule or write flash.
+        // Event subscriptions baseline the initial retained history, then accept
+        // both live reboot reports and missed events in replacement priming.
+        let key = SubscriptionKey { node: 2, endpoint: 0, cluster: 56, attribute: CLOCK_EVENT_ATTRIBUTE };
+        manager.subscriptions.push(SubscriptionState {
+            key, id: Some(100), next_retry: now + Duration::from_secs(300), max_interval: 300,
+            failures: 0, unit: None, last_report: None, last_received: None,
+        });
+        let clock_report = |number, cluster, endpoint| crate::subscriptions::ReceivedReport {
+            fabric: 1, node: 2, subscription_id: 100, values: vec![], buttons: vec![],
+            clock_events: vec![crate::subscriptions::ClockEvent { endpoint, cluster, number }],
+        };
         let daily = manager.time_preferences.entries[0].next;
-        manager.time_preferences.entries[0].next_check = now;
-        manager.poll(true, false, now, &mut context);
-        assert!(manager.active.is_some());
-        manager.active.as_mut().unwrap().work = Box::pin(std::future::ready(Ok(crate::operations::ResultValue {
-            node: crate::control::Id(2), endpoint: 0, cluster: 56, attribute: 0,
-            value: crate::operations::Value::Bool(false),
-        })));
-        manager.poll(true, false, now, &mut context);
-        assert_eq!(manager.time_preferences.entries[0].next, daily);
-        assert_eq!(manager.time_preferences.entries[0].next_check.duration_since(now).as_secs(), 60);
+        let mut history = clock_report(10, 40, 0);
+        history.clock_events.push(crate::subscriptions::ClockEvent { endpoint: 0, cluster: 56, number: 11 });
+        manager.record_report_with_kind(history, true);
+        assert_eq!(manager.time_preferences.entries[0].next, daily, "initial history must only establish a baseline");
+        assert_eq!(manager.time_preferences.entries[0].last_event, Some(11));
+        manager.record_report(clock_report(12, 40, 0));
+        assert!(manager.time_preferences.entries[0].next < daily, "StartUp must schedule a sync even while cached online");
+        manager.time_preferences.entries[0].next = daily;
+        manager.record_report(clock_report(12, 40, 0));
+        assert_eq!(manager.time_preferences.entries[0].next, daily, "duplicate event must not sync again");
+        let mut wrong_peer = clock_report(13, 56, 0);
+        wrong_peer.fabric = 2;
+        manager.record_report(wrong_peer);
+        let mut retired = clock_report(13, 56, 0);
+        retired.subscription_id = 999;
+        manager.record_report(retired);
+        manager.record_report(clock_report(13, 56, 1));
+        assert_eq!(manager.time_preferences.entries[0].next, daily, "unrelated or retired reports cannot trigger recovery");
+        manager.record_report_with_kind(clock_report(13, 56, 0), true);
+        assert!(manager.time_preferences.entries[0].next < daily, "replacement priming must replay missed TimeFailure");
+        manager.time_preferences.entries[0].next = daily;
+        manager.subscription_work = Some((key, now + Duration::from_secs(30), Box::pin(std::future::ready(Ok(Some(
+            crate::subscriptions::DeviceSubscription { clock_events: Vec::new(),
+                established: rs_matter::im::client::SubscribeEstablished { subscription_id: 101, max_int: 300 },
+                unit: None, priming_values: Vec::new(),
+            }
+        ))))));
+        manager.poll_background(now, &mut context);
+        assert_eq!(manager.time_preferences.entries[0].next, now, "lost subscription resumption must repair clocks even if its retained event was evicted");
+        manager.subscription_work = Some((key, now + Duration::from_secs(30), Box::pin(std::future::ready(Ok(None)))));
+        manager.poll_background(now, &mut context);
+        assert!(manager.unsupported_clock_events.contains(&key));
+        manager.sync_subscriptions(now);
+        assert!(!manager.subscriptions.iter().any(|s| s.key == key), "unsupported events must not retry forever");
+        manager.time_preferences.entries[0].next = daily;
         assert_eq!(before, std::fs::read(directory.join("credentials.bin")).unwrap());
         // A sensor report can be the first evidence that a rebooted node returned.
         manager.snapshots[0].online = false;
@@ -2426,7 +2505,7 @@ mod tests {
             id: Some(99), next_retry: now + Duration::from_secs(300), max_interval: 60,
             failures: 0, unit: None, last_report: None, last_received: None,
         });
-        manager.record_report(crate::subscriptions::ReceivedReport {
+        manager.record_report(crate::subscriptions::ReceivedReport { clock_events: Vec::new(),
             fabric: 1, node: 2, subscription_id: 99, values: vec![], buttons: vec![],
         });
         let returned = Instant::now();
@@ -2439,7 +2518,7 @@ mod tests {
         })));
         manager.poll(true, false, returned, &mut context);
         let daily = manager.time_preferences.entries[0].next;
-        manager.record_report(crate::subscriptions::ReceivedReport {
+        manager.record_report(crate::subscriptions::ReceivedReport { clock_events: Vec::new(),
             fabric: 1, node: 2, subscription_id: 99, values: vec![], buttons: vec![],
         });
         assert_eq!(manager.time_preferences.entries[0].next, daily, "routine reports must not repeatedly set time");
@@ -2514,12 +2593,12 @@ mod tests {
             manager.subscription_work = Some((key, deadline, Box::pin(std::future::poll_fn(move |_| {
                 counted.set(counted.get() + 1);
                 if !available.get() { return Poll::Pending; }
-                Poll::Ready(Ok(crate::subscriptions::DeviceSubscription {
+                Poll::Ready(Ok(Some(crate::subscriptions::DeviceSubscription { clock_events: Vec::new(),
                     established: rs_matter::im::client::SubscribeEstablished { subscription_id: 77, max_int: 60,
                         },
                         unit: None,
                         priming_values: vec![],
-                    }))
+                    })))
                 })),
             ));
         } else {
