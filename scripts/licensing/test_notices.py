@@ -129,6 +129,20 @@ class Notices(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'No license text'):
                 notices.texts(Path(directory))
 
+    def test_android_cli_renders_structured_records_with_authors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / 'manifest.json'
+            manifest.write_text('[]')
+            output = root / 'licenses.html'
+            with patch('sys.argv', ['android-notices.py', '--manifest', str(manifest), '--output', str(output)]):
+                android.main()
+            html = output.read_text()
+            self.assertIn('MicroHAD companion original code', html)
+            self.assertIn('MicroHAD contributors', html)
+            self.assertIn('Permission is hereby granted', html)
+            self.assertNotIn('Back to MicroHAD', html)
+
     def test_nested_android_jar_notices_survive(self):
         inner, outer = io.BytesIO(), io.BytesIO()
         with zipfile.ZipFile(inner, 'w') as jar:

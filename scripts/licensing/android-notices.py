@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 import zipfile
-from notices import ROOT, page, render
+from notices import ROOT, page
 
 
 def children(element, name):
@@ -59,7 +59,7 @@ def embedded(data):
 
 
 def collect(manifest, cache):
-    records = [{'name': 'MicroHAD companion original code', 'license': 'MIT', 'texts': [('LICENSE', (ROOT / 'LICENSE').read_text())]}]
+    records = [{'name': 'MicroHAD companion original code', 'license': 'MIT', 'authors': ['MicroHAD contributors'], 'texts': [('LICENSE', (ROOT / 'LICENSE').read_text())]}]
     for dependency in sorted(manifest, key=lambda x: x['coordinate']):
         coordinate = dependency['coordinate']
         pom = dependency.get('pom')
@@ -90,7 +90,7 @@ def collect(manifest, cache):
                 raise ValueError(f'Unreviewed Android license: {coordinate}: {name} {url}')
         if authors:
             texts.append(('Maven declared authors', '\n'.join(authors)))
-        records.append({'name': coordinate, 'license': '; '.join(name + ' (' + url + ')' for name, url in licenses), 'texts': texts})
+        records.append({'name': coordinate, 'authors': authors, 'license': '; '.join(name + ' (' + url + ')' for name, url in licenses), 'texts': texts})
     return records
 
 
@@ -100,11 +100,9 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--cache', type=Path, default=Path.home() / '.gradle/caches/modules-2/files-2.1')
     args = parser.parse_args()
-    text = render(collect(json.loads(args.manifest.read_text()), args.cache)).replace(
-        'Includes a conservative superset of locked Rust dependencies (including host/test/other-platform packages).',
-        'Android resolved runtime dependencies for this build variant; test-only dependencies excluded.')
+    records = collect(json.loads(args.manifest.read_text()), args.cache)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(page(text).replace('<a href="/">Back to MicroHAD</a>', ''))
+    args.output.write_text(page(records).replace('<a href="/">← Back to MicroHAD</a>', ''))
     print('Android notices:', args.output)
 
 

@@ -2,9 +2,11 @@
 
 An MIT-licensed Android companion for one MicroHAD gateway. It provides address
 setup, optional LAN discovery, Matter-over-Bluetooth commissioning, FCM push
-registration and notifications, and a link to the gateway dashboard. It contains
-no household-specific device controls, gateway passwords, Firebase project
-credentials, or personal build flavors.
+registration and notifications, and native Dashboard, Devices, and Groups views.
+The dashboard follows the layout saved in the Web UI. Device controls, sensor
+history, scenes, and saved automation triggers use the gateway APIs; configuration
+editors remain in the Web UI. The app contains no household-specific controls,
+gateway passwords, Firebase project credentials, or personal build flavors.
 
 Android 9 or later is required. Push and QR scanning use Google Play services;
 manual-code Matter commissioning does not require Firebase or Play services.
@@ -59,7 +61,9 @@ registration; remove it from the dashboard when reachable.
 
 ## Verification
 
-Local tests cover Matter codes, advertisements, GATT state, relay bounds,
+Local tests cover native view navigation, saved dashboard order, device and group
+controls, unavailable states, history pagination/scaling, Matter command routing,
+HTTP cancellation, and absence of settings editors, as well as Matter codes, advertisements, GATT state, relay bounds,
 commissioning lifecycle, gateway HTTP/WebSocket protocol, runtime configuration,
 address validation, certificate matching, and retry policy. Native host tests
 cover the configuration endpoint and mDNS encoding/parser bounds.

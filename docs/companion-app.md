@@ -111,9 +111,46 @@ are supported, but this version advertises IPv4 addresses only. Discovery stops
 on backgrounding or after twelve seconds. Permission/system restrictions are
 reported with manual setup remaining available.
 
+## Native home views
+
+After connecting, the app opens **Dashboard**. Its widgets and order come from
+`/api/dashboard/config`, shared with the Web UI: gateway state, devices, groups,
+sensor charts, open contacts, present sensors, and saved automation buttons.
+Edit the layout in the Web UI, then foreground or refresh the app to reload it.
+Missing devices/groups remain visible as unavailable widgets.
+
+**Devices** lists the gateway inventory with device-type filters. Cards show
+readings, availability, battery/signal and last-seen information. Supported
+controls include lights, brightness, switches, thermostat heating/cooling targets
+and operating mode, attribute refresh, and Identify from device details. Compact
+cards emphasize their main readings; the chevron expands brightness presets and
+thermostat controls. The bottom icon toolbar provides details, history and refresh.
+**History** offers 24 hours, seven days and all retained samples; tap or drag horizontally on a chart to
+inspect a timestamp and value. Charts include labeled time/value axes, metric
+units, subtle grid lines and a metric-specific line with a light area fill.
+Dashboard, device and group cards share the same background, border and shape.
+Temperature and humidity have colored values and thermometer/droplet icons.
+Air-quality readings use the Web UI’s quality bands and background colors;
+unknown readings and unsupported concentration units remain neutral. **Groups** shows member states, scene buttons,
+and group off.
+
+Configuration editors, deletion, reconfiguration, schedules, calibration,
+network administration and automation editing are excluded. The **App** tab
+opens existing connection/push management, Matter commissioning, browser access,
+Android notification settings and disconnect. Bottom navigation returns to the
+home views.
+
+The app polls status and automation availability every three seconds and gateway
+overview every ten seconds while foregrounded. Open charts reload every thirty
+seconds. Backgrounding cancels polling, history requests, and outstanding actions;
+commands already accepted by the gateway may still finish. Resume refreshes the
+data. Failed reads retain visibly stale data and disable device/group commands
+until status recovers. Commands show pending feedback; confirmed state comes
+from subsequent gateway status, including for asynchronous Matter jobs.
+
 ## Matter commissioning
 
-Select **Commission Matter device** after connecting. Put the accessory in
+Open the **App** tab, then select **Commission Matter device** after connecting. Put the accessory in
 pairing mode, enter its manual code or scan its QR code, select the matching BLE
 advertisement and keep the app in the foreground until completion. Grant
 Bluetooth permissions when requested. Android 9–11 also require location
@@ -177,6 +214,12 @@ Before claiming phone/device support, manually check:
   manual/QR commissioning, cancellation and background cleanup with an accessory.
 - Notification show/update/clear in foreground/background, process restart,
   reboot, offline retry, token refresh and notification permission denial.
+- Dashboard order and all widget types against the Web UI, including missing
+  targets, sensor chart units, empty history and saved automation availability.
+- Device filters, light/switch controls, brightness presets, thermostat limits,
+  pending confirmation, details/Identify, history ranges, scenes and group off.
+- Network loss/recovery, background/resume, returning from commissioning, and
+  scrolling/navigation on a small phone; configuration editors must be absent.
 - Reset with reachable/unreachable old gateway, then configure a different
   Firebase project and confirm old work cannot register with the new gateway.
 

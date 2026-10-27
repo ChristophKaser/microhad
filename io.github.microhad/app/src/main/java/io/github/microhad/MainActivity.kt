@@ -181,7 +181,7 @@ class MainActivity : ComponentActivity() {
         MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF006875), onPrimary = Color.White, primaryContainer = Color(0xFFB9F1F5), surface = Color(0xFFF8FAFA), surfaceVariant = Color(0xFFE2E8E8), onSurface = Color(0xFF171D1E), onSurfaceVariant = Color(0xFF3F494A), outline = Color(0xFF6F797A), error = Color(0xFFB3261E))) {
             Surface(Modifier.fillMaxSize()) {
                 when (destination) {
-                    Destination.DASHBOARD -> Dashboard()
+                    Destination.DASHBOARD -> GatewayHome(store.base, store.fingerprint, lifecycle) { Dashboard() }
                     Destination.SETUP -> Setup()
                     Destination.DISCONNECTED -> Disconnected()
                 }
