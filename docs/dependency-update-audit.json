@@ -3,7 +3,6 @@
   "scope": "Direct dependencies declared by this repository: tracked Git submodules, root service Rust manifest, Web UI npm manifest, pinned compiler/build inputs and host migration/diagnostic helpers. Upstream-owned transitive manifests and the separate ignored garage-app are excluded.",
   "policy": "Apply compatible source/package updates and rebase patches; record major migrations, compiler baselines and operational tool pins separately. A newer release recorded here is not claimed to be installed.",
   "system_packages": "Host gcc/clang/Java, distribution Python packages, Docker Ubuntu 24.04 packages and apt-managed tools are environment prerequisites, not repository-pinned package versions. Stock gateway libraries are an immutable ABI fixture, not upgrade candidates.",
-  "inactive_gitmodules": "QuickJS appears in .gitmodules but has no tracked gitlink or active build dependency. Repeated Lua/QuickJS entries are existing metadata.",
   "dependencies": [
     {
       "name": "firmware/dependencies/gecko-sdk",
