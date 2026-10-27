@@ -22,7 +22,7 @@ matter_socket=${MATTER_SOCKET:-/tmp/microhad-matter.sock}
 thread_socket=${THREAD_SOCKET:-/tmp/ziggurat/thread.sock}
 # Diagnostic ownership changes never survive a fresh supervisor or reboot.
 thread_tcp=off
-matter_limit=${MATTER_RESTART_LIMIT:-5}
+matter_limit=${MATTER_RESTART_LIMIT:-50}
 matter_log_level=${MATTER_LOG_LEVEL:-info}
 matter_raw_frames=${MATTER_RAW_FRAMES:-off}
 matter_level_restart=false
@@ -179,6 +179,19 @@ start_native() {
     "$NATIVE_BIN" --config "$NATIVE_CONFIG" >/dev/null 2>&1 &
     native_pid=$!;printf '%s\n' "$native_pid" > "$control/native.pid"
 }
+# Keep bounded, private evidence even when the boot launcher discards stderr.
+# No state, packet contents or credentials are included; all files are in RAM.
+matter_event() {
+    {
+        printf 'time=%s event=%s pid=%s launches=%s limit=%s ' "$(date +%s)" "$1" "${matter_pid:-none}" "$matter_retries" "$matter_limit"
+        printf 'uptime='; IFS=' ' read -r event_uptime event_idle < /proc/uptime
+        printf '%s ' "$event_uptime"
+        awk '/^(MemFree|Cached|Slab):/ {printf "%s%s%s ", $1, $2, $3} END {print ""}' /proc/meminfo
+    } > "$control/matter-event.tmp"
+    cat "$control/matter.events" "$control/matter-event.tmp" 2>/dev/null | tail -n 64 > "$control/matter-events.tmp"
+    mv "$control/matter-events.tmp" "$control/matter.events"
+    rm -f "$control/matter-event.tmp"
+}
 poll_matter() {
     [ "$thread_tcp" = off ] || return 0
     [ -n "$matter_bin" ] || return 0
@@ -217,12 +230,17 @@ poll_matter() {
     [ ! -e "$control/quiesce" ] && [ ! -e "$control/stop" ] || return 0
     if [ -n "$matter_pid" ] && kill -0 "$matter_pid" 2>/dev/null; then return 0;fi
     if [ -n "$matter_pid" ]; then
-        wait "$matter_pid" 2>/dev/null || true;matter_pid=
+        matter_status=0
+        wait "$matter_pid" 2>/dev/null || matter_status=$?
+        # Shell wait status is the exit code, or 128+signal for a signal death.
+        matter_event "exit_status=$matter_status"
+        matter_pid=
         rm -f "$control/matter.pid" "$control/active-matter-log-level" "$control/active-matter-raw-frames"
         matter_next=$(($(date +%s)+backoff))
     fi
     if [ "$matter_retries" -ge "$matter_limit" ] && [ "$matter_level_restart" = false ]; then
         if [ ! -e "$control/matter.failed" ]; then
+            matter_event budget_exhausted
             echo 'Matter restart budget exhausted; Zigbee remains running' >&2
             : > "$control/matter.failed"
         fi
@@ -243,6 +261,7 @@ poll_matter() {
     printf '%s\n' "$matter_log_level" > "$control/active-matter-log-level"
     printf '%s\n' "$matter_raw_frames" > "$control/active-matter-raw-frames"
     printf '%s\n' "$matter_pid" > "$control/matter.pid"
+    matter_event started
 }
 while :; do
     [ ! -e "$control/stop" ] || exit 0

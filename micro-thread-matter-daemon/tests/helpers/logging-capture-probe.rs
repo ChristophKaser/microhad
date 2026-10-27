@@ -1,5 +1,11 @@
 //! Synthetic logging only: no radio, controller, filesystem state or credentials.
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("panic") {
+        let _guard = micro_thread_matter_daemon::logging::init(log::LevelFilter::Off, false)
+            .expect("logger initialization");
+        micro_thread_matter_daemon::logging::install_panic_diagnostics();
+        panic!("private panic payload must not appear in syslog");
+    }
     let capture = std::env::args().nth(1).as_deref() == Some("on");
     let _guard = micro_thread_matter_daemon::logging::init(log::LevelFilter::Info, capture)
         .expect("logger initialization");

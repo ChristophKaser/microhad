@@ -559,6 +559,7 @@ fn run(
     Ok(())
 }
 fn main() {
+    micro_thread_matter_daemon::logging::install_panic_diagnostics();
     let mut log_guard = None;
     if run(&mut log_guard).is_err() {
         // Errors deliberately omit CLI inputs, blobs and credential contents.

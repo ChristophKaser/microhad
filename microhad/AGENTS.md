@@ -190,6 +190,14 @@ state and identity are preserved. Selective deployment accepts
 `--services ziggurat,supervisor` to upload the changed radio executable and
 supervisor/control scripts without replacing other services.
 
+Matter permits 50 launches per supervisor lifetime by default, configurable with
+`MATTER_RESTART_LIMIT`. Unexpected exits record the shell wait status (128 plus
+the signal number for signal deaths), PID, launch count, uptime and memory
+figures in `/tmp/ziggurat-supervisor/matter.events`. This private RAM log retains
+the latest 64 events and is cleared on supervisor shutdown. Budget exhaustion
+still leaves Zigbee running. Rust panics synchronously log their source location
+to syslog, without panic payloads, before the panic-abort runtime exits.
+
 Matter uses `MATTER_LOG_LEVEL` (normally `info`) and
 `/tuya/native/paired_control.sh matter-log-level LEVEL` with the same six levels.
 This gracefully restarts only Matter without consuming its failure-restart

@@ -136,6 +136,32 @@ impl Drop for SyslogWriter {
     }
 }
 
+/// Panic-abort builds cannot drain the asynchronous logger. Send the source
+/// location synchronously, without potentially sensitive panic payloads.
+pub fn install_panic_diagnostics() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let mut writer = SyslogWriter::new();
+        writer.priority = libc::LOG_ERR;
+        if let Some(location) = info.location() {
+            let _ = writeln!(
+                writer,
+                "Matter panic at {}:{}:{}; process aborting",
+                location.file(),
+                location.line(),
+                location.column()
+            );
+        } else {
+            let _ = writeln!(
+                writer,
+                "Matter panic; source location unavailable; process aborting"
+            );
+        }
+        let _ = writer.flush();
+        previous(info);
+    }));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -25,6 +25,13 @@ def main():
                         '--features controller-service --example logging-capture-probe'],
                        cwd=ROOT, check=True)
         probe = ROOT / 'build/micro-thread-matter-daemon/target/release/examples/logging-capture-probe'
+        capture.unlink(missing_ok=True)
+        result = subprocess.run([str(probe), 'panic'], env=env, capture_output=True)
+        assert result.returncode != 0
+        records = capture.read_text()
+        assert 'Matter panic at ' in records and 'logging-capture-probe.rs:' in records
+        assert 'private panic payload' not in records
+        print('PASS synchronous panic location survives disabled asynchronous logging')
         for mode in ('off', 'on'):
             capture.unlink(missing_ok=True)
             subprocess.run([str(probe), mode], env=env, check=True)

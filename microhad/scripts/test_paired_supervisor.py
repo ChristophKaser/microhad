@@ -484,10 +484,26 @@ os.execv(os.environ['REAL_MAINTENANCE_BIN'],[os.environ['REAL_MAINTENANCE_BIN']]
         wait(lambda:(self.control/'matter.failed').exists())
         events=self.events.read_text()
         self.assertEqual(events.count('matter start'),2)
+        evidence=(self.control/'matter.events').read_text()
+        self.assertEqual(evidence.count('event=exit_status=1'),2)
+        self.assertIn('event=budget_exhausted',evidence)
+        self.assertIn('launches=2 limit=2',evidence)
+        self.assertIn('MemFree:',evidence)
         self.assertEqual(events.count('native start'),1)
         self.assertEqual(events.count('zig start'),1)
         self.assertNotIn('native stop',events)
         self.assertIsNone(self.process.poll())
+        self.quiesce();self.stop()
+
+    def test_matter_signal_death_records_status_and_recovers(self):
+        self.enable_matter();self.start();self.ready()
+        wait(lambda:(self.control/'matter.pid').exists())
+        pid=int((self.control/'matter.pid').read_text())
+        os.kill(pid,signal.SIGKILL)
+        wait(lambda:'event=exit_status=137' in (self.control/'matter.events').read_text())
+        wait(lambda:self.events.read_text().count('matter start')==2)
+        self.assertFalse((self.control/'matter.failed').exists())
+        self.assertEqual(self.events.read_text().count('zig start'),1)
         self.quiesce();self.stop()
 
     def test_matter_stops_before_native_and_radio_on_quiesce(self):
