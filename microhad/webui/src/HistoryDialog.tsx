@@ -35,7 +35,7 @@ function Chart({ samples, metric, unit, now, start }: { samples: HistorySample[]
       data: { datasets: [{
         label: historyName(metric), data: points, borderColor: metricColor[metric],
         backgroundColor: metricColor[metric], borderWidth: 2.5, tension: 0,
-        stepped: discrete ? 'after' : false,
+        stepped: discrete ? 'before' : false,
         pointRadius: (context) => context.dataIndex === values.length - 1 ? 4 : 0,
         pointHoverRadius: 5,
       }] },

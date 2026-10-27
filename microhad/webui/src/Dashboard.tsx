@@ -62,7 +62,7 @@ function SensorChart({ device, metricId, range }: { device: Device | undefined; 
     const discrete = historyDiscrete(historyMetric)
     const chart = new ChartJS(canvas.current, {
       type: 'line',
-      data: { datasets: [{ label: metric.name, data: unitPoints.map(p => ({x:p[1], y:historyY(historyMetric, p)})), borderColor: metric.color, backgroundColor: metric.color, borderWidth: 2, stepped: discrete ? 'after' : false, pointRadius: 0 }] },
+      data: { datasets: [{ label: metric.name, data: unitPoints.map(p => ({x:p[1], y:historyY(historyMetric, p)})), borderColor: metric.color, backgroundColor: metric.color, borderWidth: 2, stepped: discrete ? 'before' : false, pointRadius: 0 }] },
       options: { responsive: true, maintainAspectRatio: false, animation: false, parsing: false, plugins: { legend: { display: false }, tooltip: { callbacks: { title: items => items.length ? new Date(Number(items[0].parsed.x) * 1000).toLocaleString() : '', label: item => historyLabel(historyMetric, unitPoints[item.dataIndex]) } } }, scales: { x: { type: 'linear', min: start, max: now, ticks: { maxTicksLimit: 4, callback: value => new Date(Number(value)*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) } }, y: { ticks: { maxTicksLimit: discrete ? 6 : 4, callback: value => { const tick = historyTick(historyMetric, Number(value)); return unit ? `${tick} ${unit}` : tick } } } } }
     })
     return () => chart.destroy()

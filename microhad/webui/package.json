@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc --noEmit && vite build && python3 ../../scripts/licensing/notices.py web --output dist/licenses.html && node scripts/compress-dist.mjs",
     "dev": "vite --host 0.0.0.0",
-    "test:history": "python3 ../scripts/test_history_webui.py",
+    "test:history": "node --test test/history-chart.test.mjs && python3 ../scripts/test_history_webui.py",
     "test:automation": "node --test test/automation-editor.test.mjs && node test/automation-editor-browser.cjs && python3 ../scripts/test_automation_webui.py"
   },
   "dependencies": {
