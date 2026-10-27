@@ -148,6 +148,38 @@ data. Failed reads retain visibly stale data and disable device/group commands
 until status recovers. Commands show pending feedback; confirmed state comes
 from subsequent gateway status, including for asynchronous Matter jobs.
 
+## Android system device controls
+
+On Android 11 and later, open the phone's **Device controls** surface, choose
+**MicroHAD Companion**, and select favorites. The entry point depends on the
+phone manufacturer; on Pixel it is available from Quick Settings. Configure a
+gateway in the companion app first. Android 9–10 retain normal app support.
+
+The picker offers light/switch toggles, brightness sliders, read-only sensor
+readings, scene and group-off buttons, and saved automation triggers. Thermostat
+readings appear as sensors; open the app to change thermostat settings. Long-press
+a control to open the companion app. Actions retain Android's default unlock
+requirement. These controls do not add devices to Google Home.
+
+State refreshes while the system subscribes to selected controls; there is no
+permanent foreground service. Unknown readings stay unknown, offline controls
+show unavailable, and removed entities show removed. Changing gateway address or
+certificate creates a different control identity: select favorites again. No
+scene or automation trigger is automatically retried.
+
+Phone acceptance checks after installation:
+
+- Select device, sensor, scene, group-off, and automation-trigger favorites.
+- Verify on/off and brightness update both Android and the gateway dashboard.
+- Verify sensor cards show readings without issuing commands; invoke a known
+  safe scene/trigger once and confirm the gateway receives it once.
+- Close the app normally and reopen Device controls; confirm readings still load.
+- Disconnect the gateway network and confirm unavailable states; restore it and
+  confirm recovery. Verify deleted favorites and a changed gateway cannot send
+  commands to replacement entities.
+- Confirm actions require unlock and long-press opens the app. Check Android
+  9–10 has no enabled controls provider.
+
 ## Matter commissioning
 
 Open the **App** tab, then select **Commission Matter device** after connecting. Put the accessory in

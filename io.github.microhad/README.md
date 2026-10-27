@@ -2,7 +2,8 @@
 
 An MIT-licensed Android companion for one MicroHAD gateway. It provides address
 setup, optional LAN discovery, Matter-over-Bluetooth commissioning, FCM push
-registration and notifications, and native Dashboard, Devices, and Groups views.
+registration and notifications, native Dashboard, Devices, and Groups views, and Android 11+ system Device controls
+for devices, sensors, scenes, and saved automation triggers.
 The dashboard follows the layout saved in the Web UI. Device controls, sensor
 history, scenes, and saved automation triggers use the gateway APIs; configuration
 editors remain in the Web UI. The app contains no household-specific controls,
