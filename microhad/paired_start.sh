@@ -76,8 +76,27 @@ sleep 1
     rm -rf "$control"
     exit 2
 }
-zig_pid=;native_pid=;matter_pid=;retries=0;matter_retries=0;matter_next=0;quiesced=false
+zig_pid=;native_pid=;matter_pid=;zig_logger_pid=;matter_logger_pid=
+retries=0;matter_retries=0;matter_next=0;quiesced=false
 zig_diagnostic_restart=false
+# Keep stderr separate from the services' normal direct syslog output. A FIFO
+# preserves the real child PID/wait status, unlike a service | logger pipeline.
+forward_stderr() {
+    stderr_tag=$1
+    while IFS= read -r stderr_line || [ -n "$stderr_line" ]; do
+        # Stock syslogd truncates datagrams at 255 bytes. Leave room for headers
+        # and long service tags, and split by bytes rather than characters.
+        while [ -n "$stderr_line" ]; do
+            stderr_part=$(printf '%s' "$stderr_line" | dd bs=160 count=1 2>/dev/null)
+            "$syslogd" logger -p daemon.err -t "$stderr_tag" -- "$stderr_part" ||
+                printf '%s: %s\n' "$stderr_tag" "$stderr_part" >&2
+            stderr_line=${stderr_line#"$stderr_part"}
+        done
+    done
+}
+drain_stderr() {
+    [ -z "$1" ] || wait "$1" 2>/dev/null || true
+}
 valid_thread_tcp() {
     [ "$1" = off ] && return 0
     case "$1" in ''|*[!0-9.:]*) return 1 ;; esac
@@ -109,6 +128,8 @@ cleanup() {
     stop_child "$matter_pid";matter_pid=
     stop_child "$native_pid";native_pid=
     stop_child "$zig_pid";zig_pid=
+    drain_stderr "$matter_logger_pid"
+    drain_stderr "$zig_logger_pid"
     rm -f "$control/matter.pid" "$control/matter.failed" "$control/active-matter-log-level" "$control/requested-matter-log-level" "$control/requested-matter-log-level."* "$control/native.pid" "$control/ziggurat.pid" "$control/supervisor.pid" "$control/quiesce" "$control/quiesced" "$control/stop" "$control/active-log-level" "$control/requested-log-level" "$control/requested-log-level."*
     rm -f "$control/active-raw-frames" "$control/requested-raw-frames" "$control/requested-raw-frames."*
     rm -f "$control/active-radio-trace" "$control/requested-radio-trace" "$control/requested-radio-trace."*
@@ -119,6 +140,7 @@ cleanup() {
 }
 trap 'cleanup;exit 0' TERM INT HUP
 trap cleanup EXIT
+mkfifo "$control/ziggurat.stderr" "$control/matter.stderr" || exit 2
 prepare_socket_path() {
     path=$1
     [ -e "$path" ] || [ -L "$path" ] || return 0
@@ -156,8 +178,11 @@ start_zig() {
         set -- --thread-socket "$thread_socket"
     fi
     if [ "$zig_raw_frames" = on ]; then set -- "$@" --raw-frames;fi
-    MATTER_RADIO_TRACE="$radio_trace" NO_COLOR=1 "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
-        --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level "$zig_log_level" "$@" 2>&1 &
+    drain_stderr "$zig_logger_pid"
+    forward_stderr ziggurat-stderr < "$control/ziggurat.stderr" &
+    zig_logger_pid=$!
+    RUST_BACKTRACE=full MATTER_RADIO_TRACE="$radio_trace" NO_COLOR=1 "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
+        --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level "$zig_log_level" "$@" 2> "$control/ziggurat.stderr" &
     zig_pid=$!;printf '%s\n' "$zig_pid" > "$control/ziggurat.pid"
     deadline=$(($(date +%s)+startup_limit))
     while [ "$(date +%s)" -lt "$deadline" ]; do
@@ -243,9 +268,12 @@ poll_matter() {
     prepare_socket_path "$matter_socket" || { matter_next=$(($(date +%s)+backoff));return 0; }
     set --
     if [ "$matter_raw_frames" = on ]; then set -- --raw-frames;fi
-    "$matter_bin" --socket "$matter_socket" --state-dir "$matter_state" \
+    drain_stderr "$matter_logger_pid"
+    forward_stderr mthread-matter-stderr < "$control/matter.stderr" &
+    matter_logger_pid=$!
+    RUST_BACKTRACE=full "$matter_bin" --socket "$matter_socket" --state-dir "$matter_state" \
         --radio-url "spinel+hdlc+unix://$thread_socket?no-reset" --log-level "$matter_log_level" \
-        --diagnostic-on-mesh-prefix --diagnostic-external-routes "$@" 2>&1 &
+        --diagnostic-on-mesh-prefix --diagnostic-external-routes "$@" 2> "$control/matter.stderr" &
     matter_pid=$!
     if [ "$matter_level_restart" = false ]; then matter_retries=$((matter_retries+1));fi
     matter_level_restart=false

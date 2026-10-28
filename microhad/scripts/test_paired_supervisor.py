@@ -23,6 +23,13 @@ def stop(*args):
  with open(os.environ['TEST_EVENTS'],'a') as f:f.write(role+' stop\\n')
  raise SystemExit(0)
 signal.signal(signal.SIGTERM,stop)
+if role in ('zig','matter'):
+ with open(os.environ['TEST_EVENTS'],'a') as f:f.write(role+' backtrace '+os.environ.get('RUST_BACKTRACE','unset')+'\\n')
+ def panic(*args):
+  sys.stderr.write('thread main panicked: '+role+'\\nstack backtrace:\\n'+('x'*481)+'\\nfinal frame without newline')
+  sys.stderr.flush()
+  os._exit(134)
+ signal.signal(signal.SIGUSR1,panic)
 if role=='zig':
  level=sys.argv[sys.argv.index('--log-level')+1]
  with open(os.environ['TEST_EVENTS'],'a') as f:f.write('zig level '+level+'\\n')
@@ -108,6 +115,7 @@ class Paired(unittest.TestCase):
         syslogd=self.root/'syslogd';syslog_state=self.root/'syslogd.running'
         syslogd.write_text('#!/bin/sh\nif [ "$1" = ps ]; then [ ! -f "'+str(syslog_state)+'" ] || '
                            'cat "'+str(syslog_state)+'"\n'
+                           'elif [ "$1" = logger ]; then printf \'%s\\n\' "$*" >> "'+str(self.root/'syslog.messages')+'"\n'
                            'elif [ "$1" = syslogd ]; then echo "999999 root 1 S /bin/busybox $*" > "'+str(syslog_state)+'"; fi\n')
         (self.root/'config.json').write_text('{}')
         syslogd.chmod(0o700)
@@ -143,6 +151,28 @@ class Paired(unittest.TestCase):
             try:self.process.wait(timeout=12)
             except subprocess.TimeoutExpired:self.process.kill();self.process.wait()
         self.log.close();os.close(self.master);self.tmp.cleanup()
+    def test_rust_backtraces_reach_syslog_and_keep_child_exit_status(self):
+        self.enable_matter()
+        self.env['RUST_BACKTRACE'] = '0'
+        self.start();self.ready()
+        wait(lambda:(self.control/'matter.pid').exists())
+        messages = self.root/'syslog.messages'
+        for role, pidfile, tag in [('matter','matter.pid','mthread-matter-stderr'),
+                                   ('zig','ziggurat.pid','ziggurat-stderr')]:
+            self.assertIn(role+' backtrace full', self.events.read_text())
+            pid = int((self.control/pidfile).read_text())
+            os.kill(pid, signal.SIGUSR1)
+            wait(lambda:messages.exists() and tag+' -- final frame without newline' in messages.read_text())
+            lines = [line.split(' -- ',1)[1] for line in messages.read_text().splitlines()
+                     if ' -t '+tag+' -- ' in line]
+            self.assertEqual(lines, ['thread main panicked: '+role, 'stack backtrace:',
+                                    'x'*160, 'x'*160, 'x'*160, 'x', 'final frame without newline'])
+            if role == 'matter':
+                wait(lambda:'event=exit_status=134' in (self.control/'matter.events').read_text())
+            wait(lambda:(self.control/pidfile).exists() and int((self.control/pidfile).read_text()) != pid)
+        self.quiesce();self.stop()
+        self.assertFalse(self.control.exists())
+
     def test_debug_packet_defaults_survive_fresh_start(self):
         self.enable_matter()
         for key in ('ZIGGURAT_LOG_LEVEL','ZIGGURAT_RAW_FRAMES','MATTER_RADIO_TRACE','MATTER_LOG_LEVEL','MATTER_RAW_FRAMES'):

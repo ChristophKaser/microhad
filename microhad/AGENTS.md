@@ -199,6 +199,12 @@ number for signal deaths), PID, launch count, uptime and memory figures in
 `/tmp/ziggurat-supervisor/matter.events`. This private RAM log retains the latest
 64 events and is cleared on supervisor shutdown. Rust panics and critical
 OpenThread radio diagnostics synchronously reach syslog before process exit.
+The launcher sets `RUST_BACKTRACE=full` for both Rust services and forwards
+their stderr through private RAM FIFOs to syslog at `daemon.err`, tagged
+`ziggurat-stderr` and `mthread-matter-stderr`. Long lines are split into
+160-byte messages to fit stock syslog limits. Forwarders drain before reuse
+or supervisor cleanup; the supervisor retains the actual service PID and
+exit status. Stack detail still depends on target backtrace support and symbols.
 
 Diagnostic defaults are `debug` for Ziggurat and Matter, with
 `ZIGGURAT_RAW_FRAMES` and `MATTER_RAW_FRAMES` both `on`.
