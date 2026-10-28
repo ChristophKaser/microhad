@@ -11,7 +11,7 @@ project_dir="$repo_root/microhad"
 workspace_load "$repo_root"
 host=$GATEWAY_IP
 user=$SSH_USER
-target=/tuya/native-test
+target=/tuya/native
 build_subdir=$(python3 "$repo_root/scripts/toolchain_config.py" TARGET_BUILD_SUBDIR)
 binary="$project_dir/build/${build_subdir}mips-ziggurat-matter/microhad"
 binary_explicit=false
