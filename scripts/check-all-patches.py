@@ -207,6 +207,10 @@ def main() -> int:
         unclassified = sorted(actual - expected)
         raise SystemExit(f"Patch inventory mismatch; missing={missing}, unclassified={unclassified}")
 
+    verify_git_series(ROOT / "third-party/acetimec/upstream",
+                      [ROOT / "third-party/acetimec/offsets-only.patch"],
+                      "AceTime offsets-only engine")
+
     revision = run(["git", "-C", str(ZIGGURAT), "rev-parse", "HEAD"], capture=True).strip()
     for multipan, names in (("0", ZIGGURAT_COMMON), ("1", ZIGGURAT_MULTI)):
         command = ["python3", str(ROOT / "ziggurat/scripts/check-ziggurat-patches.py"),

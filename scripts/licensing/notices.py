@@ -63,13 +63,14 @@ def inputs():
              'scripts/rust-env.sh', 'config/toolchains.mk', *LOCKS]
     paths += git('ls-files', 'patches/*.patch', 'ziggurat/patches/*.patch',
                  'micro-thread-matter-daemon/patches/*.patch').splitlines()
-    paths += [str(p.relative_to(ROOT)) for p in sorted((ROOT / 'third-party/nanopb').iterdir()) if p.is_file()]
-    paths += [str(p.relative_to(ROOT)) for p in sorted((ROOT / 'third-party/acetimec').rglob('*')) if p.is_file()]
-    paths += ['config/matter-time-zones.txt', 'micro-thread-matter-daemon/build.rs',
+    paths += ['third-party/nanopb/' + name for name in
+              ('LICENSE.txt', 'pb.h', 'pb_common.c', 'pb_common.h', 'pb_decode.c', 'pb_decode.h', 'pb_encode.c', 'pb_encode.h')]
+    paths += [str(p.relative_to(ROOT)) for p in sorted((ROOT / 'third-party/acetimec').rglob('*')) if p.is_file() and 'upstream' not in p.relative_to(ROOT / 'third-party/acetimec').parts]
+    paths += ['micro-thread-matter-daemon/scripts/prepare-acetime.py', 'config/matter-time-zones.txt', 'micro-thread-matter-daemon/build.rs',
               'micro-thread-matter-daemon/timezone/bridge.c',
               'micro-thread-matter-daemon/scripts/generate-acetime-subset.py']
     result = {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in paths}
-    for p in SUBMODULES:
+    for p in [*SUBMODULES, 'third-party/nanopb', 'third-party/acetimec/upstream']:
         result[p] = git('rev-parse', f'HEAD:{p}')
         if git('-C', str(ROOT / p), 'rev-parse', 'HEAD') != result[p]:
             raise ValueError(f'{p}: checkout does not match parent repository pin')

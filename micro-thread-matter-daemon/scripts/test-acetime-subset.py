@@ -111,10 +111,10 @@ def main():
     ui=(ROOT/'microhad/webui/src/devices.tsx').read_text().split('const timeZones = [',1)[1].split(']',1)[0]
     assert re.findall(r"'([^']+)'",ui) == subset.names(), 'dashboard/whitelist mismatch'
     assert set(data['zones']) == set(subset.names()+['Australia/Lord_Howe'])
-    pin=json.loads((VENDOR/'UPSTREAM.json').read_text())
-    for name,digest in dict(pin['files'], **pin['modified_files']).items():
-        assert hashlib.sha256((VENDOR/name).read_bytes()).hexdigest()==digest, name
     with tempfile.TemporaryDirectory(prefix='acetime-check-') as tmp:
+        engine = subset.prepare_engine(Path(tmp)/'engine')/'src'
+        assert subset.generate(VENDOR/'upstream', subset.names()) == (VENDOR/'zones.c').read_text()
+        assert subset.generate(VENDOR/'upstream', subset.names()+['Australia/Lord_Howe']) == (ROOT/'micro-thread-matter-daemon/tests/fixtures/acetime-zones.c').read_text()
         exports=Path(tmp)/'exports.map'
         exports.write_text('{global: gateway_tz_find; gateway_tz_offsets; gateway_tz_workspace_size; local: *;};')
         for fixture in [False,True]:
@@ -122,8 +122,8 @@ def main():
             output=Path(tmp)/('fixture.so' if fixture else 'production.so')
             subprocess.run([str(settings()['HOST_CC']),'-std=gnu99','-Os','-DGATEWAY_ACETIME_OFFSETS_ONLY',
                 '-fPIC','-ffunction-sections','-fdata-sections','-shared','-Wl,--gc-sections','-Wl,--no-undefined',
-                '-Wl,--version-script='+str(exports),'-I'+str(VENDOR/'src'),'-I'+str(VENDOR),
-                *[str(VENDOR/'src'/n) for n in NATIVE],str(db),str(ROOT/'micro-thread-matter-daemon/timezone/bridge.c'),'-o',str(output)],check=True)
+                '-Wl,--version-script='+str(exports),'-I'+str(engine),'-I'+str(VENDOR),
+                *[str(engine/n) for n in NATIVE],str(db),str(ROOT/'micro-thread-matter-daemon/timezone/bridge.c'),'-o',str(output)],check=True)
             symbols=subprocess.check_output(['nm','--defined-only',str(output)],text=True)
             assert not re.search(r'\batc_(?:print_|buf_|processor_find_by_plain_date_time|processor_create_abbreviation)',symbols)
             check_database(ctypes.CDLL(str(output)),data,fixture)

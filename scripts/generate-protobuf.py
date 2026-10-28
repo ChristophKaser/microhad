@@ -8,7 +8,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import nanopb
 import os
 from pathlib import Path
 from google.protobuf import descriptor_pb2 as dp
@@ -17,7 +16,7 @@ SOURCES = ['matter-ipc-v3.proto', 'device-cache.proto']
 
 def generate(out):
     subprocess.run([sys.executable, '-m', 'grpc_tools.protoc', '-I'+str(ROOT/'protocol'), '--descriptor_set_out='+str(out/'microhad.pb'), '--python_out='+str(out), *[str(ROOT/'protocol'/s) for s in SOURCES]], check=True)
-    plugin=Path(nanopb.__file__).parent/'generator/protoc-gen-nanopb'
+    plugin=ROOT/'third-party/nanopb/generator/protoc-gen-nanopb'
     subprocess.run([sys.executable, '-m', 'grpc_tools.protoc', '-I'+str(ROOT/'protocol'), '--plugin=protoc-gen-nanopb='+str(plugin), '--nanopb_out='+str(out), str(ROOT/'protocol/device-cache.proto')],check=True,env=dict(os.environ,PATH=str(Path(sys.executable).parent)+os.pathsep+os.environ.get('PATH','')))
     fs=dp.FileDescriptorSet.FromString((out/'microhad.pb').read_bytes())
     msgs={m.name:m for f in fs.file for m in f.message_type}

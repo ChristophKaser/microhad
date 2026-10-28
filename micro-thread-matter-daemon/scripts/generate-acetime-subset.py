@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 VENDOR = ROOT / 'third-party/acetimec'
@@ -94,27 +95,51 @@ def generate(upstream, selected):
     return '\n'.join(line.rstrip() for line in '\n\n'.join(output).splitlines()).rstrip()+'\n'
 
 
+def verify_sources(upstream):
+    pin = json.loads((VENDOR/'UPSTREAM.json').read_text())
+    for name, digest in pin['files'].items():
+        if hashlib.sha256((upstream/name).read_bytes()).hexdigest() != digest:
+            raise ValueError('Upstream source checksum mismatch: '+name)
+
+
+def prepare_engine(destination):
+    """Prepare checksum-pinned sources and apply the mailbox, offline.
+
+    Works in Git-free source releases too. The destination must be a fresh
+    build-owned directory; the dependency checkout is never modified.
+    """
+    upstream = VENDOR/'upstream'
+    verify_sources(upstream)
+    destination.mkdir(parents=True)
+    pin = json.loads((VENDOR/'UPSTREAM.json').read_text())
+    for name in pin['files']:
+        target = destination/name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((upstream/name).read_bytes())
+    def git(*args):
+        subprocess.run(['git', '-C', str(destination), '-c', 'user.name=Gateway build',
+                        '-c', 'user.email=patches@localhost', '-c', 'commit.gpgsign=false',
+                        '-c', 'core.hooksPath=/dev/null', *args], check=True,
+                       stdout=subprocess.DEVNULL)
+    git('init', '--quiet')
+    git('add', '.')
+    git('commit', '--quiet', '-m', 'Import pinned AceTime C engine')
+    git('am', '--quiet', str(VENDOR/'offsets-only.patch'))
+    for name, digest in pin['modified_files'].items():
+        path = VENDOR/name if name.endswith('.patch') else destination/name
+        if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            raise ValueError('Patched source checksum mismatch: '+name)
+    return destination
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('upstream',type=Path)
+    parser.add_argument('upstream',type=Path,nargs='?',default=VENDOR/'upstream')
     parser.add_argument('--check',action='store_true')
     args = parser.parse_args()
-    pin = json.loads((VENDOR/'UPSTREAM.json').read_text())
-    outputs = {}
-    for name, digest in pin['files'].items():
-        data = (args.upstream/name).read_bytes()
-        if hashlib.sha256(data).hexdigest() != digest:
-            raise ValueError('Upstream source checksum mismatch: '+name)
-        if name == 'src/acetimec/zone_processor.c':
-            before = '  // Step 5: Calc abbreviations.\n  atc_processor_calc_abbreviations(begin, end);'
-            after = ('  // Local offsets-only build: abbreviations are never exposed by the bridge.\n'
-                     '#ifndef GATEWAY_ACETIME_OFFSETS_ONLY\n'+before+'\n#endif')
-            text = data.decode()
-            if text.count(before) != 1: raise ValueError('Offsets-only patch no longer applies')
-            data = text.replace(before,after).encode()
-        outputs[VENDOR/name] = data.decode()
-    outputs.update({VENDOR/'zones.c':generate(args.upstream,names()),
-               ROOT/'micro-thread-matter-daemon/tests/fixtures/acetime-zones.c':generate(args.upstream,names()+['Australia/Lord_Howe'])})
+    verify_sources(args.upstream)
+    outputs = {VENDOR/'zones.c':generate(args.upstream,names()),
+               ROOT/'micro-thread-matter-daemon/tests/fixtures/acetime-zones.c':generate(args.upstream,names()+['Australia/Lord_Howe'])}
     for path, text in outputs.items():
         if args.check:
             if path.read_text() != text: raise ValueError('Stale generated file: '+str(path))

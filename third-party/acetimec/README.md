@@ -5,8 +5,16 @@ AceTime C: https://github.com/bxparks/acetimec
 `UPSTREAM.json` pins the exact revision, the original source checksums, and the
 upstream-generated `zonedb2025` input checksums (IANA 2025b). The C engine is MIT
 licensed, copyright Brian T. Park. `LICENSE.iana` records the time-zone data's
-public-domain status. This directory is tracked source and is included by the
-normal Git source-release export; builds need no downloads or database compiler.
+public-domain status. The engine and original database come from the pinned `upstream/` Git submodule;
+this directory retains only gateway metadata, generated data and the local patch.
+Initialize dependencies before building:
+
+```sh
+git submodule update --init third-party/acetimec/upstream third-party/nanopb
+```
+
+Builds then need no downloads or database compiler. Source release tooling exports
+both dependencies and preserves the patch recipe.
 
 The whitelist is `config/matter-time-zones.txt`, matching the 26 dashboard
 choices. Only their dependency closure is generated into `zones.c`. Shared
@@ -17,7 +25,8 @@ expired rules are removed. December 2024 rules and upstream anchor records are
 retained solely to seed calculations at the start of the supported UTC range,
 2025-01-01 inclusive to 2100-01-01 exclusive. No earlier conversions are exposed.
 
-`offsets-only.patch` is the only local engine modification: it disables the
+`offsets-only.patch` is the only local engine modification, applied with `git am`
+to checksum-verified engine sources in the build output: it disables the
 abbreviation-generation step when `GATEWAY_ACETIME_OFFSETS_ONLY` is defined.
 Unused formatting and local-time conversion functions are discarded by section
 garbage collection. The normal one-second-resolution data format and transition
@@ -26,13 +35,12 @@ buffer sizes are unchanged. No dynamic allocation is used by the C engine.
 Regenerate against a checkout of the pinned revision (no implicit downloads):
 
 ```sh
-python3 micro-thread-matter-daemon/scripts/generate-acetime-subset.py /path/to/acetimec
-python3 micro-thread-matter-daemon/scripts/generate-acetime-subset.py /path/to/acetimec --check
+python3 micro-thread-matter-daemon/scripts/generate-acetime-subset.py
+python3 micro-thread-matter-daemon/scripts/generate-acetime-subset.py --check
 python3 micro-thread-matter-daemon/scripts/test-acetime-subset.py
 ```
 
-The generator verifies upstream checksums and reproduces the vendored sources,
-local engine change, production data, and the separate `Australia/Lord_Howe`
+The generator verifies upstream checksums and reproduces production data and the separate `Australia/Lord_Howe`
 host-fixture database. Regeneration does not use the host's installed TZDB.
 The offline validator compares both databases with checked-in IANA reference
 values, checks whitelist parity, rejects unsupported names/dates, and verifies

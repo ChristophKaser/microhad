@@ -35,6 +35,15 @@ Lexra/uClibc-ng compiler; `CROSSTOOL_NG_ROOT` overrides its location.
 See [toolchain selection](config/TOOLCHAINS.md) for build commands, isolated outputs
 and compatibility limits. RSDK remains the default.
 
+Initialize the pinned shared C dependencies before building either gateway service:
+
+```sh
+git submodule update --init third-party/nanopb third-party/acetimec/upstream
+```
+
+AceTime's offsets-only mailbox is applied in build output; keep both dependency
+checkouts unmodified. Generated timezone subsets stay in `third-party/acetimec/`.
+
 From the repository root, build MicroHAD with:
 
 ```sh

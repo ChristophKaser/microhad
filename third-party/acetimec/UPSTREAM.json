@@ -34,6 +34,6 @@
   },
   "modified_files": {
     "src/acetimec/zone_processor.c": "9c85ee56b18e2708c3b10b7f113352877145e2c659dbfe8c2a0fcd5c2b3c546e",
-    "offsets-only.patch": "8a98f037d36f3ac6c73d7fd3bbcec10652f35dbfa10fd0dbb407efbcf3c641f5"
+    "offsets-only.patch": "90432f3d2ae068725d45b4e695f5789b8af70ec4682c607780f71c18dd413153"
   }
 }

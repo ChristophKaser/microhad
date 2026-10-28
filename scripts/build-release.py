@@ -20,7 +20,8 @@ import release_source
 
 DEPENDENCIES = ['microhad/dependencies/mbedtls', 'microhad/dependencies/lua',
                 'micro-thread-matter-daemon/dependencies/openthread',
-                'micro-thread-matter-daemon/dependencies/rs-matter', 'ziggurat/dependencies/ziggurat']
+                'micro-thread-matter-daemon/dependencies/rs-matter', 'ziggurat/dependencies/ziggurat',
+                'third-party/nanopb', 'third-party/acetimec/upstream']
 PREPARED = ['worktrees/ziggurat-multipan', 'build/openthread-unix/source-mailbox',
             'build/micro-thread-matter-daemon/service-source',
             *['build/patched-crates-mailbox/' + n for n in ('getrandom-0.4.3', 'nix-0.26.4', 'radium-0.7.0')]]

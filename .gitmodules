@@ -22,3 +22,9 @@
 [submodule "microhad-lua"]
 	path = microhad/dependencies/lua
 	url = https://github.com/lua/lua.git
+[submodule "third-party/nanopb"]
+	path = third-party/nanopb
+	url = https://github.com/nanopb/nanopb.git
+[submodule "third-party/acetimec/upstream"]
+	path = third-party/acetimec/upstream
+	url = https://github.com/bxparks/acetimec.git

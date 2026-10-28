@@ -137,6 +137,12 @@ fn build_timezones() {
     let root = manifest.parent().unwrap();
     let vendor = root.join("third-party/acetimec");
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let prepare = manifest.join("scripts/prepare-acetime.py");
+    println!("cargo:rerun-if-changed={}", prepare.display());
+    println!("cargo:rerun-if-changed={}", manifest.join("scripts/generate-acetime-subset.py").display());
+    assert!(Command::new("python3").arg(&prepare).arg(&out).status()
+        .expect("cannot prepare AceTime C").success(), "AceTime C preparation failed");
+    let engine = out.join("acetime-engine/src");
     let target = env::var("CARGO_CFG_TARGET_ARCH").unwrap() == "mips";
     let resolve = |key: &str| {
         let output = Command::new("python3").arg(root.join("scripts/toolchain_config.py"))
@@ -155,7 +161,7 @@ fn build_timezones() {
     let sources = ["acetimec/common.c", "acetimec/epoch.c", "acetimec/plain_date.c",
         "acetimec/plain_date_time.c", "acetimec/plain_time.c", "acetimec/date_tuple.c",
         "acetimec/transition.c", "acetimec/zone_processor.c", "zoneinfo/zone_info_utils.c"];
-    let mut files: Vec<_> = sources.iter().map(|s| vendor.join("src").join(s)).collect();
+    let mut files: Vec<_> = sources.iter().map(|s| engine.join(s)).collect();
     files.push(vendor.join("zones.c"));
     files.push(manifest.join("timezone/bridge.c"));
     let mut objects = Vec::new();
@@ -163,7 +169,7 @@ fn build_timezones() {
         println!("cargo:rerun-if-changed={}", file.display());
         let object = out.join(format!("timezone-{i}.o"));
         let status = Command::new(&compiler).args(["-std=gnu99", "-DGATEWAY_ACETIME_OFFSETS_ONLY", "-Os", "-ffunction-sections", "-fdata-sections", "-Wall", "-Wextra"])
-            .arg("-I").arg(vendor.join("src")).arg("-I").arg(&vendor)
+            .arg("-I").arg(&engine).arg("-I").arg(&vendor)
             .arg("-c").arg(file).arg("-o").arg(&object).status()
             .expect("cannot run timezone C compiler");
         assert!(status.success(), "timezone C compilation failed");

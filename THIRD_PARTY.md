@@ -21,8 +21,8 @@ identify the revisions and lockfile hashes used for the shipped gateway notices.
 | Component / upstream | Used by | License and attribution |
 | --- | --- | --- |
 | [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) and nested TF-PSA-Crypto | MicroHAD static TLS/crypto libraries | Apache-2.0 selected from Apache-2.0 OR GPL-2.0-or-later; retain applicable notices and license texts, including bundled third-party material. |
-| [AceTime C](https://github.com/bxparks/acetimec) | Matter accessory clock offsets; restricted 26-zone database | MIT (Brian T. Park); IANA data public domain. Pins, source checksums, and the local offsets-only patch are in `third-party/acetimec/`. |
-| [nanopb](https://github.com/nanopb/nanopb) | MicroHAD protobuf IPC and RAM cache | Zlib; see `third-party/nanopb/LICENSE.txt`. |
+| [AceTime C](https://github.com/bxparks/acetimec) | Matter accessory clock offsets; restricted 26-zone database | MIT (Brian T. Park); IANA data public domain. Pinned submodule at `third-party/acetimec/upstream/`; checksums, generated data and the offsets-only mailbox are in `third-party/acetimec/`. |
+| [nanopb](https://github.com/nanopb/nanopb) | MicroHAD protobuf IPC and RAM cache | Zlib; pinned submodule at `third-party/nanopb/`, including the generator and `LICENSE.txt`. |
 | [Ziggurat](https://github.com/zigpy/ziggurat) | Zigbee stack and shared radio transport | Apache-2.0; local patch series under `ziggurat/patches/` identifies changes. Rust transitive dependencies have their own terms. |
 | [rs-matter](https://github.com/project-chip/rs-matter) | Matter service | Apache-2.0; modified through `micro-thread-matter-daemon/patches/`. RustCrypto, embassy, serde and other transitive dependencies retain their individual terms. |
 | [OpenThread](https://github.com/openthread/openthread) | Matter userspace IPv6/Thread | BSD-3-Clause plus nested component terms; preserve its LICENSE and NOTICE, including specification/IP and certification limitations. Local patches are under the Matter component. |
@@ -35,7 +35,7 @@ identify the revisions and lockfile hashes used for the shipped gateway notices.
 | Firebase Messaging / Google Play services / Google code scanner | Companion APK | Mix of open-source dependencies and Google SDK/ML Kit terms. Preserve packaged third-party notices and review the applicable Google SDK terms; do not describe the complete SDK set as MIT. |
 | Gradle wrapper and Android/Kotlin build plugins | Android build | Apache-2.0 and component terms; wrapper sources retain upstream headers. Build tools are not app runtime libraries. |
 | Vite, TypeScript, type definitions, npm build dependencies | Web build, host only | Individual package licenses; excluded from the runtime notice bundle unless their code is actually bundled. |
-| GCC, binutils, Rust/LLVM, Arm GNU toolchain, RSDK, crosstool-NG, uClibc/uClibc-ng | Build tools and linked runtimes | Mixed GPL/LGPL/permissive licenses and runtime exceptions. `config/toolchains.mk`, `rust-toolchain.toml` and `config/crosstool-ng/sources.json` record versions. See release gates below. |
+| GCC, binutils, Rust/LLVM, Arm GNU toolchain, RSDK, crosstool-NG, uClibc/uClibc-ng | Build tools and linked runtimes | Mixed GPL/LGPL/permissive licenses and runtime exceptions. `config/toolchains.mk`, `rust-toolchain.toml` and `config/crosstool-ng/sources.json` record versions. The radio release uses Arm GNU runtime libraries with the GCC Runtime Library Exception and Newlib notices. |
 | connectedhomeip / CHIP Tool | Optional host diagnostics | Apache-2.0 plus third-party terms; exact checkout pin and local changes are in `scripts/matter-diagnostics/build-controller.sh`. Its dependency closure differs from the gateway service. |
 | ot-br-posix, OpenThread, Ubuntu and external OTBR container | Optional host diagnostics | BSD-3-Clause and component/image-specific licenses. Dockerfile pins identify inputs. Container redistribution includes OS packages and is a separate license/source audit. |
 | Python cryptography, Docker, CMake, Ninja, system build/test packages | Host verification | Their own licenses; no claim that host tools are included in the gateway. |
@@ -66,8 +66,6 @@ The radio release builder, `firmware/scripts/build-release.py`, writes its own
 a tar.gz package. It collects SDK/per-file notices from the generated compiler
 dependencies and linker inputs, together with the ARM linked-runtime license
 texts. See [firmware releases](firmware/README.md#build-a-firmware-release).
-The firmware publication review below still applies; generation of notices
-does not clear SDK redistribution rights.
 Verbatim identical license texts are deduplicated, with references retaining
 package identity. Distinct copyright notices remain separate.
 
@@ -127,30 +125,3 @@ and retain the original project MIT license with APK/source releases. Radio-only
 firmware uses the radio builder's `license.md`; the gateway bundle excludes
 radio inputs and cannot replace it. Notices may cover more components than a
 particular release uses.
-
-## Release gates and limits
-
-- The generated gateway bundle is attribution material, not proof that a firmware
-  binary may be redistributed. Before publishing EFR32 GBL/BIN images, establish
-  applicable MSLA/per-file terms for the actual linked Silicon Labs objects,
-  vendor recovery images and generated source. Include any additional notices
-  from generated build inputs. Firmware redistribution remains blocked until
-  this review is complete.
-- Review the actual linked C/C++/Rust/compiler runtimes for each toolchain.
-  LGPL uClibc/uClibc-ng and GCC runtime exceptions can impose requirements beyond
-  notices, especially for static linking (source, modifications and relinking
-  materials where applicable). Do not publish native binaries until the selected
-  toolchain runtime obligations have been satisfied; the snapshot does not audit
-  proprietary RSDK archives or provide a corresponding-source offer.
-- GPL/LGPL obligations cannot be satisfied by attribution alone. If distributing
-  covered binaries, supply corresponding source and other required materials
-  under the applicable license. The removed BusyBox logread build is not listed
-  as a current project release artifact; redistributing an older build requires
-  its own GPL compliance.
-- Host diagnostic executables, full SDK/toolchain archives and container images
-  require their own complete dependency notices and any corresponding source.
-  The gateway bundle does not authorize distributing these separate artifacts.
-- Check copied code, icons and images when adding them. Preserve original
-  provenance; flag uncertain authorship instead of automatically applying MIT.
-- Device credentials, network identities, backups and traces are never release
-  inputs. Attribution does not justify including them.
