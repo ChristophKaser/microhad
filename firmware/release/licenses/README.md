@@ -12,12 +12,12 @@ them verbatim in `license.md`.
 - `GCC-RUNTIME-EXCEPTION.txt`: GCC 12.2.0
   [COPYING.RUNTIME](https://github.com/gcc-mirror/gcc/blob/releases/gcc-12.2.0/COPYING.RUNTIME),
   version 3.1 of the GCC Runtime Library Exception.
-- `GPL-3.0.txt`: GCC's GPL version 3 text, accompanying the runtime exception.
-  This is the standard GPL-3.0 text, also retained in the source-built GCC
-  toolchain's `COPYING3`.
+
+The generated notices identify the components covered by each text. For GCC
+runtime components they reproduce only the Runtime Library Exception, identifying
+the underlying license as GPLv3 with that exception. The full `GPL-3.0.txt`
+reference text is retained here but is not included in the generated bundle.
 
 The firmware links GCC runtime/startup objects and Newlib-nano, not the host
 compiler binaries. Host build tools, the Gecko SDK distribution and the
 separately downloaded GPL serial bridge are not bundled into the release.
-SDK attribution is not blanket permission to redistribute firmware; retain
-the publication requirements in the repository's `THIRD_PARTY.md`.

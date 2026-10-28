@@ -117,5 +117,5 @@ timestamp is used. Missing notices or unreviewed link inputs abort packaging.
 Original project code is MIT licensed; upstream components retain their own terms.
 See the repository-wide [third-party inventory](../THIRD_PARTY.md) for attribution,
 notice generation and release requirements.
-The release builder records applicable SDK/per-file terms and full runtime
-license supplements; it does not lift the firmware redistribution review gate.
+The release builder records applicable SDK/per-file terms and runtime
+license supplements, with the components covered by each text.

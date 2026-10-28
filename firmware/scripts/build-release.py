@@ -98,7 +98,7 @@ def main(argv=None):
     print(str(destination))
     print("GBL SHA-256: " + checksum)
     print("Archive SHA-256: " + hashlib.sha256(destination.read_bytes()).hexdigest())
-    print("Offline build only; no device accessed or release published. See THIRD_PARTY.md publication requirements.")
+    print("Offline build only; no device accessed or release published.")
 
 
 if __name__ == "__main__":

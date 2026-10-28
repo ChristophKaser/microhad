@@ -118,5 +118,4 @@ hardware recovery; software bootloader entry cannot repair it.
 Preserve configuration, keys, Matter identity and all backups. Follow the
 [migration rollback checkpoints](https://github.com/ChristophKaser/ziggurat-compilation/blob/main/docs/ziggurat-deployment-plan.md#rollback)
 instead of restoring a stale Zigbee snapshot. See `license.md` for radio-specific
-licenses; the combined firmware is not uniformly MIT licensed. Packaging does
-not remove the SDK redistribution review required before publishing a release.
+licenses and the components they cover; upstream components retain their own terms.
