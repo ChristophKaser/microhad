@@ -611,11 +611,6 @@ Authors: Oskar Schöldström
 License: MIT
   LICENSE: text bedf97319fd3fb51c22dc5a44daf603ca4b2515ae75cae8ac677fb6bd40ec34e
 
-matchers 0.2.0
-Authors: Eliza Weisman <eliza@buoyant.io>
-License: MIT
-  LICENSE: text a47129d738752a6ae52247fea645b42cb320d19e9327f1eb2d1a7f99d9455ad3
-
 mbedtls
 Authors: The Mbed TLS Contributors
 License: Apache-2.0 (selected from Apache-2.0 OR GPL-2.0-or-later)
@@ -840,19 +835,6 @@ react-dom 18.3.1
 Authors: Facebook, Inc. and its affiliates
 License: MIT
   LICENSE: text 52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85
-
-regex-automata 0.4.18
-Authors: The Rust Project Developers, Andrew Gallant <jamslam@gmail.com>
-License: MIT OR Apache-2.0
-  LICENSE-APACHE: text a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2
-  LICENSE-MIT: text 6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb
-
-regex-syntax 0.8.11
-Authors: The Rust Project Developers, Andrew Gallant <jamslam@gmail.com>
-License: MIT OR Apache-2.0
-  LICENSE-APACHE: text a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2
-  LICENSE-MIT: text 6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb
-  src/unicode_tables/LICENSE-UNICODE: text 74db5baf44a41b1000312c673544b3374e4198af5605c7f9080a402cec42cfa3
 
 rfc6979 0.6.0
 Authors: RustCrypto Developers
@@ -5854,66 +5836,6 @@ license, shall be dual licensed as above, without any additional terms or
 conditions.
 
 
-TEXT 74db5baf44a41b1000312c673544b3374e4198af5605c7f9080a402cec42cfa3
-UNICODE, INC. LICENSE AGREEMENT - DATA FILES AND SOFTWARE
-
-Unicode Data Files include all data files under the directories
-http://www.unicode.org/Public/, http://www.unicode.org/reports/,
-http://www.unicode.org/cldr/data/, http://source.icu-project.org/repos/icu/, and
-http://www.unicode.org/utility/trac/browser/.
-
-Unicode Data Files do not include PDF online code charts under the
-directory http://www.unicode.org/Public/.
-
-Software includes any source code published in the Unicode Standard
-or under the directories
-http://www.unicode.org/Public/, http://www.unicode.org/reports/,
-http://www.unicode.org/cldr/data/, http://source.icu-project.org/repos/icu/, and
-http://www.unicode.org/utility/trac/browser/.
-
-NOTICE TO USER: Carefully read the following legal agreement.
-BY DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING UNICODE INC.'S
-DATA FILES ("DATA FILES"), AND/OR SOFTWARE ("SOFTWARE"),
-YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF THE
-TERMS AND CONDITIONS OF THIS AGREEMENT.
-IF YOU DO NOT AGREE, DO NOT DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE
-THE DATA FILES OR SOFTWARE.
-
-COPYRIGHT AND PERMISSION NOTICE
-
-Copyright © 1991-2018 Unicode, Inc. All rights reserved.
-Distributed under the Terms of Use in http://www.unicode.org/copyright.html.
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of the Unicode data files and any associated documentation
-(the "Data Files") or Unicode software and any associated documentation
-(the "Software") to deal in the Data Files or Software
-without restriction, including without limitation the rights to use,
-copy, modify, merge, publish, distribute, and/or sell copies of
-the Data Files or Software, and to permit persons to whom the Data Files
-or Software are furnished to do so, provided that either
-(a) this copyright and permission notice appear with all copies
-of the Data Files or Software, or
-(b) this copyright and permission notice appear in associated
-Documentation.
-
-THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
-WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT OF THIRD PARTY RIGHTS.
-IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN THIS
-NOTICE BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL
-DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
-DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
-TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
-PERFORMANCE OF THE DATA FILES OR SOFTWARE.
-
-Except as contained in this notice, the name of a copyright holder
-shall not be used in advertising or otherwise to promote the sale,
-use or other dealings in these Data Files or Software without prior
-written authorization of the copyright holder.
-
-
 TEXT 7576269ea71f767b99297934c0b2367532690f8c4badc695edf8e04ab6a1e545
 Copyright (c) 2015
 
@@ -7984,28 +7906,6 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
-
-
-TEXT a47129d738752a6ae52247fea645b42cb320d19e9327f1eb2d1a7f99d9455ad3
-Copyright (c) 2019 Eliza Weisman
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 
 TEXT a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2

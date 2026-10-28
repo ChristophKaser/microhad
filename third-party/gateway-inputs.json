@@ -81,6 +81,7 @@
     "ziggurat/patches/ziggurat-fresh-join-replay.patch": "ce8278686e0738340e6f8a7946b852fd331bec6d348f6f9ddffec4f25f93fc77",
     "ziggurat/patches/ziggurat-hdlc-multipan.patch": "18fe9429093a14071aea1dade5442fa98652a36ca2415241d10ad2fe5b183685",
     "ziggurat/patches/ziggurat-key-rng-readiness.patch": "1d2cc942a445590617c7f1a1246a36c4c441b6916b04ec209bf26eafacc0d943",
+    "ziggurat/patches/ziggurat-lean-gateway.patch": "7d8bbb48a9e3261dc08d33714b1796264c98bdbf5de3f2a165277845ce90097e",
     "ziggurat/patches/ziggurat-multipan-stock-compat.patch": "be75e17c9376fe623cce929ec729b349dd5dd597a657fac0763be818b8b2b37c",
     "ziggurat/patches/ziggurat-multipan-syslog.patch": "520ac586d49ea5255d526e2debc997caab9dce7bcadab9e152aeedb052d88436",
     "ziggurat/patches/ziggurat-network-migration.patch": "674793174d2c401882ae5a3cb69e1df0fc3e94ec852a2c3e9c43507961d87196",
@@ -92,9 +93,9 @@
     "ziggurat/patches/ziggurat-syslog-fragments.patch": "8daa50e80ee63abf4a2d61133c6238d01fd5261a8d14dc7df7262fa45f4f4a05",
     "ziggurat/patches/ziggurat-syslog.patch": "89711ce172906331f6aeeb697f4ada0bbe71d39d72083b5b3fd1d069aa71401b",
     "ziggurat/patches/ziggurat-thread-tcp.patch": "befe2262c44c3a6a9cc5861e80e9c81c4951ac6eda874de1bf68fc10825137f5",
-    "ziggurat/scripts/build.sh": "c0e3149700c6fae4c1d8ed7c7e79f27f6117cea0de52fb49e33cf8ddfa1230ed",
+    "ziggurat/scripts/build.sh": "6ef5ca6d25f7cc736871cd44fc8c5acfc3d7a360ad45bc7cd41d8dce82aaa60d",
     "ziggurat/stock-uclibc-compat/Cargo.toml": "10d8809501704a473e93541ee4cbaa922eafc1a79b4ee0f9f3445f5a7361fdc1"
   },
-  "records_sha256": "534916ce1e44ded41aa15a6fec2092f5b7267fa0289b629d50b1690791e8c591",
-  "sha256": "72389b7d5e27255d083d90b21b6ee359ee20e74f6f0abdb76cc6cf18ddab1f7c"
+  "records_sha256": "af5de07e9dea646ed2549c9bbadaa77c366e156a7353c05ccfbd929e6945d497",
+  "sha256": "c9ee456d97ccd6a2de44ef289e16413c5f7ff9acf9aa395942f5f42e6de38967"
 }
