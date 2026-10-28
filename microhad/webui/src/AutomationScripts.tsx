@@ -119,7 +119,7 @@ export function AutomationScripts({ onDirtyChange, devices = [], groups = [] }: 
         {row.line ? <button className="automation-log-message" onClick={() => jumpToLine(row.line)}><span className="automation-log-location">Line {row.line}: </span>{row.message}</button> : <div className="automation-log-message">{row.message}</div>}
         {Object.keys(row.fields).length > 0 && <pre>{JSON.stringify(row.fields, null, 2)}</pre>}
       </div>)}</div></details>
-    </> : <p className="muted">Select a script or create one. Subscribe with <code>events.on</code>; unsubscribe with <code>events.off</code>.</p>}
+    </> : <p className="muted">Select a script or create one. See the <a href="https://github.com/ChristophKaser/microhad/blob/main/docs/lua_scripting_api.md" target="_blank" rel="noopener noreferrer">automation documentation</a> and <a href="https://github.com/ChristophKaser/microhad/tree/main/microhad/automation/examples" target="_blank" rel="noopener noreferrer">examples on GitHub</a>.</p>}
     {message && <p role="status">{message}</p>}{error && !selected && <p role="alert" className="automation-error"><strong>Action failed</strong><br />{error}</p>}
     </div></div>
   </section>
