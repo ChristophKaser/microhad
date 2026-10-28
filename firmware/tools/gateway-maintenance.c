@@ -18,6 +18,43 @@
 #include <string.h>
 #include <time.h>
 
+/* Stock BusyBox lacks logger and mkfifo. Keep panic capture bounded and use
+ * one persistent reader per service, without changing the supervised PID. */
+static int stderr_syslog(const char *tag, const char *path) {
+    struct sockaddr_un address;
+    char body[160], message[224];
+    const char *destination="/dev/log";
+    FILE *input;
+    int sock, byte, failed=0;
+    size_t used=0;
+    if(strcmp(tag,"ziggurat-stderr") && strcmp(tag,"mthread-matter-stderr")) return 2;
+#ifdef HOST_TEST
+    if(getenv("GATEWAY_TEST_SYSLOG")) destination=getenv("GATEWAY_TEST_SYSLOG");
+#endif
+    if(strlen(destination)>=sizeof(address.sun_path)) return 2;
+    sock=socket(AF_UNIX,SOCK_DGRAM,0);
+    if(sock<0) return 1;
+    memset(&address,0,sizeof(address));address.sun_family=AF_UNIX;
+    strcpy(address.sun_path,destination);
+    input=fopen(path,"r");
+    if(!input) {close(sock);return 1;}
+    while(1) {
+        byte=fgetc(input);
+        if(byte!=EOF && byte!='\n') body[used++]=byte?byte:'?';
+        if(used && (used==sizeof(body) || byte=='\n' || byte==EOF)) {
+            int length=snprintf(message,sizeof(message),"<27>%s: %.*s",tag,(int)used,body);
+            ssize_t sent;
+            do {sent=sendto(sock,message,(size_t)length,0,(struct sockaddr *)&address,sizeof(address));}
+            while(sent<0 && errno==EINTR);
+            if(sent!=length) {fprintf(stderr,"%s\n",message);failed=1;}
+            used=0;
+        }
+        if(byte==EOF) break;
+    }
+    if(ferror(input)) failed=1;
+    fclose(input);close(sock);return failed;
+}
+
 static void expired(int sig) { (void)sig; _exit(124); }
 static int allowed(const char *path) {
     if (!strcmp(path,"/dev/ttyS1")) return 1;
@@ -183,6 +220,10 @@ static int bridge(int fd) {
 }
 int main(int argc,char **argv) {
     int fd,result;
+    if(argc==3 && !strcmp(argv[1],"stderr-fifo") && argv[2][0]=='/')
+        return mkfifo(argv[2],0600)?1:0;
+    if(argc==4 && !strcmp(argv[1],"stderr-syslog"))
+        return stderr_syslog(argv[2],argv[3]);
     signal(SIGALRM,expired);alarm(25);
     if(argc==3 && (!strcmp(argv[1],"cobs-hello") || !strcmp(argv[1],"cobs-bridge"))) {
         fd=unix_open(argv[2]);if(fd<0) return 1;

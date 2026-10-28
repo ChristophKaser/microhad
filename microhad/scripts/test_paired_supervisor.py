@@ -8,6 +8,7 @@ import signal
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 
@@ -115,7 +116,6 @@ class Paired(unittest.TestCase):
         syslogd=self.root/'syslogd';syslog_state=self.root/'syslogd.running'
         syslogd.write_text('#!/bin/sh\nif [ "$1" = ps ]; then [ ! -f "'+str(syslog_state)+'" ] || '
                            'cat "'+str(syslog_state)+'"\n'
-                           'elif [ "$1" = logger ]; then printf \'%s\\n\' "$*" >> "'+str(self.root/'syslog.messages')+'"\n'
                            'elif [ "$1" = syslogd ]; then echo "999999 root 1 S /bin/busybox $*" > "'+str(syslog_state)+'"; fi\n')
         (self.root/'config.json').write_text('{}')
         syslogd.chmod(0o700)
@@ -128,6 +128,21 @@ class Paired(unittest.TestCase):
                       ZIGGURAT_DEVICE='/dev/forbidden-physical-radio',RESTART_LIMIT='3',RESTART_BACKOFF='1',
                       STARTUP_LIMIT='2',STOP_LIMIT='2',TEST_EVENTS=str(self.events))
         self.master,slave=pty.openpty();self.env['ZIGGURAT_DEVICE']=os.ttyname(slave);os.close(slave)
+        self.syslog_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.syslog_socket.bind(str(self.root/'syslog.sock'))
+        self.syslog_socket.settimeout(.1)
+        self.env['GATEWAY_TEST_SYSLOG'] = str(self.root/'syslog.sock')
+        self.syslog_stop = threading.Event()
+        def collect_syslog():
+            while not self.syslog_stop.is_set():
+                try:
+                    message = self.syslog_socket.recv(256)
+                except socket.timeout:
+                    continue
+                with (self.root/'syslog.messages').open('a') as output:
+                    output.write(message.decode()+'\n')
+        self.syslog_thread = threading.Thread(target=collect_syslog)
+        self.syslog_thread.start()
         self.process=None;self.log=tempfile.TemporaryFile()
     def start(self):
         self.process=subprocess.Popen(['sh',str(ROOT/'paired_start.sh')],env=self.env,stdout=self.log,stderr=self.log)
@@ -150,6 +165,7 @@ class Paired(unittest.TestCase):
             self.process.terminate()
             try:self.process.wait(timeout=12)
             except subprocess.TimeoutExpired:self.process.kill();self.process.wait()
+        self.syslog_stop.set();self.syslog_thread.join(timeout=2);self.syslog_socket.close()
         self.log.close();os.close(self.master);self.tmp.cleanup()
     def test_rust_backtraces_reach_syslog_and_keep_child_exit_status(self):
         self.enable_matter()
@@ -159,12 +175,12 @@ class Paired(unittest.TestCase):
         messages = self.root/'syslog.messages'
         for role, pidfile, tag in [('matter','matter.pid','mthread-matter-stderr'),
                                    ('zig','ziggurat.pid','ziggurat-stderr')]:
-            self.assertIn(role+' backtrace full', self.events.read_text())
+            wait(lambda:role+' backtrace full' in self.events.read_text())
             pid = int((self.control/pidfile).read_text())
             os.kill(pid, signal.SIGUSR1)
-            wait(lambda:messages.exists() and tag+' -- final frame without newline' in messages.read_text())
-            lines = [line.split(' -- ',1)[1] for line in messages.read_text().splitlines()
-                     if ' -t '+tag+' -- ' in line]
+            wait(lambda:messages.exists() and tag+': final frame without newline' in messages.read_text())
+            lines = [line.split(': ',1)[1] for line in messages.read_text().splitlines()
+                     if line.startswith('<27>'+tag+': ')]
             self.assertEqual(lines, ['thread main panicked: '+role, 'stack backtrace:',
                                     'x'*160, 'x'*160, 'x'*160, 'x', 'final frame without newline'])
             if role == 'matter':

@@ -81,19 +81,6 @@ retries=0;matter_retries=0;matter_next=0;quiesced=false
 zig_diagnostic_restart=false
 # Keep stderr separate from the services' normal direct syslog output. A FIFO
 # preserves the real child PID/wait status, unlike a service | logger pipeline.
-forward_stderr() {
-    stderr_tag=$1
-    while IFS= read -r stderr_line || [ -n "$stderr_line" ]; do
-        # Stock syslogd truncates datagrams at 255 bytes. Leave room for headers
-        # and long service tags, and split by bytes rather than characters.
-        while [ -n "$stderr_line" ]; do
-            stderr_part=$(printf '%s' "$stderr_line" | dd bs=160 count=1 2>/dev/null)
-            "$syslogd" logger -p daemon.err -t "$stderr_tag" -- "$stderr_part" ||
-                printf '%s: %s\n' "$stderr_tag" "$stderr_part" >&2
-            stderr_line=${stderr_line#"$stderr_part"}
-        done
-    done
-}
 drain_stderr() {
     [ -z "$1" ] || wait "$1" 2>/dev/null || true
 }
@@ -140,7 +127,8 @@ cleanup() {
 }
 trap 'cleanup;exit 0' TERM INT HUP
 trap cleanup EXIT
-mkfifo "$control/ziggurat.stderr" "$control/matter.stderr" || exit 2
+"$MAINTENANCE_BIN" stderr-fifo "$control/ziggurat.stderr" &&
+    "$MAINTENANCE_BIN" stderr-fifo "$control/matter.stderr" || exit 2
 prepare_socket_path() {
     path=$1
     [ -e "$path" ] || [ -L "$path" ] || return 0
@@ -179,7 +167,7 @@ start_zig() {
     fi
     if [ "$zig_raw_frames" = on ]; then set -- "$@" --raw-frames;fi
     drain_stderr "$zig_logger_pid"
-    forward_stderr ziggurat-stderr < "$control/ziggurat.stderr" &
+    "$MAINTENANCE_BIN" stderr-syslog ziggurat-stderr "$control/ziggurat.stderr" &
     zig_logger_pid=$!
     RUST_BACKTRACE=full MATTER_RADIO_TRACE="$radio_trace" NO_COLOR=1 "$ZIGGURAT_BIN" --device "$device" --baudrate 460800 --flow-control hardware \
         --spinel-iid 1 --api cobs-unix --listen "unix:$socket_path" --log-level "$zig_log_level" "$@" 2> "$control/ziggurat.stderr" &
@@ -269,7 +257,7 @@ poll_matter() {
     set --
     if [ "$matter_raw_frames" = on ]; then set -- --raw-frames;fi
     drain_stderr "$matter_logger_pid"
-    forward_stderr mthread-matter-stderr < "$control/matter.stderr" &
+    "$MAINTENANCE_BIN" stderr-syslog mthread-matter-stderr "$control/matter.stderr" &
     matter_logger_pid=$!
     RUST_BACKTRACE=full "$matter_bin" --socket "$matter_socket" --state-dir "$matter_state" \
         --radio-url "spinel+hdlc+unix://$thread_socket?no-reset" --log-level "$matter_log_level" \

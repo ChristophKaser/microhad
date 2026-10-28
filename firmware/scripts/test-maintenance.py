@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import pty
 import select
+import socket
+import tempfile
 import subprocess
 import termios
 import threading
@@ -16,6 +18,29 @@ BINARY=ROOT/'build/gateway-maintenance-host'
 
 
 class Maintenance(unittest.TestCase):
+    def test_stderr_fifo_and_bounded_syslog_preserve_final_fragment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fifo = root/'stderr'
+            self.assertEqual(subprocess.run([str(BINARY),'stderr-fifo',str(fifo)]).returncode,0)
+            self.assertEqual(fifo.stat().st_mode & 0o777,0o600)
+            self.assertNotEqual(subprocess.run([str(BINARY),'stderr-fifo',str(fifo)]).returncode,0)
+            with socket.socket(socket.AF_UNIX,socket.SOCK_DGRAM) as collector:
+                collector.bind(str(root/'syslog'));collector.settimeout(2)
+                process = subprocess.Popen([str(BINARY),'stderr-syslog','ziggurat-stderr',str(fifo)],
+                    env=dict(os.environ,GATEWAY_TEST_SYSLOG=str(root/'syslog')))
+                try:
+                    with fifo.open('wb') as output:
+                        output.write(b'stack backtrace:\n'+b'x'*481+b'\nfinal frame')
+                    messages = [collector.recv(256) for _ in range(6)]
+                    self.assertTrue(all(len(message)<255 for message in messages))
+                    prefix = b'<27>ziggurat-stderr: '
+                    self.assertEqual(messages,[prefix+body for body in
+                        [b'stack backtrace:',b'x'*160,b'x'*160,b'x'*160,b'x',b'final frame']])
+                    self.assertEqual(process.wait(timeout=3),0)
+                finally:
+                    if process.poll() is None: process.kill();process.wait()
+
     def test_requires_explicit_flag_and_restricts_paths(self):
         self.assertEqual(subprocess.run([str(BINARY),'bootloader-enter','/dev/null']).returncode,2)
         self.assertEqual(subprocess.run([str(BINARY),'bootloader-enter','/dev/null','--exclusive-radio']).returncode,2)

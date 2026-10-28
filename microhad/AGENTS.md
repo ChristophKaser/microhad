@@ -201,7 +201,9 @@ number for signal deaths), PID, launch count, uptime and memory figures in
 OpenThread radio diagnostics synchronously reach syslog before process exit.
 The launcher sets `RUST_BACKTRACE=full` for both Rust services and forwards
 their stderr through private RAM FIFOs to syslog at `daemon.err`, tagged
-`ziggurat-stderr` and `mthread-matter-stderr`. Long lines are split into
+`ziggurat-stderr` and `mthread-matter-stderr`. The maintenance helper creates
+the FIFOs and forwards directly to `/dev/log`; stock BusyBox lacks `mkfifo`
+and `logger`. Deploy the matching helper with launcher updates. Long lines are split into
 160-byte messages to fit stock syslog limits. Forwarders drain before reuse
 or supervisor cleanup; the supervisor retains the actual service PID and
 exit status. Stack detail still depends on target backtrace support and symbols.
