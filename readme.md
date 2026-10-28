@@ -49,6 +49,8 @@ used here: [Ziggurat](https://github.com/zigpy/ziggurat),
 [nanopb](https://github.com/nanopb/nanopb), as well as their respective
 communities and all other upstream contributors.
 
+This project is not affiliated with Lidl, Silvercrest or Tuya.
+
 ## Getting started
 
 See the [documentation index](docs/README.md) for setup, usage, deployment,
