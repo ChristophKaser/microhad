@@ -42,6 +42,7 @@ if [ "$ZIGGURAT_MULTIPAN" = 1 ]; then
     mailboxes+=(ziggurat/patches/ziggurat-radio-trace.patch ziggurat/patches/ziggurat-thread-tcp.patch)
 fi
 mailboxes+=(ziggurat/patches/ziggurat-key-rng-readiness.patch)
+if [ "$ZIGGURAT_MULTIPAN" = 1 ]; then mailboxes+=(ziggurat/patches/ziggurat-radio-timing.patch);fi
 mailbox_paths=()
 for mailbox in "${mailboxes[@]}"; do mailbox_paths+=("$experiment_root/$mailbox"); done
 if [[ ${MICROHAD_SOURCE_BUNDLE:-0} == 1 ]]; then

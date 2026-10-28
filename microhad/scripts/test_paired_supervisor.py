@@ -114,7 +114,8 @@ class Paired(unittest.TestCase):
         self.control=self.root/'control';self.events=self.root/'events';self.events.touch()
         self.env=dict(os.environ,ZIGGURAT_BIN=str(self.root/'zig'),NATIVE_BIN=str(self.root/'native'),
                       NATIVE_CONFIG=str(self.root/'config.json'),MAINTENANCE_BIN=str(ROOT.parent/'build/gateway-maintenance-host'),
-                      SYSLOGD_BIN=str(syslogd),
+                      SYSLOGD_BIN=str(syslogd),ZIGGURAT_LOG_LEVEL='info',ZIGGURAT_RAW_FRAMES='off',
+                      MATTER_RADIO_TRACE='off',MATTER_LOG_LEVEL='info',MATTER_RAW_FRAMES='off',
                       RUNTIME_CONTROL=str(self.control),ZIGGURAT_SOCKET=str(self.root/'api.sock'),
                       ZIGGURAT_DEVICE='/dev/forbidden-physical-radio',RESTART_LIMIT='3',RESTART_BACKOFF='1',
                       STARTUP_LIMIT='2',STOP_LIMIT='2',TEST_EVENTS=str(self.events))
@@ -142,6 +143,19 @@ class Paired(unittest.TestCase):
             try:self.process.wait(timeout=12)
             except subprocess.TimeoutExpired:self.process.kill();self.process.wait()
         self.log.close();os.close(self.master);self.tmp.cleanup()
+    def test_debug_packet_defaults_survive_fresh_start(self):
+        self.enable_matter()
+        for key in ('ZIGGURAT_LOG_LEVEL','ZIGGURAT_RAW_FRAMES','MATTER_RADIO_TRACE','MATTER_LOG_LEVEL','MATTER_RAW_FRAMES'):
+            self.env.pop(key,None)
+        for attempt in range(2):
+            self.start();self.ready()
+            wait(lambda:(self.control/'active-matter-raw-frames').exists())
+            for name,value in [('active-log-level','debug'),('active-raw-frames','on'),
+                               ('active-radio-trace','on'),('active-matter-log-level','debug'),
+                               ('active-matter-raw-frames','on')]:
+                self.assertEqual((self.control/name).read_text().strip(),value)
+            self.quiesce();self.stop()
+
     def test_logging_defaults_to_local_only(self):
         self.start();self.ready()
         self.assertEqual((self.root/'syslogd.running').read_text().strip(),
@@ -173,9 +187,9 @@ class Paired(unittest.TestCase):
     def test_existing_uart_owner_prevents_any_child_start(self):
         owner=os.open(self.env['ZIGGURAT_DEVICE'],os.O_RDWR|os.O_NOCTTY)
         try:
-            self.env['RESTART_LIMIT']='1';self.start();self.process.wait(timeout=10)
+            self.env['RESTART_LIMIT']='1';self.start();time.sleep(4)
             self.assertEqual(self.events.read_text(),'')
-            self.assertNotEqual(self.process.returncode,0)
+            self.assertIsNone(self.process.poll())
         finally:os.close(owner)
 
     def test_duplicate_supervisor_and_unguarded_stop_refused(self):
@@ -312,8 +326,8 @@ class Paired(unittest.TestCase):
         self.assertEqual(int((self.control/'matter.pid').read_text()),matter_pid)
         self.assertNotEqual(self.run_control('matter-log-level','verbose',check=False).returncode,0)
         os.kill(matter_pid,signal.SIGTERM)
-        wait(lambda:(self.control/'matter.failed').exists())
-        self.assertEqual(self.events.read_text().count('matter start'),4)
+        wait(lambda:self.events.read_text().count('matter start')==5)
+        self.assertFalse((self.control/'matter.failed').exists())
         self.quiesce();self.stop()
 
     def test_matter_log_level_default_and_unexpected_restart(self):
@@ -465,29 +479,29 @@ os.execv(os.environ['REAL_MAINTENANCE_BIN'],[os.environ['REAL_MAINTENANCE_BIN']]
         self.assertFalse((self.control/'requested-thread-tcp').exists())
         self.quiesce();self.stop()
 
-    def test_native_crash_restarts_without_second_radio_owner_and_budget_bounds(self):
-        self.env['TEST_EXIT']='1';self.start();self.process.wait(timeout=12)
+    def test_native_crash_keeps_restarting_without_second_radio_owner(self):
+        self.env['TEST_EXIT']='1';self.start()
+        wait(lambda:self.events.read_text().count('native start')>=5,timeout=20)
         self.assertEqual(self.events.read_text().count('zig start'),1)
-        self.assertEqual(self.events.read_text().count('native start'),3)
-        self.assertNotEqual(self.process.returncode,0)
+        self.assertIsNone(self.process.poll())
     def test_stale_socket_reclaimed_by_server_and_failed_readiness_never_starts_native(self):
         import socket
         with socket.socket(socket.AF_UNIX) as stream:stream.bind(str(self.root/'api.sock'))
         self.start();self.ready();self.quiesce();self.stop()
         self.events.write_text('');(self.root/'zig').write_text('#!/bin/sh\nexec sleep 20\n')
-        self.env['RESTART_LIMIT']='1';self.start();self.process.wait(timeout=10)
+        self.env['RESTART_LIMIT']='1';self.start();time.sleep(7)
         self.assertNotIn('native start',self.events.read_text())
-        self.assertNotEqual(self.process.returncode,0)
+        self.assertIsNone(self.process.poll())
 
-    def test_matter_failures_exhaust_only_independent_budget(self):
+    def test_matter_failures_keep_restarting_independently(self):
         self.enable_matter();self.env['TEST_MATTER_EXIT']='1';self.start();self.ready()
-        wait(lambda:(self.control/'matter.failed').exists())
+        wait(lambda:self.events.read_text().count('matter start')>=4,timeout=20)
         events=self.events.read_text()
-        self.assertEqual(events.count('matter start'),2)
+        self.assertFalse((self.control/'matter.failed').exists())
         evidence=(self.control/'matter.events').read_text()
-        self.assertEqual(evidence.count('event=exit_status=1'),2)
-        self.assertIn('event=budget_exhausted',evidence)
-        self.assertIn('launches=2 limit=2',evidence)
+        self.assertGreaterEqual(evidence.count('event=exit_status=1'),3)
+        self.assertNotIn('event=budget_exhausted',evidence)
+        self.assertIn('limit=unlimited',evidence)
         self.assertIn('MemFree:',evidence)
         self.assertEqual(events.count('native start'),1)
         self.assertEqual(events.count('zig start'),1)

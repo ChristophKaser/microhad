@@ -174,7 +174,7 @@ color escapes; the native gateway reconnects, and the Matter child is restarted 
 its monitor if its radio connection causes it to exit. Unexpected Ziggurat
 failures still use full paired recovery. The requested level lasts for the
 current supervisor lifetime and resets to `ZIGGURAT_LOG_LEVEL` (normally
-`info`) after a fresh supervisor launch or reboot. Paired deployment stages
+`debug`) after a fresh supervisor launch or reboot. Paired deployment stages
 `paired_control.sh` with the supervisor.
 
 For a temporary host-OTBR handover, use
@@ -190,23 +190,44 @@ state and identity are preserved. Selective deployment accepts
 `--services ziggurat,supervisor` to upload the changed radio executable and
 supervisor/control scripts without replacing other services.
 
-Matter permits 50 launches per supervisor lifetime by default, configurable with
-`MATTER_RESTART_LIMIT`. Unexpected exits record the shell wait status (128 plus
-the signal number for signal deaths), PID, launch count, uptime and memory
-figures in `/tmp/ziggurat-supervisor/matter.events`. This private RAM log retains
-the latest 64 events and is cleared on supervisor shutdown. Budget exhaustion
-still leaves Zigbee running. Rust panics synchronously log their source location
-to syslog, without panic payloads, before the panic-abort runtime exits.
+The paired supervisor retries native, radio and Matter failures indefinitely,
+with `RESTART_BACKOFF` (default three seconds, minimum one second). Quiesce,
+explicit stop and ownership checks still prevent unwanted starts. Legacy
+`RESTART_LIMIT` and `MATTER_RESTART_LIMIT` settings no longer stop recovery.
+Unexpected Matter exits record the shell wait status (128 plus the signal
+number for signal deaths), PID, launch count, uptime and memory figures in
+`/tmp/ziggurat-supervisor/matter.events`. This private RAM log retains the latest
+64 events and is cleared on supervisor shutdown. Rust panics and critical
+OpenThread radio diagnostics synchronously reach syslog before process exit.
 
-Matter uses `MATTER_LOG_LEVEL` (normally `info`) and
+Diagnostic defaults are `debug` for Ziggurat and Matter, with
+`ZIGGURAT_RAW_FRAMES`, `MATTER_RAW_FRAMES` and `MATTER_RADIO_TRACE` all `on`.
+These defaults apply to fresh supervisor starts and reboots; explicit environment
+settings still override them. Temporary control requests last for that supervisor
+lifetime. Both Spinel interfaces, Zigbee radio frames, Thread radio traces and
+Matter UDP payloads are captured through the bounded logging queues; check drop
+markers before treating missing packets as evidence. Packet logs include keys.
+
+The coordinator uses normal nice priority (0). `COORDINATOR_SLOW` reports work
+turns above 100 ms, rate-limited to one every five seconds, with command, poll,
+publish and thread CPU timings. `MATTER_SLOW` reports stages above 50 ms and
+`MATTER_LOOP` summarizes maximum turn/gap times every five seconds. Ziggurat's
+`radio_timing` reports writer-lock, UART-write, reply-wait, Thread arbitration
+and consumer-reply-write durations in microseconds.
+
+The host syslog collector keeps 50 full-log rotations of 100 MB and independently
+keeps 50 event-log rotations of 10 MB. `gateway-events.log` contains warnings,
+errors, lifecycle and loop timing so packet volume cannot displace that evidence.
+Measure the deployed capture rate before estimating full-packet retention.
+
+Matter uses `MATTER_LOG_LEVEL` (normally `debug`) and
 `/tuya/native/paired_control.sh matter-log-level LEVEL` with the same six levels.
-This gracefully restarts only Matter without consuming its failure-restart
-budget. The level lasts for the supervisor lifetime and resets to
+This gracefully restarts only Matter. The level lasts for the supervisor lifetime and resets to
 `MATTER_LOG_LEVEL` on a fresh launch or reboot. Debug shows protocol activity;
 trace includes decrypted payloads. Matter syslog bodies use 174-byte limits and
 the same fragment markers as Ziggurat to fit the stock 255-byte receive limit.
 
-The EFR32 radio trace is disabled by default. Use
+The EFR32 radio trace is enabled by default for the diagnostic capture. Use
 `/tuya/native/paired_control.sh radio-trace on` to restart only Ziggurat with
 RCP debug logging enabled; use `radio-trace off` to turn it off. This captures
 post-encryption Thread frames and emits the active MAC key once per key change,

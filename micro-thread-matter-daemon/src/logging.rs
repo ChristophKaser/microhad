@@ -136,6 +136,15 @@ impl Drop for SyslogWriter {
     }
 }
 
+/// OpenThread can call libc exit directly on RCP failure, bypassing logger
+/// shutdown. Emit critical diagnostics synchronously before that can happen.
+pub fn critical_thread_diagnostic(message: &str) {
+    emit(
+        libc::LOG_ERR,
+        format!("ERROR thread_diagnostics: {message}\n").as_bytes(),
+    );
+}
+
 /// Panic-abort builds cannot drain the asynchronous logger. Send the source
 /// location synchronously, without potentially sensitive panic payloads.
 pub fn install_panic_diagnostics() {

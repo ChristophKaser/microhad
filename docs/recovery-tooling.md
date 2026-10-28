@@ -37,9 +37,9 @@ On the **gateway**, temporarily select a log level:
 Levels are `off`, `error`, `warn`, `info`, `debug`, `trace`. The first command
 restarts Ziggurat; Matter can also restart if its radio transport exits. The
 second gracefully restarts only Matter, interrupting sessions/subscriptions
-without consuming its failure budget. Levels last for the current supervisor
-and reset to `ZIGGURAT_LOG_LEVEL` / `MATTER_LOG_LEVEL` (normally `info`) on a fresh
-launch. Return to `info` after diagnosis. Matter trace can expose decrypted data.
+with recovery backoff on unexpected failure. Levels last for the current supervisor
+and reset to `ZIGGURAT_LOG_LEVEL` / `MATTER_LOG_LEVEL` (normally `debug`) on a fresh
+launch. The diagnostic defaults also enable radio and UDP packet capture. Matter trace can expose decrypted data.
 
 Ziggurat's asynchronous logger queues at most 16 complete entries of up to
 16 KiB each. A dedicated thread fragments and writes them to syslog, so a slow
@@ -62,10 +62,9 @@ With the updated supervisor and control helper, use
 `/tuya/native/paired_control.sh raw-frames on` or `raw-frames off` to restart
 Ziggurat with packet capture enabled or disabled. The setting is independent
 of the ordinary log level and survives child restarts for the supervisor's
-lifetime. A fresh supervisor starts with `ZIGGURAT_RAW_FRAMES` (`off` by default;
+lifetime. A fresh supervisor starts with `ZIGGURAT_RAW_FRAMES` (`on` by default;
 accepted values are `on` and `off`). Repeating the current setting does not
-restart anything, and diagnostic switches do not consume the failure restart
-budget. As with a log-level change, the native daemon reconnects and Matter
+restart anything. As with a log-level change, the native daemon reconnects and Matter
 may restart if its radio transport exits. Active state is recorded as
 `active-raw-frames` in the private runtime control directory.
 
@@ -90,9 +89,8 @@ entries with an explicit warning.
 
 Use `/tuya/native/paired_control.sh matter-raw-frames on` or `matter-raw-frames off`
 to restart only Matter with capture enabled or disabled, independently of its
-normal log level and the Zigbee capture switch. This does not consume the Matter
-failure restart budget. The setting survives child restarts for the supervisor's
-lifetime, resetting to `MATTER_RAW_FRAMES` (`off` by default, `on` or `off`) on a
+normal log level and the Zigbee capture switch. The setting survives child restarts for the supervisor's
+lifetime, resetting to `MATTER_RAW_FRAMES` (`on` by default, `on` or `off`) on a
 fresh supervisor. Active state is recorded in `active-matter-raw-frames`. Both
 the updated service and supervisor must be installed to use this control.
 
@@ -133,8 +131,7 @@ for the host `&no-reset` setting, dataset/channel requirements and capture scope
 
 `/tuya/tuya_start.sh` starts the paired supervisor once. Its private control
 directory defaults to `/tmp/ziggurat-supervisor`. Native failures restart the
-native child; unexpected Ziggurat failures recover the pair. Matter has its own
-bounded restart budget. Inspect the supervisor PID and actual processes before
+native child; unexpected Ziggurat failures recover the pair. Matter retries independently without a restart limit; all recovery uses backoff. Inspect the supervisor PID and actual processes before
 stopping or cleaning runtime paths.
 
 Startup refuses live or unsafe socket paths. It removes stale socket names only

@@ -87,7 +87,7 @@ Normal diagnostics exclude request payloads, datasets and store contents.
 Trace-level packet diagnostics can expose decrypted data; use them only for
 bounded diagnosis. See [logging controls](recovery-tooling.md#check-readiness-and-logs). A missing radio,
 transport failure, or corrupt state exits the service. The native project's
-optional paired supervisor implements independent bounded retries and backoff;
+optional paired supervisor implements independent unlimited retries and backoff;
 see [Matter integration](../microhad/MATTER_INTEGRATION.md).
 
 ## Verification

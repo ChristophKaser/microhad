@@ -172,14 +172,14 @@ void receive(void *context, otMessage *message, const otMessageInfo *info)
 // Override the weak POSIX sink: SRP parser/signature/conflict failures happen
 // before our update callback. Keep every SRP event visible at INFO, including
 // expirations/removals and rejected updates; other stack details remain DEBUG.
-extern "C" void otPlatLog(otLogLevel, otLogRegion, const char *format, ...)
+extern "C" void otPlatLog(otLogLevel level, otLogRegion, const char *format, ...)
 {
     char buffer[384];
     va_list args;
     va_start(args, format);
     ::vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
-    diagnostic(std::strstr(buffer, "Off-mesh IPv6") ? 1 :
+    diagnostic(level <= OT_LOG_LEVEL_CRIT ? 3 : std::strstr(buffer, "Off-mesh IPv6") ? 1 :
         std::strstr(buffer, "SrpServer") || std::strstr(buffer, "RX fragment ") || std::strstr(buffer, "RX first fragment failed") ||
         std::strstr(buffer, "Dropping rx frag frame") ? 2 : 1, "OpenThread %s", buffer);
 }

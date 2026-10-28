@@ -79,7 +79,7 @@ node microhad/webui/test/device-deletion-browser.cjs
 ## Runtime and release
 
 The paired supervisor starts and monitors MicroHAD, Ziggurat and Matter with
-bounded retries. The service validates fresh coordinator observations and
+unlimited retries and restart backoff. The service validates fresh coordinator observations and
 matching channels before enabling Thread or commissioning. Dataset and identity
 state survive radio/service restart. Mutations are never automatically replayed.
 

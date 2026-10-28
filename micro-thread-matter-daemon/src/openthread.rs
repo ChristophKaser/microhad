@@ -65,6 +65,11 @@ extern "C" fn thread_diagnostic(level: u8, message: *const core::ffi::c_char) {
     }
     // The adapter passes a bounded, NUL-terminated buffer valid for this call.
     let message = unsafe { std::ffi::CStr::from_ptr(message) }.to_string_lossy();
+    #[cfg(feature = "controller-service")]
+    if level == 3 {
+        crate::logging::critical_thread_diagnostic(&message);
+        return;
+    }
     log::log!(target: "thread_diagnostics", if level == 2 { log::Level::Info } else { log::Level::Debug }, "{message}");
 }
 

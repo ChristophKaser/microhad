@@ -6,6 +6,12 @@ fn main() {
         micro_thread_matter_daemon::logging::install_panic_diagnostics();
         panic!("private panic payload must not appear in syslog");
     }
+    if std::env::args().nth(1).as_deref() == Some("critical-exit") {
+        let _guard = micro_thread_matter_daemon::logging::init(log::LevelFilter::Off, false)
+            .expect("logger initialization");
+        micro_thread_matter_daemon::logging::critical_thread_diagnostic("synthetic RCP timeout before exit 6");
+        unsafe { libc::_exit(6); }
+    }
     let capture = std::env::args().nth(1).as_deref() == Some("on");
     let _guard = micro_thread_matter_daemon::logging::init(log::LevelFilter::Info, capture)
         .expect("logger initialization");

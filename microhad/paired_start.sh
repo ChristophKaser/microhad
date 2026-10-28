@@ -9,10 +9,9 @@ control=${RUNTIME_CONTROL:-/tmp/ziggurat-supervisor}
 socket_path=${ZIGGURAT_SOCKET:-/tmp/ziggurat/native.sock}
 device=${ZIGGURAT_DEVICE:-/dev/ttyS1}
 zig_log=${ZIGGURAT_LOG:-/dev/null}
-zig_log_level=${ZIGGURAT_LOG_LEVEL:-info}
-zig_raw_frames=${ZIGGURAT_RAW_FRAMES:-off}
-radio_trace=${MATTER_RADIO_TRACE:-off}
-limit=${RESTART_LIMIT:-5}
+zig_log_level=${ZIGGURAT_LOG_LEVEL:-debug}
+zig_raw_frames=${ZIGGURAT_RAW_FRAMES:-on}
+radio_trace=${MATTER_RADIO_TRACE:-on}
 startup_limit=${STARTUP_LIMIT:-15}
 stop_limit=${STOP_LIMIT:-8}
 backoff=${RESTART_BACKOFF:-3}
@@ -22,12 +21,12 @@ matter_socket=${MATTER_SOCKET:-/tmp/microhad-matter.sock}
 thread_socket=${THREAD_SOCKET:-/tmp/ziggurat/thread.sock}
 # Diagnostic ownership changes never survive a fresh supervisor or reboot.
 thread_tcp=off
-matter_limit=${MATTER_RESTART_LIMIT:-50}
-matter_log_level=${MATTER_LOG_LEVEL:-info}
-matter_raw_frames=${MATTER_RAW_FRAMES:-off}
+matter_log_level=${MATTER_LOG_LEVEL:-debug}
+matter_raw_frames=${MATTER_RAW_FRAMES:-on}
 matter_level_restart=false
 syslogd=${SYSLOGD_BIN:-/bin/busybox}
-case "$limit:$startup_limit:$stop_limit:$backoff:$matter_limit" in *[!0-9:]*|:*|*::*) exit 2;; esac
+case "$startup_limit:$stop_limit:$backoff" in *[!0-9:]*|:*|*::*) exit 2;; esac
+[ "$backoff" -ge 1 ] || { echo 'RESTART_BACKOFF must be at least one second' >&2; exit 2; }
 case "$zig_log_level" in off|error|warn|info|debug|trace) ;; *) echo 'Invalid ZIGGURAT_LOG_LEVEL' >&2;exit 2;; esac
 case "$zig_raw_frames" in on|off) ;; *) echo 'Invalid ZIGGURAT_RAW_FRAMES' >&2;exit 2;; esac
 case "$radio_trace" in on|off) ;; *) echo 'Invalid MATTER_RADIO_TRACE' >&2;exit 2;; esac
@@ -183,7 +182,7 @@ start_native() {
 # No state, packet contents or credentials are included; all files are in RAM.
 matter_event() {
     {
-        printf 'time=%s event=%s pid=%s launches=%s limit=%s ' "$(date +%s)" "$1" "${matter_pid:-none}" "$matter_retries" "$matter_limit"
+        printf 'time=%s event=%s pid=%s launches=%s limit=unlimited ' "$(date +%s)" "$1" "${matter_pid:-none}" "$matter_retries"
         printf 'uptime='; IFS=' ' read -r event_uptime event_idle < /proc/uptime
         printf '%s ' "$event_uptime"
         awk '/^(MemFree|Cached|Slab):/ {printf "%s%s%s ", $1, $2, $3} END {print ""}' /proc/meminfo
@@ -237,14 +236,6 @@ poll_matter() {
         matter_pid=
         rm -f "$control/matter.pid" "$control/active-matter-log-level" "$control/active-matter-raw-frames"
         matter_next=$(($(date +%s)+backoff))
-    fi
-    if [ "$matter_retries" -ge "$matter_limit" ] && [ "$matter_level_restart" = false ]; then
-        if [ ! -e "$control/matter.failed" ]; then
-            matter_event budget_exhausted
-            echo 'Matter restart budget exhausted; Zigbee remains running' >&2
-            : > "$control/matter.failed"
-        fi
-        return 0
     fi
     [ "$(date +%s)" -ge "$matter_next" ] || return 0
     # A missing Thread endpoint must not prevent the native bridge from running.
@@ -314,7 +305,7 @@ while :; do
         if [ -n "$requested_thread_tcp" ] && valid_thread_tcp "$requested_thread_tcp" &&
             [ "$requested_thread_tcp" != "$thread_tcp" ]; then
             # Stop the local consumer before exposing Thread to the host. Retain
-            # its database and failure budget; an explicit return gets one launch.
+            # its database; an explicit return resumes local recovery.
             stop_child "$matter_pid";matter_pid=
             rm -f "$control/matter.pid" "$control/active-matter-log-level" "$control/active-matter-raw-frames"
             matter_level_restart=true
@@ -349,7 +340,7 @@ while :; do
             rm -f "$control/requested-log-level"
             rm -f "$control/requested-raw-frames"
             rm -f "$control/requested-radio-trace"
-            if [ "$retries" -ge "$limit" ]; then echo 'Restart budget exhausted' >&2;exit 1;fi
+            if [ "$retries" -gt 0 ]; then sleep "$backoff";fi
             retries=$((retries+1))
             if ! start_zig; then stop_child "$zig_pid";zig_pid=;sleep "$backoff";continue;fi
             # A concurrent maintenance request must prevent client startup.
@@ -358,7 +349,6 @@ while :; do
         fi
     elif [ -z "$native_pid" ] || ! kill -0 "$native_pid" 2>/dev/null; then
         stop_child "$native_pid";native_pid=
-        if [ "$retries" -ge "$limit" ]; then echo 'Restart budget exhausted' >&2;exit 1;fi
         retries=$((retries+1));sleep "$backoff"
         [ ! -e "$control/quiesce" ] && [ ! -e "$control/stop" ] || continue
         start_native

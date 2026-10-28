@@ -19,6 +19,14 @@
 #include <syslog.h>
 #endif
 
+namespace {
+int64_t diagnosticMicros(clockid_t clock) {
+    struct timespec value;
+    return clock_gettime(clock, &value) == 0 ?
+        static_cast<int64_t>(value.tv_sec) * 1000000 + value.tv_nsec / 1000 : 0;
+}
+}
+
 GatewayRunner::LoopDebugStats::LoopDebugStats() : iterations(0), commandSkips(0), immediateSkips(0),
     selectCalls(0), selectReady(0), selectTimeouts(0), selectInterrupted(0), selectErrors(0),
     serialReadReady(0), serialWriteReady(0), wakeReady(0), lastSelectResult(0), lastSelectErrno(0),
@@ -92,10 +100,10 @@ void GatewayRunner::stop() {
 void* GatewayRunner::runThread(void* opaque) {
     setCurrentThreadName("coordinator");
 #if defined(__linux__)
-    // Linux nice values are per thread. Keep normal scheduling so the radio
-    // services and automation callbacks can still make progress under load.
-    if (setpriority(PRIO_PROCESS, static_cast<id_t>(syscall(SYS_gettid)), -20) != 0)
-        syslog(LOG_WARNING, "Cannot raise coordinator priority: errno=%d", errno);
+    // Linux nice values are per thread. Share normal priority with the radio
+    // services rather than letting coordinator bursts starve their replies.
+    if (setpriority(PRIO_PROCESS, static_cast<id_t>(syscall(SYS_gettid)), 0) != 0)
+        syslog(LOG_WARNING, "Cannot set normal coordinator priority: errno=%d", errno);
 #endif
     static_cast<GatewayRunner*>(opaque)->run();
     return 0;
@@ -114,6 +122,7 @@ void GatewayRunner::run() {
     if (!ready) return;
     LoopDebugStats debugStats;
     time_t nextDebugReportAt = 0;
+    int64_t nextSlowReport = 0;
     while (true) {
         Command* command = 0;
         Automation::Action action;
@@ -127,6 +136,8 @@ void GatewayRunner::run() {
         if (!automationActions_.empty()) { action=automationActions_.front(); automationActions_.pop_front(); hasAction=true; }
         bool stopNow = stopping_;
         pthread_mutex_unlock(&mutex_);
+        const int64_t turnStart = diagnosticMicros(CLOCK_MONOTONIC);
+        const int64_t cpuStart = diagnosticMicros(CLOCK_THREAD_CPUTIME_ID);
         if (command != 0) execute(command);
         if (stopNow) break;
         if (hasAction) executeAutomation(action);
@@ -137,9 +148,22 @@ void GatewayRunner::run() {
             if (nextDebugReportAt == 0) nextDebugReportAt = time(0) + 5;
             ++debugStats.iterations;
         }
+        const int64_t pollStart = diagnosticMicros(CLOCK_MONOTONIC);
         { AUTOMATION_PROFILE("coord.poll");gateway_->poll(); }
+        const int64_t publishStart = diagnosticMicros(CLOCK_MONOTONIC);
         publishAutomation();
         publishView(false);
+        const int64_t turnEnd = diagnosticMicros(CLOCK_MONOTONIC);
+        if (turnEnd - turnStart >= 100000 && turnEnd >= nextSlowReport) {
+            std::ostringstream timing;
+            timing << "COORDINATOR_SLOW work_us=" << turnEnd - turnStart
+                   << " cpu_us=" << diagnosticMicros(CLOCK_THREAD_CPUTIME_ID) - cpuStart
+                   << " command_us=" << pollStart - turnStart
+                   << " poll_us=" << publishStart - pollStart
+                   << " publish_us=" << turnEnd - publishStart;
+            gateway_->logEventLoopDiagnostic(timing.str());
+            nextSlowReport = turnEnd + 5000000;
+        }
         struct timespec progress;
         pthread_mutex_lock(&mutex_);
         lastCoordinatorProgress_ = clock_gettime(CLOCK_MONOTONIC, &progress) == 0 ?

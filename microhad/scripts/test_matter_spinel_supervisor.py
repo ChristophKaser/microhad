@@ -136,7 +136,7 @@ def start_relay(radio):
 
 def main():
     native_worker = '--native-worker' in sys.argv[1:]
-    exhaust_retries = '--exhaust-retries' in sys.argv[1:]
+    exhaust_retries = any(flag in sys.argv[1:] for flag in ('--repeat-failures', '--exhaust-retries'))
     binaries = (SERVICE, RELAY, MAINTENANCE, NATIVE_GATEWAY) if native_worker else (SERVICE, RELAY, MAINTENANCE)
     for binary in binaries:
         if not binary.is_file():
@@ -316,27 +316,35 @@ else:
             if exhaust_retries:
                 matter_pid = int((control/'matter.pid').read_text())
                 os.kill(matter_pid, 9)
-                wait_for(lambda: (control/'matter.failed').is_file(), timeout=12)
+                # The synthetic relay is single-connection and exits on EOF.
+                # Recreate its listener, as real Ziggurat does after a consumer exits.
+                relay.wait(timeout=3)
+                radio.close()
+                radio = service_test.ChannelRcp('127.0.0.1', tcp_nodelay=True)
+                thread_socket.unlink(missing_ok=True)
+                relay = start_relay(type('RadioPath', (), {'path': thread_socket, 'rcp': radio})())
+                wait_for(lambda: len(launches.read_text().splitlines()) >= 3, timeout=15)
                 time.sleep(1.1)
-                assert len(launches.read_text().splitlines()) == 2, launches.read_text()
-                assert supervisor.poll() is None, 'Matter exhaustion stopped the paired supervisor'
+                assert len(launches.read_text().splitlines()) >= 3, launches.read_text()
+                assert not (control/'matter.failed').exists()
+                assert supervisor.poll() is None, 'Repeated Matter failures stopped the paired supervisor'
                 assert events.read_text().count('zig start') == 1
                 assert events.read_text().count('native start') == 1
                 assert 'native stop' not in events.read_text()
                 if native_worker:
                     assert api_state(native_port, '/api/status', 'online')
-                    try:
-                        http_json(native_port, '/api/matter/status')
-                    except urllib.error.HTTPError as error:
-                        assert error.code == 503, error.code
-                    else:
-                        raise AssertionError('Matter status remained available after retry exhaustion')
+                    wait_for(lambda: api_state(native_port, '/api/matter/status', 'available'), timeout=15)
             mode = 'native worker' if native_worker else 'native stand-in'
             result = 'PASS real Spinel failure restarts Matter, restores Thread dataset through %s, and leaves Zigbee running' % mode
             if exhaust_retries:
-                result += '; repeated real-service failure exhausts its budget without stopping Zigbee/native'
+                result += '; repeated real-service failure continues recovery without stopping Zigbee/native'
             print(result)
         finally:
+            if sys.exc_info()[0] is not None:
+                output.seek(0)
+                print('SUPERVISOR OUTPUT:', output.read().decode(errors='replace'), file=sys.stderr)
+                for evidence in (launches, events, control/'matter.events'):
+                    if evidence.exists(): print(str(evidence), evidence.read_text(), file=sys.stderr)
             if supervisor is not None and supervisor.poll() is None:
                 supervisor.terminate()
                 supervisor.wait(timeout=10)

@@ -39,6 +39,7 @@ ZIGGURAT_MULTI = [
     "ziggurat-radio-trace.patch",
     "ziggurat-thread-tcp.patch",
     "ziggurat-key-rng-readiness.patch",
+    "ziggurat-radio-timing.patch",
 ]
 RS_MATTER_SERVICE = [
     "rs-matter-spake2p.patch",

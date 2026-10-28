@@ -82,12 +82,24 @@ def main():
     parser.add_argument("--password-file", default=None)
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--thread-tcp", action="store_true", help="Test the TCP Thread endpoint (host fixture only)")
+    parser.add_argument("--debug-packets", action="store_true", help="Capture radio timings and packets in the host fixture")
     args = parser.parse_args()
+    if args.debug_packets and args.host:
+        parser.error("--debug-packets supports only the host fixture")
     if args.thread_tcp and args.host:
         parser.error("--thread-tcp currently supports only the host fixture")
     token = str(time.time_ns())
     device = args.host or "127.0.0.1"
     radio = sim.Rcp(device, tcp_nodelay=True, iid=1)
+    if args.debug_packets:
+        original_send = radio.send
+        delayed = [False]
+        def delayed_send(header, prop, value):
+            if ((header >> 4) & 3) == 2 and (header & 15) and prop == 8 and not delayed[0]:
+                delayed[0] = True
+                time.sleep(0.05)
+            original_send(header, prop, value)
+        radio.send = delayed_send
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     api_port = listener.getsockname()[1]
@@ -180,7 +192,8 @@ done
                 passed("TCP endpoint rejects wrong IID, conflicting endpoints and invalid addresses")
             process = subprocess.Popen([str(binary), "--device", f"tcp://{radio.address}:{radio.port}",
                 "--spinel-iid", "1", *thread_endpoint, "--listen", f"127.0.0.1:{api_port}",
-                "--log-level", "info"], stdout=log_file, stderr=subprocess.STDOUT)
+                "--log-level", "debug" if args.debug_packets else "info",
+                *(["--raw-frames"] if args.debug_packets else [])], stdout=log_file, stderr=subprocess.STDOUT)
             deadline = time.monotonic() + 5
             if args.thread_tcp:
                 while True:

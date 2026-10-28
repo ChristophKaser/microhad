@@ -1,0 +1,168 @@
+From: Christoph Kaser <christoph@caser.de>
+Subject: [PATCH] ziggurat: time shared radio requests and capture both Spinel interfaces
+
+---
+diff --git a/crates/ziggurat-spinel/src/client.rs b/crates/ziggurat-spinel/src/client.rs
+index 05042fd..383398a 100644
+--- a/crates/ziggurat-spinel/src/client.rs
++++ b/crates/ziggurat-spinel/src/client.rs
+@@ -4,6 +4,7 @@ use crate::{
+     SpinelStatus, hdlc_escape_into, packed_uint21_deserialize, packed_uint21_to_bytes,
+ };
+ use std::string::String;
++use std::time::{Instant, SystemTime, UNIX_EPOCH};
+ use thiserror::Error;
+ use ziggurat_ieee_802154::FrameBytes;
+ use ziggurat_ieee_802154::types::Eui64;
+@@ -19,6 +20,13 @@ use tokio::time::{Duration, timeout};
+ 
+ /// A link to the RCP: a serial port or a TCP socket. Boxed so [`SpinelClient`] stays
+ /// transport-agnostic regardless of which one a caller opens.
++fn wire_time_us() -> u128 {
++    SystemTime::now()
++        .duration_since(UNIX_EPOCH)
++        .unwrap_or_default()
++        .as_micros()
++}
++
+ pub trait RcpTransport: AsyncRead + AsyncWrite + Send + Unpin + 'static {}
+ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> RcpTransport for T {}
+ 
+@@ -371,25 +379,39 @@ impl SpinelClient {
+                 match reader.read(&mut buffer).await {
+                     Ok(n) if n > 0 => {
+                         for frame in decoder.parse_frames_from_bytes(&buffer[..n]) {
++                            tracing::trace!(target: "ziggurat_raw",
++                                "SPINEL_RX unix_us={} iid={} tid={} command={:?} payload={:02X?}",
++                                wire_time_us(), frame.header.network_link_id, frame.header.transaction_id,
++                                frame.command_id, frame.payload);
+                             let protocols = protocols.lock().expect("Failed to lock interfaces");
+                             // STREAM_LOG uses the broadcast IID on multi-PAN RCPs.
+                             // Consume it once here, before per-interface routing.
+                             if frame.header.transaction_id == 0
+                                 && frame.command_id == SpinelCommandId::PropValueIs
+-                                && let Ok((property, value)) = packed_uint21_deserialize(&frame.payload)
++                                && let Ok((property, value)) =
++                                    packed_uint21_deserialize(&frame.payload)
+                                 && property == SpinelPropertyId::StreamLog as u32
+                             {
+-                                let log_end = value.iter().position(|byte| *byte == 0).unwrap_or(value.len());
++                                let log_end = value
++                                    .iter()
++                                    .position(|byte| *byte == 0)
++                                    .unwrap_or(value.len());
+                                 match std::str::from_utf8(&value[..log_end]) {
+-                                    Ok(message) if message.starts_with("RADIO_TRACE ")
+-                                        || message.split_once(": ").is_some_and(|(_, body)| body.starts_with("RADIO_TRACE ")) => {
++                                    Ok(message)
++                                        if message.starts_with("RADIO_TRACE ")
++                                            || message.split_once(": ").is_some_and(
++                                                |(_, body)| body.starts_with("RADIO_TRACE "),
++                                            ) =>
++                                    {
+                                         tracing::info!(target: "radio_trace", "{message}");
+                                     }
+                                     Ok(message) if !message.is_empty() => {
+                                         tracing::debug!(target: "rcp_log", "{message}");
+                                     }
+                                     Ok(_) => {}
+-                                    Err(error) => tracing::warn!("Invalid RCP log stream UTF-8: {error}"),
++                                    Err(error) => {
++                                        tracing::warn!("Invalid RCP log stream UTF-8: {error}")
++                                    }
+                                 }
+                             } else if let Some(status) = global_reset_status(&frame) {
+                                 for protocol in protocols.values() {
+@@ -436,7 +458,14 @@ impl SpinelClient {
+     // serializes outbound frames on the wire
+     #[allow(clippy::significant_drop_tightening)]
+     async fn send_frame(&self, frame: &SpinelFrame) -> Result<(), SpinelError> {
++        tracing::trace!(target: "ziggurat_raw",
++            "SPINEL_TX unix_us={} iid={} tid={} command={:?} payload={:02X?}",
++            wire_time_us(), frame.header.network_link_id, frame.header.transaction_id,
++            frame.command_id, frame.payload);
++        let queued = Instant::now();
+         let mut writer = self.link.writer.lock().await;
++        let lock_us = queued.elapsed().as_micros();
++        let write_started = Instant::now();
+         let SpinelWriter {
+             port,
+             frame_scratch,
+@@ -453,10 +482,14 @@ impl SpinelClient {
+ 
+         tracing::trace!("Writing {hdlc_scratch:02X?}");
+ 
+-        port.write_all(hdlc_scratch)
+-            .await
+-            .map_err(SpinelError::IoError)?;
+-
++        let result = port.write_all(hdlc_scratch).await;
++        let bytes = hdlc_scratch.len();
++        let write_us = write_started.elapsed().as_micros();
++        drop(writer);
++        tracing::debug!(target: "radio_timing",
++            "SPINEL_WRITE iid={} tid={} bytes={bytes} lock_us={lock_us} write_us={write_us} ok={}",
++            frame.header.network_link_id, frame.header.transaction_id, result.is_ok());
++        result.map_err(SpinelError::IoError)?;
+         Ok(())
+     }
+ 
+@@ -507,7 +540,13 @@ impl SpinelClient {
+             return Err(error);
+         }
+ 
+-        match timeout(TIMEOUT, rx).await {
++        let reply_started = Instant::now();
++        let reply = timeout(TIMEOUT, rx).await;
++        tracing::debug!(target: "radio_timing",
++            "SPINEL_REPLY iid={} tid={} command={:?} reply_us={} timeout={} cancelled={}",
++            frame.header.network_link_id, frame.header.transaction_id, frame.command_id,
++            reply_started.elapsed().as_micros(), reply.is_err(), matches!(&reply, Ok(Err(_))));
++        match reply {
+             Ok(Ok(response_frame)) => {
+                 self.consecutive_timeouts.store(0, Ordering::Relaxed);
+                 Ok(response_frame)
+@@ -630,12 +669,16 @@ impl SpinelClient {
+                     for frame in decoder.parse_frames_from_bytes(&buffer[..n]) {
+                         if frame.command_id == SpinelCommandId::Noop { continue; }
+                         let header = frame.header;
++                        let request_tid = header.transaction_id;
++                        let request_started = Instant::now();
++                        let mut arbitration_us = 0;
+                         let result = if header.network_link_id != 0 {
+                             Err(SpinelError::InvalidInterface(header.network_link_id))
+                         } else if frame.command_id == SpinelCommandId::Reset {
+                             Err(SpinelError::ResetNotOwner)
+                         } else {
+                             let _radio = self.link.exclusive_lock.lock().await;
++                            arbitration_us = request_started.elapsed().as_micros();
+                             self.send_command(frame.command_id, frame.payload).await
+                         };
+                         let response = match result {
+@@ -655,7 +698,13 @@ impl SpinelClient {
+                                 }
+                             }
+                         };
+-                        write_hdlc(&mut stream, &response).await?;
++                        let command_us = request_started.elapsed().as_micros();
++                        let write_started = Instant::now();
++                        let write_result = write_hdlc(&mut stream, &response).await;
++                        tracing::debug!(target: "radio_timing",
++                            "THREAD_REQUEST tid={} arbitration_us={arbitration_us} command_us={command_us} reply_write_us={} ok={}",
++                            request_tid, write_started.elapsed().as_micros(), write_result.is_ok());
++                        write_result?;
+                     }
+                 }
+             }
+@@ -721,7 +770,10 @@ impl SpinelClient {
+         }
+         let got = payload.first().copied().ok_or(SpinelError::EmptyResponse)?;
+         if got != level {
+-            return Err(SpinelError::UnexpectedLogLevel { expected: level, got });
++            return Err(SpinelError::UnexpectedLogLevel {
++                expected: level,
++                got,
++            });
+         }
+         Ok(())
+     }

@@ -304,6 +304,31 @@ fn publish_thread(
     Ok(())
 }
 
+// Wall time includes scheduling/blocking; CPU time identifies work done by this
+// thread. Measure slow stages without logging every 5 ms polling iteration.
+fn thread_cpu_us() -> u64 {
+    let mut value = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut value) } == 0 {
+        value.tv_sec as u64 * 1_000_000 + value.tv_nsec as u64 / 1_000
+    } else {
+        0
+    }
+}
+fn measured<T>(stage: &str, work: impl FnOnce() -> T) -> T {
+    let start = Instant::now();
+    let cpu_start = thread_cpu_us();
+    let result = work();
+    let wall_us = start.elapsed().as_micros();
+    if wall_us >= 50_000 {
+        log::warn!(target: "matter_timing", "MATTER_SLOW stage={stage} wall_us={wall_us} cpu_us={}",
+            thread_cpu_us().saturating_sub(cpu_start));
+    }
+    result
+}
+
 fn run(
     log_guard: &mut Option<micro_thread_matter_daemon::logging::WorkerGuard>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -428,16 +453,17 @@ fn run(
     let (compressed_fabric, next_node) = controller.discovery_identity();
     let address_refresh = micro_thread_matter_daemon::discovery::RefreshRequests::default();
     let signals = micro_thread_matter_daemon::discovery::SignalBook::default();
-    let mut devices = micro_thread_matter_daemon::devices::Manager::new_with_address_refresh_and_signals(
-        matter,
-        &crypto,
-        controller_fabric,
-        controller.catalog(),
-        micro_thread_matter_daemon::devices::MAX_DEVICE_SUBSCRIPTIONS,
-        compressed_fabric,
-        address_refresh.clone(),
-        signals.clone(),
-    )?;
+    let mut devices =
+        micro_thread_matter_daemon::devices::Manager::new_with_address_refresh_and_signals(
+            matter,
+            &crypto,
+            controller_fabric,
+            controller.catalog(),
+            micro_thread_matter_daemon::devices::MAX_DEVICE_SUBSCRIPTIONS,
+            compressed_fabric,
+            address_refresh.clone(),
+            signals.clone(),
+        )?;
     #[cfg(feature = "controller-service-test-hooks")]
     if let Some(node) = std::env::var("MICROHAD_MATTER_TEST_SEED_SENSOR_REPORT_NODE").ok() {
         let node = u64::from_str_radix(node.trim_start_matches("0x"), 16)
@@ -506,21 +532,34 @@ fn run(
     let waker = std::task::Waker::from(std::sync::Arc::new(Wake));
     let mut context = std::task::Context::from_waker(&waker);
     devices.defer_interviews(Duration::from_secs(2));
+    let mut last_turn_end = Instant::now();
+    let mut next_timing = Instant::now() + Duration::from_secs(5);
+    let mut max_gap_us = 0;
+    let mut max_turn_us = 0;
+    let mut turns = 0u32;
     while !STOP.load(Ordering::Relaxed) {
-        if let std::task::Poll::Ready(result) = transport.as_mut().poll(&mut context) {
+        let turn_start = Instant::now();
+        max_gap_us = max_gap_us.max(turn_start.duration_since(last_turn_end).as_micros());
+        if let std::task::Poll::Ready(result) =
+            measured("transport", || transport.as_mut().poll(&mut context))
+        {
             result?;
             return Err("Matter transport ended".into());
         }
-        if let std::task::Poll::Ready(result) = responder.as_mut().poll(&mut context) {
+        if let std::task::Poll::Ready(result) =
+            measured("icd_responder", || responder.as_mut().poll(&mut context))
+        {
             result?;
             return Err("Matter ICD Check-In responder ended".into());
         }
         thread.set_binding_diagnostics(controller.commissioning(Instant::now()));
-        if let std::task::Poll::Ready(result) = discovery.as_mut().poll(&mut context) {
+        if let std::task::Poll::Ready(result) =
+            measured("discovery", || discovery.as_mut().poll(&mut context))
+        {
             result?;
             return Err("Operational discovery ended".into());
         }
-        thread.poll(5_000)?;
+        measured("openthread_poll", || thread.poll(5_000))?;
         lifecycle
             .tick(Some(&thread), Instant::now())
             .map_err(|_| "Thread radio stop failed")?;
@@ -537,17 +576,31 @@ fn run(
                 &mut devices,
             )
         })?;
-        controller.poll(&lifecycle, Instant::now(), &mut context);
-        devices.poll(
-            lifecycle.snapshot().attached,
-            controller.commissioning(Instant::now()),
-            Instant::now(),
-            &mut context,
-        );
-        devices.publish_reports(&mut ipc)?;
+        measured("controller", || {
+            controller.poll(&lifecycle, Instant::now(), &mut context)
+        });
+        measured("devices", || {
+            devices.poll(
+                lifecycle.snapshot().attached,
+                controller.commissioning(Instant::now()),
+                Instant::now(),
+                &mut context,
+            )
+        });
+        measured("publish_reports", || devices.publish_reports(&mut ipc))?;
         controller.publish(&mut ipc, Instant::now())?;
         devices.publish_inventory(&mut ipc)?;
         publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
+        last_turn_end = Instant::now();
+        max_turn_us = max_turn_us.max(last_turn_end.duration_since(turn_start).as_micros());
+        turns = turns.saturating_add(1);
+        if last_turn_end >= next_timing {
+            log::debug!(target: "matter_timing", "MATTER_LOOP interval_s=5 turns={turns} max_turn_us={max_turn_us} max_gap_us={max_gap_us}");
+            max_gap_us = 0;
+            max_turn_us = 0;
+            turns = 0;
+            next_timing = last_turn_end + Duration::from_secs(5);
+        }
         if controller.fatal() {
             return Err("Matter catalog storage failed".into());
         }

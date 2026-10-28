@@ -32,6 +32,11 @@ def main():
         assert 'Matter panic at ' in records and 'logging-capture-probe.rs:' in records
         assert 'private panic payload' not in records
         print('PASS synchronous panic location survives disabled asynchronous logging')
+        capture.unlink(missing_ok=True)
+        result = subprocess.run([str(probe), 'critical-exit'], env=env, capture_output=True)
+        assert result.returncode == 6
+        assert 'synthetic RCP timeout before exit 6' in capture.read_text()
+        print('PASS synchronous critical radio diagnostics survive immediate exit')
         for mode in ('off', 'on'):
             capture.unlink(missing_ok=True)
             subprocess.run([str(probe), mode], env=env, check=True)
