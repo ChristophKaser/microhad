@@ -94,9 +94,9 @@ flowchart TB
     subgraph gateway["Gateway · factory MIPS Linux"]
         supervisor["paired_start.sh<br/>Supervisor"]
         subgraph services["Three supervised services"]
-            native["MicroHAD · C++03<br/>Web UI / REST API<br/>Common device model"]
-            matter["mthread-matter · Rust<br/>Matter controller<br/>OpenThread IPv6 / UDP"]
-            ziggurat["Ziggurat · Rust<br/>Zigbee stack<br/>Spinel multiplexer"]
+            native["MicroHAD <br/> C++03<br/>Web UI / REST API<br/>Common device model"]
+            matter["mthread-matter <br/> Rust<br/>Matter controller<br/>OpenThread IPv6 / UDP"]
+            ziggurat["Ziggurat <br/> Rust<br/>Zigbee stack<br/>Spinel multiplexer"]
             native <-->|"Matter IPC · Unix socket"| matter
             native <-->|"Ziggurat API · COBS / Unix socket"| ziggurat
             matter <-->|"Thread Spinel · HDLC / Unix socket"| ziggurat
