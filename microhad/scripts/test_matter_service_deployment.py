@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise optional service staging with a fake SSH transport; no network access."""
+import gzip
 import json
 import hashlib
 import os
@@ -34,6 +35,12 @@ def matter_manifest(binary, matter=1):
     digest = hashlib.sha256(binary.read_bytes()).hexdigest()
     return (f'format=microhad-build-v1\nziggurat=1\nmatter={matter}\n'
             f'binary_sha256={digest}\n')
+
+
+def webui_release(directory, assets):
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, content in assets.items():
+        (directory / (name + '.gz')).write_bytes(gzip.compress(content.encode(), mtime=0))
 
 
 class Staging(unittest.TestCase):
@@ -175,13 +182,16 @@ echo '{"available":true,"controller_initialized":true,"fabric_ready":true,"state
             binary.write_bytes(b'default native executable')
             binary.chmod(0o700)
             webui = component / 'webui/dist'
-            webui.mkdir(parents=True)
-            (webui / 'index.html').write_text('<script src="/app.js"></script>')
-            (webui / 'app.js').write_text('default dashboard script')
-            (webui / 'sw.js').write_text('default service worker')
+            webui_release(webui, {
+                'index.html': '<script src="/app.js"></script>',
+                'app.js': 'default dashboard script',
+                'sw.js': 'default service worker',
+            })
             script = checkout / 'deploy.sh'
             script.write_bytes((ROOT.parent / 'deploy.sh').read_bytes())
-            for relative in ('scripts/workspace-env.sh', 'scripts/workspace-ssh.sh', 'config/toolchains.mk'):
+            for relative in ('scripts/workspace-env.sh', 'scripts/workspace-ssh.sh',
+                             'scripts/toolchain_config.py', 'scripts/workspace_config.py',
+                             'config/toolchains.mk'):
                 destination = checkout / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(ROOT.parent / relative, destination)
@@ -204,11 +214,12 @@ echo '{"available":true,"controller_initialized":true,"fabric_ready":true,"state
                                    stdout=subprocess.DEVNULL, check=True, timeout=10)
                     rows = [json.loads(line) for line in calls.read_text().splitlines()]
                     uploads = [row for row in rows if row['command'].startswith('dd bs=64k of=')]
+                    self.assertIn('/tuya/native/.microhad.new', uploads[0]['command'])
                     self.assertEqual(uploads[0]['bytes'], binary.stat().st_size)
-                    self.assertEqual(uploads[-1]['bytes'], (webui / 'index.html').stat().st_size)
+                    self.assertEqual(uploads[-1]['bytes'], (webui / 'index.html.gz').stat().st_size)
                     self.assertEqual(sorted(row['bytes'] for row in uploads[1:-1]),
-                                     sorted([(webui / 'sw.js').stat().st_size,
-                                             (webui / 'app.js').stat().st_size]))
+                                     sorted([(webui / 'sw.js.gz').stat().st_size,
+                                             (webui / 'app.js.gz').stat().st_size]))
                     self.assertFalse(any('kill ' in row['command'] for row in rows))
 
     def test_maintenance_upload_failure_retains_local_rollback_and_stops(self):
@@ -236,10 +247,10 @@ elif 'wc -c' in command or 'du -sk' in command:
             readelf.write_text("#!/bin/sh\nprintf '%s\\n' 'Class: ELF32' 'Data: big endian' 'Machine: MIPS'\n")
             readelf.chmod(0o700)
             webui = root / 'webui'
-            webui.mkdir()
-            (webui / 'index.html').write_text('<script src="/app.js"></script>')
-            for name in ('sw.js', 'app.js'):
-                (webui / name).write_text('fixture')
+            webui_release(webui, {
+                'index.html': '<script src="/app.js"></script>',
+                'sw.js': 'fixture', 'app.js': 'fixture',
+            })
             artifacts = {}
             for name in ('microhad', 'ziggurat', 'mthread-matter', 'gateway-maintenance'):
                 artifact = root / name
@@ -296,12 +307,15 @@ elif 'wc -c' in command or 'du -sk' in command:
 import json, os, sys
 with open(os.environ['VERIFY_CALLS'], 'a') as output:
     output.write(json.dumps(sys.argv[1:]) + '\\n')
+print('Content-Encoding: gzip\\r\\n')
 """)
             curl.chmod(0o700)
-            webui = root / 'webui';webui.mkdir()
-            (webui / 'index.html').write_text('<script src="/app.js"></script>\n<link href="/app.css">\n')
-            for name in ('sw.js', 'app.js', 'app.css', 'licenses.html'):
-                (webui / name).write_text('fixture')
+            webui = root / 'webui'
+            webui_release(webui, {
+                'index.html': '<script src="/app.js"></script>\n<link href="/app.css">\n',
+                'sw.js': 'fixture', 'app.js': 'fixture',
+                'app.css': 'fixture', 'licenses.html': 'fixture',
+            })
             password = root / 'password';password.touch()
             calls = root / 'verify-calls'
             env = dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH'],
@@ -310,13 +324,23 @@ with open(os.environ['VERIFY_CALLS'], 'a') as output:
                             '--webui-only', '--webui-dir', str(webui)],
                            env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                            check=True, timeout=10)
+            # Ordinary uploads stage files; maintenance deployment calls this
+            # verifier after restarting the dashboard.
+            script = (ROOT.parent / 'deploy.sh').read_text()
+            functions = script[script.index('verification_get() {'):
+                               script.index('# Selective maintenance')]
+            subprocess.run(['sh', '-c', 'set -eu\nhost=$1\n' + functions +
+                            '\nverify_webui_assets "$2"', 'verify',
+                            '192.168.178.62', str(webui)],
+                           env=env, capture_output=True, text=True, check=True, timeout=10)
             rows = [json.loads(line) for line in calls.read_text().splitlines()]
-            self.assertEqual([row[-1] for row in rows],
-                             ['http://192.168.178.62/app.js', 'http://192.168.178.62/app.css'])
+            self.assertCountEqual([row[-1] for row in rows],
+                                  ['http://192.168.178.62/' + name for name in
+                                   ('index.html', 'sw.js', 'app.js', 'app.css', 'licenses.html')])
             self.assertTrue(all('-fsS' in row and '-kfsS' not in row for row in rows))
             staging = [json.loads(line) for line in (root / 'staging-calls').read_text().splitlines()]
             uploads = [row['command'] for row in staging if row['command'].startswith('dd bs=64k of=')]
-            self.assertTrue(any('/webui/licenses.html.new' in command for command in uploads))
+            self.assertTrue(any('/webui/licenses.html.gz.new' in command for command in uploads))
             self.assertTrue(all('/webui/' in command for command in uploads))
 
 
