@@ -677,6 +677,38 @@ async fn wait_manager_subscriptions<C: Crypto>(
     })
 }
 
+async fn with_report_pump<C: Crypto, F: std::future::Future>(
+    manager: &mut micro_thread_matter_daemon::devices::Manager<'_, C>,
+    work: F,
+) -> Result<F::Output, Error> {
+    let pump = std::future::poll_fn(|context| {
+        manager.poll(true, false, std::time::Instant::now(), context);
+        std::task::Poll::<()>::Pending
+    });
+    match embassy_time::with_timeout(Duration::from_secs(5), select(work, pump))
+        .await.map_err(|_| rs_matter::error::ErrorCode::RxTimeout)? {
+        Either::First(result) => Ok(result),
+        Either::Second(()) => unreachable!(),
+    }
+}
+
+async fn send_empty_subscription_chunk(exchange: &mut Exchange<'_>, id: u32, more: bool) -> Result<(), Error> {
+    use rs_matter::tlv::FromTLV;
+    exchange.send_with(|_, writer| {
+        writer.start_struct(&TLVTag::Anonymous)?;
+        writer.u32(&TLVTag::Context(0), id)?;
+        writer.bool(&TLVTag::Context(3), more)?;
+        writer.u8(&TLVTag::Context(rs_matter::im::IM_REVISION_TAG), rs_matter::im::IM_REVISION)?;
+        writer.end_container()?;
+        Ok(Some(rs_matter::im::OpCode::ReportData.into()))
+    }).await?;
+    // Consume the shared RX buffer before waiting for any other exchange.
+    let rx = exchange.recv().await?;
+    let response = rs_matter::im::StatusResp::from_tlv(&rs_matter::tlv::TLVElement::new(rx.payload()))?;
+    assert_eq!(response.status, rs_matter::im::IMStatusCode::Success);
+    Ok(())
+}
+
 async fn run(
     thread: &OpenThread,
     use_ble: bool,
@@ -1609,6 +1641,45 @@ async fn run(
                 // Priming reports precede the value changed by the next toggle.
                 while manager.pop_report().is_some() {}
             }
+            // Keep one server report incomplete while a second report on the
+            // same CASE session arrives. A single receiver used to block here.
+            let mut held_report = Exchange::initiate(device_matter, device_crypto,
+                accessory_fabric, active_store_identity_node(ctrl_matter, fab)?).await?;
+            with_report_pump(&mut manager,
+                send_empty_subscription_chunk(&mut held_report, subscription_id, true)).await??;
+            let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
+            with_report_pump(&mut manager, exchange.on_off().toggle(1)).await??;
+            embassy_time::with_timeout(Duration::from_secs(5), std::future::poll_fn(|context| {
+                manager.poll(true, false, std::time::Instant::now(), context);
+                while let Some(report) = manager.pop_report() {
+                    if report.cluster == 6 && matches!(report.value,
+                        micro_thread_matter_daemon::operations::Value::Bool(true)) {
+                        return std::task::Poll::Ready(());
+                    }
+                }
+                context.waker().wake_by_ref();
+                std::task::Poll::Pending
+            })).await.map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
+            with_report_pump(&mut manager,
+                send_empty_subscription_chunk(&mut held_report, subscription_id, false)).await??;
+            drop(held_report);
+            let exchange = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?;
+            with_report_pump(&mut manager, exchange.on_off().toggle(1)).await??;
+            // Wait for the reset report, rather than letting the publisher's
+            // minimum interval coalesce false->true with the following test.
+            embassy_time::with_timeout(Duration::from_secs(5), std::future::poll_fn(|context| {
+                manager.poll(true, false, std::time::Instant::now(), context);
+                while let Some(report) = manager.pop_report() {
+                    if report.cluster == 6 && matches!(report.value,
+                        micro_thread_matter_daemon::operations::Value::Bool(false)) {
+                        return std::task::Poll::Ready(());
+                    }
+                }
+                context.waker().wake_by_ref();
+                std::task::Poll::Pending
+            })).await.map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?;
+            while manager.pop_report().is_some() {}
+            println!("PASS concurrent CASE report accepted while another report waits for its next chunk");
             let mut report_ipc = if sensor_reports {
                 let directory = if state_directory.is_absolute() {
                     state_directory.clone()

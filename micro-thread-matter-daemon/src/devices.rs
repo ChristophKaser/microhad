@@ -96,7 +96,7 @@ pub struct Snapshot {
     pub model: String,
     pub rssi_dbm: Option<i8>,
     pub online: bool,
-    next: Instant,
+    next: Option<Instant>,
     failures: u8,
 }
 struct Discovery {
@@ -143,8 +143,6 @@ struct SubscriptionState {
 }
 type SubscriptionWork<'a> =
     Pin<Box<dyn Future<Output = Result<Option<crate::subscriptions::DeviceSubscription>, Error>> + 'a>>;
-type ReportWork<'a> =
-    Pin<Box<dyn Future<Output = Result<crate::subscriptions::IncomingMessage, Error>> + 'a>>;
 type IcdWork<'a> = Pin<
     Box<
         dyn Future<
@@ -223,7 +221,8 @@ pub struct Manager<'a, C: Crypto> {
     subscriptions: Vec<SubscriptionState>,
     report_subscriptions: crate::subscriptions::ReportSubscriptions,
     subscription_work: Option<(SubscriptionKey, Instant, SubscriptionWork<'a>)>,
-    report_work: Option<ReportWork<'a>>,
+    report_receiver: crate::subscriptions::ReportReceiver<'a>,
+    icd_intervals: crate::subscriptions::IcdIntervalCache,
     #[cfg(feature = "controller-service-test-hooks")]
     host_test_reports: VecDeque<crate::subscriptions::ReceivedReport>,
     reports: VecDeque<crate::operations::ResultValue>,
@@ -322,7 +321,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             subscriptions: Vec::new(),
             report_subscriptions: crate::subscriptions::ReportSubscriptions::default(),
             subscription_work: None,
-            report_work: None,
+            report_receiver: crate::subscriptions::ReportReceiver::default(),
+            icd_intervals: crate::subscriptions::IcdIntervalCache::default(),
             #[cfg(feature = "controller-service-test-hooks")]
             host_test_reports: VecDeque::new(),
             reports: VecDeque::new(),
@@ -521,14 +521,14 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if let Some(snapshot) = self.snapshots.iter_mut().find(|entry| entry.node == node) {
             snapshot.endpoints = endpoints;
             snapshot.online = true;
-            snapshot.next = now + Duration::from_secs(3600);
+            snapshot.next = Some(now + Duration::from_secs(3600));
         } else {
             self.snapshots.push(Snapshot {
                 node,
                 endpoints,
                 manufacturer: String::new(), model: String::new(), rssi_dbm: None,
                 online: true,
-                next: now + Duration::from_secs(3600),
+                next: Some(now + Duration::from_secs(3600)),
                 failures: 0,
             });
         }
@@ -761,6 +761,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if self.icd_work.as_ref().is_some_and(|(id, _, _, _)| *id == node) { self.icd_work = None; }
         self.registered_nodes.retain(|id| *id != node);
         self.icd_checked.retain(|(id, _)| *id != node);
+        self.icd_intervals.invalidate(node);
         self.icd_retry_after.retain(|((id, _), _)| *id != node);
         self.awake_until.retain(|(id, _)| *id != node);
         self.subscriptions.retain(|entry| entry.key.node != node);
@@ -792,7 +793,14 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         {
             let was_online = snapshot.online;
             snapshot.online = false;
-            snapshot.next = now;
+            snapshot.failures = snapshot.failures.saturating_add(1);
+            let retry_at = now + retry_delay(snapshot.failures);
+            // Keep verified capabilities. Recover sessions/subscriptions instead
+            // of interviewing every endpoint after a missed sleepy-device reply.
+            snapshot.next = snapshot.endpoints.is_empty().then_some(retry_at);
+            for entry in self.subscriptions.iter_mut().filter(|entry| entry.key.node == node) {
+                entry.next_retry = entry.next_retry.max(retry_at);
+            }
             was_online
         } else {
             false
@@ -881,11 +889,11 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if !ready {
             self.work = None;
             self.subscription_work = None;
-            self.report_work = None;
+            self.report_receiver = crate::subscriptions::ReportReceiver::default();
             let changed = self.snapshots.iter().any(|s| s.online);
             for snapshot in &mut self.snapshots {
                 snapshot.online = false;
-                snapshot.next = now;
+                snapshot.next = snapshot.endpoints.is_empty().then_some(now);
             }
             for subscription in &mut self.subscriptions {
                 subscription.id = None;
@@ -945,29 +953,16 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 }
             }
         }
-        if self.report_work.is_none() {
-            #[cfg(feature = "controller-service-test-hooks")]
-            if let Some(report) = self.host_test_reports.pop_front() {
-                self.report_work = Some(Box::pin(async move {
-                    Ok(crate::subscriptions::IncomingMessage::Report(report))
-                }));
-            }
-            if self.report_work.is_none() {
-                self.report_work = Some(Box::pin(crate::subscriptions::receive_incoming(
-                    self.matter,
-                    self.report_subscriptions.clone(),
-                )));
-            }
+        #[cfg(feature = "controller-service-test-hooks")]
+        while let Some(report) = self.host_test_reports.pop_front() {
+            self.record_report_at(report, false, now);
         }
-        if let Some(work) = &mut self.report_work {
-            if let Poll::Ready(result) = work.as_mut().poll(context) {
-                self.report_work = None;
-                match result {
-                    Ok(crate::subscriptions::IncomingMessage::Report(report)) => {
-                        self.record_report(report);
-                    }
-                    Err(_) => {}
+        for event in self.report_receiver.poll(self.matter, self.report_subscriptions.clone(), now, context) {
+            match event {
+                crate::subscriptions::ReportEvent::Heartbeat { fabric, node, subscription_id } => {
+                    self.record_heartbeat(fabric, node, subscription_id, now);
                 }
+                crate::subscriptions::ReportEvent::Report(report) => self.record_report_at(report, false, now),
             }
         }
         // Finish the cached inventory bootstrap before expensive CASE work.
@@ -1137,7 +1132,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     model: String::new(),
                     rssi_dbm: None,
                     online: false,
-                    next: now,
+                    next: Some(now),
                     failures: 0,
                 });
             }
@@ -1145,7 +1140,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if let Some(snapshot) = self
             .snapshots
             .iter()
-            .filter(|s| s.next <= now && self.node_awake(s.node, now))
+            .filter(|s| s.next.is_some_and(|next| next <= now) && self.node_awake(s.node, now))
             .min_by_key(|s| {
                 (self.catalog.nodes().iter().find(|node| node.id == s.node).is_none_or(|node| node.phase != Phase::Complete), s.next,
                 )
@@ -1189,23 +1184,24 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 .and_then(|snapshot| snapshot.endpoints.iter()
                     .find(|endpoint| endpoint.servers.contains(&ICD_MANAGEMENT_CLUSTER)))
                 .map(|endpoint| endpoint.id);
+            let intervals = Some(self.icd_intervals.clone());
             let work: SubscriptionWork<'a> = if key.attribute == CLOCK_EVENT_ATTRIBUTE {
                 let last = self.time_preferences.entries.iter().find(|p| p.node == key.node && p.endpoint == key.endpoint)
                     .and_then(|p| p.last_event);
-                Box::pin(crate::subscriptions::establish_clock_events(
-                    self.matter, self.crypto, self.fabric, key.node, key.endpoint, last, icd_endpoint))
+                Box::pin(crate::subscriptions::establish_clock_events_cached(
+                    self.matter, self.crypto, self.fabric, key.node, key.endpoint, last, icd_endpoint, intervals))
             } else {
                 let matter = self.matter;
                 let crypto = self.crypto;
                 let fabric = self.fabric;
                 Box::pin(async move {
                     if key.cluster == 59 && key.attribute == SWITCH_EVENT_ATTRIBUTE {
-                        crate::subscriptions::establish_switch_events_for_device(
-                            matter, crypto, fabric, key.node, key.endpoint, icd_endpoint).await.map(Some)
+                        crate::subscriptions::establish_switch_events_for_device_cached(
+                            matter, crypto, fabric, key.node, key.endpoint, icd_endpoint, intervals).await.map(Some)
                     } else {
-                        crate::subscriptions::establish_device_attribute_with_interval(
+                        crate::subscriptions::establish_device_attribute_with_interval_cached(
                             matter, crypto, fabric, key.node, key.endpoint, key.cluster, key.attribute,
-                            max_interval, icd_endpoint).await.map(Some)
+                            max_interval, icd_endpoint, intervals).await.map(Some)
                     }
                 })
             };
@@ -1278,7 +1274,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 if let Some(report) = priming_report {
                     self.sync_report_subscriptions();
                     if clock_resumed { self.time_preferences.returned(key.node, now); }
-                    self.record_report_with_kind(report, true);
+                    self.record_report_at(report, true, now);
                 }
                 if failed {
                     self.mark_node_unreachable(key.node, now);
@@ -1309,10 +1305,6 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     }
                     result => result,
                 };
-                if result.is_ok() {
-                    self.icd_checked
-                        .retain(|(checked_node, _)| *checked_node != node);
-                }
                 let rssi_dbm = self.signals.rssi(self.compressed_fabric, node);
                 let returned = result.is_ok() && self.snapshots.iter().any(|snapshot| snapshot.node == node && !snapshot.online);
                 let snapshot = self.snapshots.iter_mut().find(|s| s.node == node).unwrap();
@@ -1328,18 +1320,23 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 }
                 match result {
                     Ok(discovery) => {
+                        if snapshot.endpoints != discovery.endpoints
+                            || snapshot.manufacturer != discovery.manufacturer || snapshot.model != discovery.model {
+                            self.icd_intervals.invalidate(node);
+                            self.icd_checked.retain(|(checked_node, _)| *checked_node != node);
+                        }
                         snapshot.endpoints = discovery.endpoints;
                         snapshot.manufacturer = discovery.manufacturer;
                         snapshot.model = discovery.model;
                         snapshot.rssi_dbm = rssi_dbm;
                         snapshot.online = true;
                         snapshot.failures = 0;
-                        snapshot.next = now + Duration::from_secs(300);
+                        snapshot.next = None;
                     }
                     Err(_) => {
                         snapshot.online = false;
                         snapshot.failures = snapshot.failures.saturating_add(1);
-                        snapshot.next = now + retry_delay(snapshot.failures);
+                        snapshot.next = Some(now + retry_delay(snapshot.failures));
                     }
                 }
                 if visible_changed {
@@ -1592,8 +1589,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
         if restore && cursor != 0 { return Err(Failure::Malformed); }
         if restore {
-            if let Some(snapshot) = self.snapshots.iter_mut().find(|snapshot| snapshot.node == node && !snapshot.online) {
-                snapshot.next = now;
+            self.icd_intervals.invalidate(node);
+            self.icd_checked.retain(|(checked_node, _)| *checked_node != node);
+            if let Some(snapshot) = self.snapshots.iter_mut().find(|snapshot| snapshot.node == node) {
+                snapshot.next = Some(now);
             }
             if self.subscription_work.as_ref().is_some_and(|(key, _, _)| key.node == node) {
                 self.subscription_work = None;
@@ -1720,10 +1719,31 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             self.subscriptions.iter().filter_map(|subscription| subscription.id.map(|id| (subscription.key.node, id))),
         );
     }
-    fn record_report(&mut self, report: crate::subscriptions::ReceivedReport) {
-        self.record_report_with_kind(report, false);
+    fn record_heartbeat(&mut self, fabric: u8, node: u64, id: u32, now: Instant) {
+        if fabric != self.fabric.get() { return; }
+        let Some(entry) = self.subscriptions.iter_mut().find(|entry| entry.key.node == node && entry.id == Some(id)) else { return; };
+        entry.last_received = Some(now);
+        entry.next_retry = now + crate::subscriptions::report_timeout(self.matter, entry.max_interval);
+        entry.failures = 0;
+        if let Some(snapshot) = self.snapshots.iter_mut().find(|snapshot| snapshot.node == node) {
+            let returned = !snapshot.online;
+            snapshot.online = true;
+            snapshot.failures = 0;
+            if returned {
+                self.time_preferences.returned(node, now);
+                self.changed();
+            }
+        }
     }
+    #[cfg(test)]
+    fn record_report(&mut self, report: crate::subscriptions::ReceivedReport) {
+        self.record_report_at(report, false, Instant::now());
+    }
+    #[cfg(test)]
     fn record_report_with_kind(&mut self, report: crate::subscriptions::ReceivedReport, priming: bool) {
+        self.record_report_at(report, priming, Instant::now());
+    }
+    fn record_report_at(&mut self, report: crate::subscriptions::ReceivedReport, priming: bool, now: Instant) {
         if report.fabric != self.fabric.get() {
             return;
         }
@@ -1731,9 +1751,14 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             subscription.key.node == report.node && subscription.id == Some(report.subscription_id)
         }) else { return; };
         let became_online = self.snapshots.iter_mut().find(|snapshot| snapshot.node == report.node)
-            .is_some_and(|snapshot| { let changed = !snapshot.online; snapshot.online = true; changed });
+            .is_some_and(|snapshot| {
+                let changed = !snapshot.online;
+                snapshot.online = true;
+                snapshot.failures = 0;
+                changed
+            });
         if became_online {
-            self.time_preferences.returned(report.node, Instant::now());
+            self.time_preferences.returned(report.node, now);
             self.changed();
         }
         let key = self.subscriptions[index].key;
@@ -1742,18 +1767,23 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 .find(|p| p.node == key.node && p.endpoint == key.endpoint).is_some_and(|p| p.last_event.is_none());
             for event in &report.clock_events {
                 if (event.cluster == 40 && event.endpoint == 0) || (event.cluster == 56 && event.endpoint == key.endpoint) {
-                    if self.time_preferences.event(key.node, key.endpoint, event.number, baseline, Instant::now()) {
+                    if self.time_preferences.event(key.node, key.endpoint, event.number, baseline, now) {
+                        if event.cluster == 40 && !baseline {
+                            self.icd_intervals.invalidate(key.node);
+                            self.icd_checked.retain(|(node, _)| *node != key.node);
+                        }
                         log::info!("Matter clock recovery event: node={:016x} cluster={} event=0 number={}", key.node, event.cluster, event.number);
                     }
                 }
             }
         }
         let subscription = &mut self.subscriptions[index];
-        subscription.last_received = Some(Instant::now());
+        subscription.failures = 0;
+        subscription.last_received = Some(now);
         // max_int is the publisher's report/keepalive cadence, not a lease
         // that requires periodic re-subscription. Only re-establish after
         // reports actually stop arriving.
-        subscription.next_retry = Instant::now()
+        subscription.next_retry = now
             + crate::subscriptions::report_timeout(self.matter, subscription.max_interval);
         if subscription.key.cluster == 59 && subscription.key.attribute == SWITCH_EVENT_ATTRIBUTE {
             for button in report.buttons {
@@ -1800,7 +1830,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
 }
 fn subscription_keys(snapshots: &[Snapshot], maximum: usize) -> Vec<SubscriptionKey> {
     let mut keys = Vec::new();
-    for snapshot in snapshots.iter().filter(|snapshot| snapshot.online) {
+    // Offline peers retain verified capabilities and pending recovery work.
+    for snapshot in snapshots {
         for endpoint in &snapshot.endpoints {
             if endpoint.servers.contains(&513) {
                 keys.push(SubscriptionKey { node: snapshot.node, endpoint: endpoint.id, cluster: 513, attribute: u32::MAX,
@@ -2047,6 +2078,79 @@ mod tests {
     }
 
     #[test]
+    fn healthy_sleepy_devices_do_not_repeat_interviews_and_keep_targeted_recovery() {
+        use crate::{entropy::OsEntropy, store::PrivateStore};
+        use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET}, utils::init::InitMaybeUninit};
+        let directory = std::env::temp_dir().join(format!("matter-sleepy-schedule-{}", std::process::id()));
+        let catalog = Catalog::open(PrivateStore::open(&directory).unwrap(), 1, 2).unwrap();
+        let reservation = catalog.reserve(2).unwrap();
+        reservation.fabric_installed().unwrap();
+        reservation.thread_provisioned().unwrap();
+        reservation.complete().unwrap();
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
+        let mut manager = Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+        let now = Instant::now();
+        let endpoints = || vec![Endpoint { id: 0, servers: vec![70, 47], clients: vec![], device_types: vec![] },
+            Endpoint { id: 1, servers: vec![1026], clients: vec![], device_types: vec![] }];
+        manager.snapshots.push(Snapshot { node: 2, endpoints: endpoints(),
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+            online: true, next: Some(now), failures: 0 });
+        manager.icd_checked.push((2, 0));
+        manager.work = Some((2, now + Duration::from_secs(30), Box::pin(std::future::ready(Ok(Discovery {
+            endpoints: endpoints(), manufacturer: String::new(), model: String::new(),
+        })))));
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        assert!(manager.poll_background(now, &mut context));
+        assert_eq!(manager.snapshots[0].next, None);
+        assert_eq!(manager.icd_checked, [(2, 0)], "unchanged discovery must not repeat ICD probing");
+        manager.inventory_bootstrap_until = now;
+        for entry in &mut manager.subscriptions {
+            entry.id = Some(entry.key.cluster);
+            entry.max_interval = 300;
+        }
+        manager.sync_report_subscriptions();
+        let ids: Vec<_> = manager.subscriptions.iter().map(|entry| entry.id.unwrap()).collect();
+        for minute in 0..=60 {
+            let time = now + Duration::from_secs(minute * 60);
+            for &id in &ids { manager.record_heartbeat(1, 2, id, time); }
+            manager.poll(true, false, time, &mut context);
+            assert!(manager.work.is_none(), "healthy reporting must not schedule a descriptor interview");
+            assert!(manager.subscription_work.is_none(), "live subscriptions must not be replaced");
+            assert!(manager.icd_work.is_none());
+            assert_eq!(manager.snapshots[0].next, None);
+        }
+        let later = now + Duration::from_secs(3700);
+        manager.mark_node_unreachable(2, later);
+        manager.sync_subscriptions(later);
+        assert!(!manager.snapshots[0].online);
+        assert_eq!(manager.snapshots[0].next, None, "a lost reply must not restart full discovery");
+        assert_eq!(manager.subscriptions.len(), ids.len(), "offline state must preserve subscription recovery");
+        assert!(manager.subscriptions.iter().all(|entry| entry.next_retry > later));
+        // Authentication and correlation still protect liveness.
+        manager.record_heartbeat(2, 2, ids[0], later);
+        manager.record_heartbeat(1, 2, u32::MAX, later);
+        assert!(!manager.snapshots[0].online);
+        manager.record_heartbeat(1, 2, ids[0], later);
+        assert!(manager.snapshots[0].online);
+        assert_eq!(manager.snapshots[0].failures, 0);
+        // A SIT peer is usable without Check-In registration. LIT remains gated.
+        assert!(manager.node_awake(2, later));
+        manager.registered_nodes.push(2);
+        assert!(!manager.node_awake(2, later));
+        manager.awake_until.push((2, later + Duration::from_secs(5)));
+        assert!(manager.node_awake(2, later));
+        assert!(!manager.node_awake(2, later + Duration::from_secs(5)));
+        manager.subscription_health(2, true, 0, later).unwrap();
+        assert_eq!(manager.snapshots[0].next, Some(later), "explicit recovery may refresh metadata");
+        assert!(!manager.icd_checked.contains(&(2, 0)));
+        drop(manager);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn subscription_health_recovery_and_sleeping_devices() {
         use crate::{entropy::OsEntropy, store::PrivateStore};
         use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
@@ -2073,7 +2177,7 @@ mod tests {
                     else if node == 3 { vec![70, 1026] } else { vec![47, 1026] },
                 clients: vec![], device_types: vec![],
                 }], manufacturer: String::new(), model: String::new(),
-                rssi_dbm: None, online: true, next: now, failures: 0,
+                rssi_dbm: None, online: true, next: Some(now), failures: 0,
             });
         }
         manager.sync_subscriptions(now);
@@ -2251,7 +2355,7 @@ mod tests {
             node: 2,
             endpoints: vec![Endpoint { id: 4, servers: vec![6], clients: vec![3], device_types: vec![] }],
             manufacturer: String::new(), model: String::new(), rssi_dbm: None,
-            online: true, next: Instant::now(), failures: 0,
+            online: true, next: Some(Instant::now()), failures: 0,
         }];
         assert_eq!(operation.authorize(&snapshots), Err(Failure::Unsupported));
         snapshots[0].endpoints[0].servers.push(3);
@@ -2284,7 +2388,7 @@ mod tests {
             ],
             manufacturer: String::new(), model: String::new(), rssi_dbm: None,
             online: true,
-            next: now,
+            next: Some(now),
             failures: 0,
         };
         let offline = Snapshot {
@@ -2301,11 +2405,11 @@ mod tests {
                 .collect(),
             manufacturer: String::new(), model: String::new(), rssi_dbm: None,
             online: false,
-            next: now,
+            next: Some(now),
             failures: 0,
         };
         let keys = subscription_keys(&[snapshot, offline], MAX_DEVICE_SUBSCRIPTIONS);
-        assert_eq!(keys.len(), 8);
+        assert_eq!(keys.len(), 16, "retain offline peers' subscription recovery paths");
         assert!(keys.contains(&SubscriptionKey {
             node: 2,
             endpoint: 1,
@@ -2324,7 +2428,8 @@ mod tests {
             cluster: 1066,
             attribute: 0,
         }));
-        assert!(keys.iter().all(|key| key.node == 2));
+        assert_eq!(keys.iter().filter(|key| key.node == 2).count(), 8);
+        assert_eq!(keys.iter().filter(|key| key.node == 3).count(), 8);
         let oversized = Snapshot {
             node: 4,
             endpoints: (1..=64)
@@ -2337,7 +2442,7 @@ mod tests {
                 .collect(),
             manufacturer: String::new(), model: String::new(), rssi_dbm: None,
             online: true,
-            next: now,
+            next: Some(now),
             failures: 0,
         };
         assert_eq!(
@@ -2432,7 +2537,7 @@ mod tests {
         manager.snapshots.push(Snapshot {
             node: 2, endpoints: vec![Endpoint { id: 0, servers: vec![56], clients: vec![], device_types: vec![] }],
             manufacturer: String::new(), model: String::new(), rssi_dbm: None,
-            online: true, next: now + Duration::from_secs(300), failures: 0,
+            online: true, next: Some(now + Duration::from_secs(300)), failures: 0,
         });
         let before = std::fs::read(directory.join("credentials.bin")).unwrap();
         let mut context = Context::from_waker(std::task::Waker::noop());
@@ -2569,7 +2674,7 @@ mod tests {
         manager.inventory_bootstrap_until = now;
         manager.snapshots.push(Snapshot {
             node: 2, endpoints: vec![], manufacturer: String::new(), model: String::new(),
-            rssi_dbm: None, online: true, next: now + Duration::from_secs(300), failures: 0,
+            rssi_dbm: None, online: true, next: Some(now + Duration::from_secs(300)), failures: 0,
         });
         manager.jobs.push_back(JobRecord { id: 1, state: JobRecordState::Running,
         });
@@ -2733,7 +2838,7 @@ mod tests {
             }],
             manufacturer: String::new(), model: String::new(), rssi_dbm: None,
             online: true,
-            next: Instant::now() + Duration::from_secs(300),
+            next: Some(Instant::now() + Duration::from_secs(300)),
             failures: 0,
         });
         let request = || {
@@ -2854,7 +2959,7 @@ mod tests {
         manager.poll(true, false, now + Duration::from_secs(30), &mut context);
         assert!(manager.work.is_none());
         assert!(!manager.snapshots[0].online);
-        assert_eq!(manager.snapshots[0].next, now + Duration::from_secs(35));
+        assert_eq!(manager.snapshots[0].next, Some(now + Duration::from_secs(35)));
         manager.poll(true, false, now + Duration::from_secs(30), &mut context);
         assert_eq!(manager.work.as_ref().unwrap().0, 3);
         manager.work = Some((
@@ -2919,9 +3024,9 @@ mod tests {
         manager.changed();
         assert!(matches!(manager.page(0, None), Err(PageError::Capacity)));
         let recovery_now = now + Duration::from_secs(1_000);
-        manager.snapshots[0].next = recovery_now + Duration::from_secs(60);
-        manager.snapshots[1].next = recovery_now + Duration::from_secs(60);
-        manager.snapshots[2].next = recovery_now;
+        manager.snapshots[0].next = Some(recovery_now + Duration::from_secs(60));
+        manager.snapshots[1].next = Some(recovery_now + Duration::from_secs(60));
+        manager.snapshots[2].next = Some(recovery_now);
         manager.poll(true, false, recovery_now, &mut context);
         assert_eq!(manager.work.as_ref().unwrap().0, 4);
         manager.work = Some((
@@ -3000,7 +3105,7 @@ mod tests {
             }],
             manufacturer: String::new(), model: String::new(), rssi_dbm: None,
             online: true,
-            next,
+            next: Some(next),
             failures: 0,
         });
         let now = Instant::now();
@@ -3008,7 +3113,7 @@ mod tests {
         manager.mark_node_unreachable(2, now);
 
         assert!(!manager.snapshots[0].online);
-        assert_eq!(manager.snapshots[0].next, now);
+        assert_eq!(manager.snapshots[0].next, None);
         assert_eq!(manager.snapshots[0].endpoints[0].servers, vec![6]);
         assert!(refresh.take_for(17, 2));
         assert!(!refresh.take_for(17, 2));

@@ -12,7 +12,36 @@ use rs_matter::{
     transport::exchange::Exchange,
     Matter,
 };
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, future::Future, pin::Pin, rc::Rc, task::{Context, Poll}, time::{Duration, Instant}};
+
+/// Futures share the service thread; this is an exchange limit, not a thread count.
+pub const MAX_CONCURRENT_REPORTS: usize = 256;
+// Bounds abandoned chunk/response work without touching subscription liveness
+// or the transport's one-second acceptance deadline. SIT polls are <=15s.
+const REPORT_EXCHANGE_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Per-manager, per-metadata-generation cache; no cross-fabric global state.
+#[derive(Clone, Default)]
+pub struct IcdIntervalCache(Rc<RefCell<Vec<(u64, u16, u32)>>>);
+
+impl IcdIntervalCache {
+    pub fn invalidate(&self, node: u64) {
+        self.0.borrow_mut().retain(|entry| entry.0 != node);
+    }
+
+    fn get(&self, node: u64, endpoint: u16) -> Option<u32> {
+        self.0.borrow().iter().find(|entry| entry.0 == node && entry.1 == endpoint).map(|entry| entry.2)
+    }
+
+    fn insert(&self, node: u64, endpoint: u16, idle: u32) {
+        let mut entries = self.0.borrow_mut();
+        if let Some(entry) = entries.iter_mut().find(|entry| entry.0 == node && entry.1 == endpoint) {
+            entry.2 = idle;
+        } else if entries.len() < crate::icd::MAX_ICD_CLIENTS * crate::devices::MAX_ENDPOINTS {
+            entries.push((node, endpoint, idle));
+        }
+    }
+}
 
 pub const MIN_REPORT_INTERVAL_SECONDS: u16 = 1;
 pub const MAX_REPORT_INTERVAL_SECONDS: u16 = 3600;
@@ -60,13 +89,17 @@ async fn interval_bounds<C: Crypto>(
     node: u64,
     icd_endpoint: Option<u16>,
     default_maximum: u16,
+    cache: Option<&IcdIntervalCache>,
 ) -> Result<(u16, u16), Error> {
     if let Some(endpoint) = icd_endpoint {
-        let idle = Exchange::initiate(matter, crypto, fabric, node)
-            .await?
-            .icd_management()
-            .idle_mode_duration_read(endpoint)
-            .await?;
+        let idle = if let Some(idle) = cache.and_then(|cache| cache.get(node, endpoint)) {
+            idle
+        } else {
+            let idle = Exchange::initiate(matter, crypto, fabric, node)
+                .await?.icd_management().idle_mode_duration_read(endpoint).await?;
+            if let Some(cache) = cache { cache.insert(node, endpoint, idle); }
+            idle
+        };
         Ok((minimum_report_interval(true), icd_maximum_interval(idle)))
     } else {
         Ok((minimum_report_interval(false), default_maximum))
@@ -114,6 +147,103 @@ pub struct MatterButtonEvent {
 }
 pub enum IncomingMessage {
     Report(ReceivedReport),
+}
+
+#[derive(Default)]
+struct ReportProgress {
+    accepted: bool,
+    heartbeat: Option<(u8, u64, u32)>,
+    report: Option<ReceivedReport>,
+}
+
+struct ReportTask<'a> {
+    work: Pin<Box<dyn Future<Output = Result<(), Error>> + 'a>>,
+    progress: Rc<RefCell<ReportProgress>>,
+    deadline: Option<Instant>,
+}
+
+pub enum ReportEvent {
+    Heartbeat { fabric: u8, node: u64, subscription_id: u32 },
+    Report(ReceivedReport),
+}
+
+/// Lazily admitted futures, all driven by the existing service thread. One
+/// task waits for acceptance; accepted tasks can wait for ACKs independently.
+#[derive(Default)]
+pub struct ReportReceiver<'a> {
+    tasks: Vec<ReportTask<'a>>,
+    next_warning: Option<Instant>,
+}
+
+impl<'a> ReportReceiver<'a> {
+    pub fn poll(&mut self, matter: &'a Matter<'a>, active: ReportSubscriptions,
+        now: Instant, context: &mut Context<'_>) -> Vec<ReportEvent>
+    {
+        self.poll_with(now, context, || {
+            let progress = Rc::new(RefCell::new(ReportProgress::default()));
+            let output = progress.clone();
+            let active = active.clone();
+            ReportTask { progress, deadline: None, work: Box::pin(async move {
+                let exchange = Exchange::accept_matching(matter,
+                    rs_matter::im::PROTO_ID_INTERACTION_MODEL,
+                    rs_matter::im::OpCode::ReportData as u8).await?;
+                output.borrow_mut().accepted = true;
+                receive_report_exchange_progress(exchange, active, |identity, report| {
+                    let mut progress = output.borrow_mut();
+                    progress.heartbeat = Some(identity);
+                    if report.is_some() { progress.report = report; }
+                }).await.map(|_| ())
+            }) }
+        })
+    }
+
+    fn poll_with(&mut self, now: Instant, context: &mut Context<'_>,
+        mut create: impl FnMut() -> ReportTask<'a>) -> Vec<ReportEvent>
+    {
+        let mut events = Vec::new();
+        let mut index = 0;
+        let mut admitted = 0;
+        loop {
+            if index == self.tasks.len() {
+                if self.tasks.len() == MAX_CONCURRENT_REPORTS || admitted == MAX_CONCURRENT_REPORTS
+                    || self.tasks.iter().any(|task| !task.progress.borrow().accepted) { break; }
+                self.tasks.push(create());
+                admitted += 1;
+            }
+            let result = if self.tasks[index].deadline.is_some_and(|deadline| now >= deadline) {
+                Poll::Ready(Err(ErrorCode::RxTimeout.into()))
+            } else {
+                self.tasks[index].work.as_mut().poll(context)
+            };
+            {
+                let task = &mut self.tasks[index];
+                let mut progress = task.progress.borrow_mut();
+                if progress.accepted && task.deadline.is_none() {
+                    task.deadline = Some(now + REPORT_EXCHANGE_IDLE_TIMEOUT);
+                }
+                if let Some((fabric, node, subscription_id)) = progress.heartbeat.take() {
+                    task.deadline = Some(now + REPORT_EXCHANGE_IDLE_TIMEOUT);
+                    events.push(ReportEvent::Heartbeat { fabric, node, subscription_id });
+                }
+                if let Some(report) = progress.report.take() { events.push(ReportEvent::Report(report)); }
+            }
+            if let Poll::Ready(result) = result {
+                if let Err(error) = result { self.warn(now, || format!("Matter report receive failed: {error:?}")); }
+                self.tasks.remove(index);
+            } else { index += 1; }
+        }
+        if self.tasks.len() == MAX_CONCURRENT_REPORTS && self.tasks.iter().all(|task| task.progress.borrow().accepted) {
+            self.warn(now, || format!("Matter report receive capacity reached: {MAX_CONCURRENT_REPORTS}"));
+        }
+        events
+    }
+
+    fn warn(&mut self, now: Instant, message: impl FnOnce() -> String) {
+        if self.next_warning.is_none_or(|next| now >= next) {
+            log::warn!("{}", message());
+            self.next_warning = Some(now + Duration::from_secs(5));
+        }
+    }
 }
 pub struct DeviceSubscription {
     pub clock_events: Vec<ClockEvent>,
@@ -201,8 +331,23 @@ pub async fn establish_device_attribute_with_interval<C: Crypto>(
     max_interval: u16,
     icd_endpoint: Option<u16>,
 ) -> Result<DeviceSubscription, Error> {
+    establish_device_attribute_with_interval_cached(matter, crypto, fabric, node, endpoint, cluster, attribute, max_interval, icd_endpoint, None).await
+}
+
+pub async fn establish_device_attribute_with_interval_cached<C: Crypto>(
+    matter: &Matter<'_>,
+    crypto: &C,
+    fabric: NonZeroU8,
+    node: u64,
+    endpoint: u16,
+    cluster: u32,
+    attribute: u32,
+    max_interval: u16,
+    icd_endpoint: Option<u16>,
+    cache: Option<IcdIntervalCache>,
+) -> Result<DeviceSubscription, Error> {
     let (min_interval, max_interval) =
-        interval_bounds(matter, crypto, fabric, node, icd_endpoint, max_interval).await?;
+        interval_bounds(matter, crypto, fabric, node, icd_endpoint, max_interval, cache.as_ref()).await?;
     let unit = match cluster {
         1037 | 1066 => Some(
             crate::operations::read_measurement_unit(
@@ -273,6 +418,18 @@ pub async fn establish_switch_events_for_device<C: Crypto>(
     endpoint: u16,
     icd_endpoint: Option<u16>,
 ) -> Result<DeviceSubscription, Error> {
+    establish_switch_events_for_device_cached(matter, crypto, fabric, node, endpoint, icd_endpoint, None).await
+}
+
+pub async fn establish_switch_events_for_device_cached<C: Crypto>(
+    matter: &Matter<'_>,
+    crypto: &C,
+    fabric: NonZeroU8,
+    node: u64,
+    endpoint: u16,
+    icd_endpoint: Option<u16>,
+    cache: Option<IcdIntervalCache>,
+) -> Result<DeviceSubscription, Error> {
     let (min_interval, max_interval) = interval_bounds(
         matter,
         crypto,
@@ -280,6 +437,7 @@ pub async fn establish_switch_events_for_device<C: Crypto>(
         node,
         icd_endpoint,
         MAX_REPORT_INTERVAL_SECONDS,
+        cache.as_ref(),
     )
     .await?;
     let path = EventPath {
@@ -455,6 +613,19 @@ pub async fn establish_clock_events<C: Crypto>(
     last: Option<u64>,
     icd_endpoint: Option<u16>,
 ) -> Result<Option<DeviceSubscription>, Error> {
+    establish_clock_events_cached(matter, crypto, fabric, node, endpoint, last, icd_endpoint, None).await
+}
+
+pub async fn establish_clock_events_cached<C: Crypto>(
+    matter: &Matter<'_>,
+    crypto: &C,
+    fabric: NonZeroU8,
+    node: u64,
+    endpoint: u16,
+    last: Option<u64>,
+    icd_endpoint: Option<u16>,
+    cache: Option<IcdIntervalCache>,
+) -> Result<Option<DeviceSubscription>, Error> {
     let boot = event_list(matter, crypto, fabric, node, 0, 40).await?;
     let time = event_list(matter, crypto, fabric, node, endpoint, 56).await?;
     let mut paths = Vec::new();
@@ -487,7 +658,7 @@ pub async fn establish_clock_events<C: Crypto>(
         })
         .into_iter()
         .collect();
-    let (min, max) = interval_bounds(matter, crypto, fabric, node, icd_endpoint, 600).await?;
+    let (min, max) = interval_bounds(matter, crypto, fabric, node, icd_endpoint, 600, cache.as_ref()).await?;
     let mut chunk = Exchange::initiate(matter, crypto, fabric, node)
         .await?
         .subscribe_with(|builder| {
@@ -553,9 +724,21 @@ pub async fn receive_incoming(
 }
 
 async fn receive_report_exchange(
-    mut exchange: Exchange<'_>,
+    exchange: Exchange<'_>,
     active: ReportSubscriptions,
 ) -> Result<ReceivedReport, Error> {
+    let mut received = None;
+    receive_report_exchange_progress(exchange, active, |_, report| {
+        if report.is_some() { received = report; }
+    }).await?;
+    received.ok_or_else(|| ErrorCode::InvalidData.into())
+}
+
+async fn receive_report_exchange_progress(
+    mut exchange: Exchange<'_>,
+    active: ReportSubscriptions,
+    mut progress: impl FnMut((u8, u64, u32), Option<ReceivedReport>),
+) -> Result<(), Error> {
     let (fabric, node) = exchange.peer_identity()?.ok_or(ErrorCode::InvalidData)?;
     let mut subscription_id = None;
     let mut values = Vec::new();
@@ -638,6 +821,14 @@ async fn receive_report_exchange(
         values.append(&mut chunk_values);
         buttons.append(&mut chunk_buttons);
         merge_clock_events(&mut received_clock_events, chunk_clock_events)?;
+        // Receipt proves liveness independently of the peer ACKing our reply.
+        // Publish only a completely validated report, including empty keepalives.
+        let report = (!more_chunks).then(|| ReceivedReport {
+            clock_events: std::mem::take(&mut received_clock_events),
+            fabric, node, subscription_id: received_id,
+            values: std::mem::take(&mut values), buttons: std::mem::take(&mut buttons),
+        });
+        progress((fabric, node, received_id), report);
         if !suppress_response {
             exchange
                 .send_with(|_, writer| {
@@ -650,19 +841,123 @@ async fn receive_report_exchange(
             break;
         }
     }
-    Ok(ReceivedReport {
-        clock_events: received_clock_events,
-        fabric,
-        node,
-        subscription_id: subscription_id.ok_or(ErrorCode::InvalidData)?,
-        values,
-        buttons,
-    })
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn report_exchanges_are_lazy_bounded_and_polled_on_the_calling_thread() {
+        use std::cell::Cell;
+        let mut receiver = ReportReceiver::default();
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        let now = Instant::now();
+        let created = Cell::new(0);
+        // With no incoming report there is just one small accept future.
+        receiver.poll_with(now, &mut context, || {
+            created.set(created.get() + 1);
+            ReportTask { progress: Rc::default(), deadline: None, work: Box::pin(std::future::pending()) }
+        });
+        assert_eq!(created.get(), 1);
+        receiver.poll_with(now, &mut context, || panic!("must reuse the idle acceptor"));
+        receiver.tasks.clear();
+
+        let release = Rc::new(Cell::new(false));
+        let caller = std::thread::current().id();
+        let polls = Rc::new(Cell::new(0));
+        let created = Cell::new(0);
+        let events = receiver.poll_with(now, &mut context, || {
+            let number = created.get();
+            created.set(number + 1);
+            let progress = Rc::new(RefCell::new(ReportProgress { accepted: true, ..Default::default() }));
+            let output = progress.clone();
+            let release = release.clone();
+            let polls = polls.clone();
+            let mut delivered = false;
+            ReportTask { progress, deadline: None, work: Box::pin(std::future::poll_fn(move |_| {
+                assert_eq!(std::thread::current().id(), caller);
+                polls.set(polls.get() + 1);
+                if !delivered {
+                    delivered = true;
+                    output.borrow_mut().report = Some(ReceivedReport {
+                        fabric: 1, node: number as u64, subscription_id: 7,
+                        values: vec![], buttons: vec![], clock_events: vec![],
+                    });
+                }
+                // The payload is available even though the final ACK is delayed.
+                if release.get() { Poll::Ready(Err(ErrorCode::RxTimeout.into())) }
+                else { Poll::Pending }
+            })) }
+        });
+        assert_eq!(created.get(), 256);
+        assert_eq!(receiver.tasks.len(), 256);
+        assert_eq!(events.len(), 256);
+        assert_eq!(polls.get(), 256);
+        assert!(receiver.poll_with(now, &mut context, || panic!("257th exchange admitted")).is_empty());
+        assert_eq!(polls.get(), 512, "every exchange must progress once per turn");
+        release.set(true);
+        assert!(receiver.poll_with(now, &mut context, || ReportTask {
+            progress: Rc::default(), deadline: None, work: Box::pin(std::future::pending()),
+        }).is_empty(), "a failed ACK must not publish the same report twice");
+        assert_eq!(receiver.tasks.len(), 1, "completed slots reclaimed; one idle acceptor remains");
+    }
+
+    #[test]
+    fn abandoned_reports_expire_but_live_chunks_extend_the_exchange_deadline() {
+        let mut receiver = ReportReceiver::default();
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        let now = Instant::now();
+        let progress = Rc::new(RefCell::new(ReportProgress { accepted: true, ..Default::default() }));
+        receiver.tasks.push(ReportTask { progress: progress.clone(), deadline: None,
+            work: Box::pin(std::future::pending()) });
+        let idle = || ReportTask { progress: Rc::default(), deadline: None,
+            work: Box::pin(std::future::pending()) };
+        receiver.poll_with(now, &mut context, idle);
+        assert_eq!(receiver.tasks.len(), 2);
+        progress.borrow_mut().heartbeat = Some((1, 2, 7));
+        let live = now + Duration::from_secs(50);
+        let events = receiver.poll_with(live, &mut context, idle);
+        assert!(matches!(events.as_slice(), [ReportEvent::Heartbeat { node: 2, .. }]));
+        receiver.poll_with(now + Duration::from_secs(61), &mut context, idle);
+        assert_eq!(receiver.tasks.len(), 2, "valid chunks extend the inactivity timeout");
+        receiver.poll_with(live + REPORT_EXCHANGE_IDLE_TIMEOUT, &mut context, idle);
+        assert_eq!(receiver.tasks.len(), 1, "abandoned exchange reclaimed; idle acceptor retained");
+    }
+
+    #[test]
+    fn icd_interval_cache_is_shared_by_subscriptions_and_invalidated_per_node() {
+        let cache = IcdIntervalCache::default();
+        cache.insert(2, 0, 300);
+        cache.insert(3, 0, 120);
+        let another_subscription = cache.clone();
+        assert_eq!(another_subscription.get(2, 0), Some(300));
+        assert_eq!(another_subscription.get(3, 0), Some(120));
+        cache.invalidate(2);
+        assert_eq!(another_subscription.get(2, 0), None);
+        assert_eq!(another_subscription.get(3, 0), Some(120));
+        cache.insert(3, 0, 600);
+        assert_eq!(another_subscription.get(3, 0), Some(600));
+    }
+
+    #[test]
+    fn cached_idle_bounds_do_not_start_another_case_read() {
+        use crate::entropy::OsEntropy;
+        use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET}, utils::init::InitMaybeUninit};
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
+        let cache = IcdIntervalCache::default();
+        cache.insert(2, 0, 300);
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        // There is no fabric, session, network or accessory. A cached result
+        // must succeed immediately without initiating an exchange.
+        let mut work = std::pin::pin!(interval_bounds(matter, &crypto,
+            NonZeroU8::new(1).unwrap(), 2, Some(0), 3600, Some(&cache)));
+        assert!(matches!(work.as_mut().poll(&mut context), Poll::Ready(Ok((0, 300)))));
+    }
 
     #[test]
     fn clock_event_paths_payloads_and_history_are_bounded() {

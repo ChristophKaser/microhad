@@ -218,6 +218,47 @@ using crosstool-NG. Selective maintenance
 retains the installed launcher and restarts the paired stack. Rollback copies
 are opt-in via `--rollback-dir DIR`; existing backups are preserved.
 
+## Sleepy-device traffic and subscription recovery
+
+Incoming subscription reports use at most 256 concurrent asynchronous exchanges,
+polled on the existing service thread. No report worker threads are created.
+Exchange futures and their bounded payload buffers are allocated as reports
+arrive; an idle service retains only one acceptor. Existing transport/session
+limits still apply. An incomplete report or a delayed acknowledgement does not
+block unrelated reports. Valid chunks refresh subscription liveness, and a
+complete validated report reaches the device manager before the final response
+acknowledgement. Capacity and receive failures produce rate-limited warnings.
+An admitted exchange with no valid chunk progress for 60 seconds is reclaimed;
+this does not change the negotiated subscription deadline or idle parent polls.
+
+Descriptor interviews run at startup, after commissioning, for incomplete
+metadata, and on explicit subscription recovery. A successful interview does
+not schedule another timed interview. Transient failures retain verified
+capabilities and recover operational addresses and subscriptions with backoff.
+Topology changes are discovered after a service start or explicit recovery.
+ICD features and idle durations are cached until metadata changes, a confirmed
+startup event arrives, or explicit recovery invalidates them. Registered
+Check-In devices retain wake-window gating; short-idle ICDs do not need
+Check-In support to remain recoverable. Negotiated report intervals and the
+response-time allowance remain authoritative for subscription liveness.
+
+The original five-minute descriptor refresh (`378ae54`, October 4, 2026)
+populated and refreshed persisted-device inventory. The original single report
+future (`1d15bc9`, October 4) also serialized acknowledgement waits and chunked
+reports. Subscription watchdog recovery (`ba8497a`, October 20) was added to
+restore reports after accessory recovery, but it could also react to reports
+that our busy receiver failed to accept within the transport's one-second
+deadline. The ICD interval change (`492cb20`, October 25) matched matter.js
+reporting semantics; lengthening those intervals would conceal the receiver
+problem. The replacement removes recurring full interviews and allows reports
+to progress independently while retaining genuine loss/reboot recovery.
+
+Host regressions cover the 256-exchange cap on one calling thread, lazy
+allocation, failed response acknowledgements, an hour of healthy reporting,
+and targeted recovery. The synthetic CASE fixture also keeps one report
+incomplete while another report arrives on the same authenticated session.
+These checks use synthetic traffic and do not access the gateway.
+
 ## Licenses and attribution
 
 Original project code is MIT licensed; upstream components retain their own terms.

@@ -104,6 +104,8 @@ def main():
                 raise RuntimeError('Interrupted node CASE recovery did not complete: ' + result.stdout + result.stderr)
             if args.sensor_reports and 'PASS production manager sensor and contact reports reach IPC from subscribed CASE reports' not in result.stdout:
                 raise RuntimeError('Production sensor report-to-IPC path did not complete: ' + result.stdout + result.stderr)
+            if args.service_owner and not args.icd and 'PASS concurrent CASE report accepted while another report waits for its next chunk' not in result.stdout:
+                raise RuntimeError('Concurrent CASE report reception did not complete: ' + result.stdout + result.stderr)
             if args.icd and 'PASS queued CASE read completed during the Check-In active window' not in result.stdout:
                 raise RuntimeError('ICD Check-In wake-window dispatch did not complete: ' + result.stdout + result.stderr)
             if args.icd and 'PASS production ICD registration and authenticated Check-In counter acceptance' not in result.stdout:
