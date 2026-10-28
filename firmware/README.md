@@ -6,6 +6,14 @@ radio source/configuration and recovery images; `dependencies/slc-cli/` supplies
 the generator. Gecko SDK is a firmware dependency under
 `dependencies/gecko-sdk/`. These upstream pins remain unchanged.
 
+Enabling firmware radio tracing causes unstable radio behavior on this
+shared-radio gateway, including failed Matter CASE sessions and RCP timeouts.
+It is only for debugging a specific problem during a short, explicitly
+requested investigation. Keep it disabled for normal operation and routine
+software packet capture, and disable it immediately after that investigation.
+
+See [firmware tracing controls](../docs/recovery-tooling.md#check-readiness-and-logs).
+
 Host tools read compiler, gateway and SSH settings from the private root
 `workspace.local.env`; see [shared host settings](../docs/workspace-settings.md).
 Explicit environment and command-line overrides still apply.

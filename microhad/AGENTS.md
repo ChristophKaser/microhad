@@ -201,10 +201,12 @@ number for signal deaths), PID, launch count, uptime and memory figures in
 OpenThread radio diagnostics synchronously reach syslog before process exit.
 
 Diagnostic defaults are `debug` for Ziggurat and Matter, with
-`ZIGGURAT_RAW_FRAMES`, `MATTER_RAW_FRAMES` and `MATTER_RADIO_TRACE` all `on`.
+`ZIGGURAT_RAW_FRAMES` and `MATTER_RAW_FRAMES` both `on`.
+Firmware-level `MATTER_RADIO_TRACE` stays `off`: enabling it disrupted
+operational CASE recovery on the shared radio.
 These defaults apply to fresh supervisor starts and reboots; explicit environment
 settings still override them. Temporary control requests last for that supervisor
-lifetime. Both Spinel interfaces, Zigbee radio frames, Thread radio traces and
+lifetime. Both Spinel interfaces, Zigbee radio frames, Thread Spinel frames and
 Matter UDP payloads are captured through bounded 256-entry logging queues
 (up to 4 MiB each, allocated only as entries arrive); check drop
 markers before treating missing packets as evidence. Packet logs include keys.
@@ -228,7 +230,13 @@ This gracefully restarts only Matter. The level lasts for the supervisor lifetim
 trace includes decrypted payloads. Matter syslog bodies use 174-byte limits and
 the same fragment markers as Ziggurat to fit the stock 255-byte receive limit.
 
-The EFR32 radio trace is enabled by default for the diagnostic capture. Use
+Enabling firmware radio tracing causes unstable radio behavior on this
+shared-radio gateway, including failed Matter CASE sessions and RCP timeouts.
+It is only for debugging a specific problem during a short, explicitly
+requested investigation. Keep it disabled for normal operation and routine
+software packet capture, and disable it immediately after that investigation.
+
+The EFR32 firmware radio trace is disabled by default. Use
 `/tuya/native/paired_control.sh radio-trace on` to restart only Ziggurat with
 RCP debug logging enabled; use `radio-trace off` to turn it off. This captures
 post-encryption Thread frames and emits the active MAC key once per key change,

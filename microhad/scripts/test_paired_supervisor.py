@@ -151,7 +151,7 @@ class Paired(unittest.TestCase):
             self.start();self.ready()
             wait(lambda:(self.control/'active-matter-raw-frames').exists())
             for name,value in [('active-log-level','debug'),('active-raw-frames','on'),
-                               ('active-radio-trace','on'),('active-matter-log-level','debug'),
+                               ('active-radio-trace','off'),('active-matter-log-level','debug'),
                                ('active-matter-raw-frames','on')]:
                 self.assertEqual((self.control/name).read_text().strip(),value)
             self.quiesce();self.stop()

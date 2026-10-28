@@ -39,7 +39,19 @@ restarts Ziggurat; Matter can also restart if its radio transport exits. The
 second gracefully restarts only Matter, interrupting sessions/subscriptions
 with recovery backoff on unexpected failure. Levels last for the current supervisor
 and reset to `ZIGGURAT_LOG_LEVEL` / `MATTER_LOG_LEVEL` (normally `debug`) on a fresh
-launch. The diagnostic defaults also enable radio and UDP packet capture. Matter trace can expose decrypted data.
+launch. The diagnostic defaults also enable software radio/Spinel and UDP packet capture.
+Matter trace can expose decrypted data.
+
+Enabling firmware radio tracing causes unstable radio behavior on this
+shared-radio gateway, including failed Matter CASE sessions and RCP timeouts.
+It is only for debugging a specific problem during a short, explicitly
+requested investigation. Keep it disabled for normal operation and routine
+software packet capture, and disable it immediately after that investigation.
+
+Firmware tracing remains off by default. For that specific investigation only,
+`/tuya/native/paired_control.sh radio-trace on` enables it;
+`/tuya/native/paired_control.sh radio-trace off` disables it.
+Software debug logging and raw-packet capture do not require firmware tracing.
 
 Ziggurat's asynchronous logger queues at most 256 complete entries of up to
 16 KiB each. A dedicated thread fragments and writes them to syslog, so a slow
