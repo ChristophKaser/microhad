@@ -86,7 +86,7 @@
     "ziggurat/patches/ziggurat-network-migration.patch": "674793174d2c401882ae5a3cb69e1df0fc3e94ec852a2c3e9c43507961d87196",
     "ziggurat/patches/ziggurat-parent-announcement.patch": "78e69810b8b5a18f963355fb4e374325aa6e89e80e6948f4f302b8601fb2e4cd",
     "ziggurat/patches/ziggurat-poll-diagnostics.patch": "d8f99cc089db2d014ff42b51f82e769689a6d11b1b4085185d8249605154f643",
-    "ziggurat/patches/ziggurat-radio-timing.patch": "bd1e2881ebda952e7d6d773b0595738110b697d21fbedcfe4355bf696eebed07",
+    "ziggurat/patches/ziggurat-radio-timing.patch": "410e3b6e148c9021e47c7b5de1ab8d018594cfa7f5e7b1f85cc06557d3ac6b2f",
     "ziggurat/patches/ziggurat-radio-trace.patch": "ed5075fe0e181b48b8712f19ba6425bf053cc16bf651ab807010d34702c54233",
     "ziggurat/patches/ziggurat-stock-compat.patch": "5c8155759d260c0c1bc9dd8a1d013929f657c9cbf7996f400b456c457fad0a32",
     "ziggurat/patches/ziggurat-syslog-fragments.patch": "8daa50e80ee63abf4a2d61133c6238d01fd5261a8d14dc7df7262fa45f4f4a05",

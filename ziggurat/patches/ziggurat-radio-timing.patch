@@ -19,7 +19,7 @@ index c55ed3f..2af7c9a 100644
  
  enum Message {
 diff --git a/crates/ziggurat-spinel/src/client.rs b/crates/ziggurat-spinel/src/client.rs
-index 05042fd..383398a 100644
+index 05042fd..6f02d41 100644
 --- a/crates/ziggurat-spinel/src/client.rs
 +++ b/crates/ziggurat-spinel/src/client.rs
 @@ -4,6 +4,7 @@ use crate::{
@@ -44,14 +44,22 @@ index 05042fd..383398a 100644
  pub trait RcpTransport: AsyncRead + AsyncWrite + Send + Unpin + 'static {}
  impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> RcpTransport for T {}
  
-@@ -371,25 +379,39 @@ impl SpinelClient {
+@@ -371,25 +379,47 @@ impl SpinelClient {
                  match reader.read(&mut buffer).await {
                      Ok(n) if n > 0 => {
                          for frame in decoder.parse_frames_from_bytes(&buffer[..n]) {
-+                            tracing::trace!(target: "ziggurat_raw",
-+                                "SPINEL_RX unix_us={} iid={} tid={} command={:?} payload={:02X?}",
-+                                wire_time_us(), frame.header.network_link_id, frame.header.transaction_id,
-+                                frame.command_id, frame.payload);
++                            // Firmware log envelopes are emitted below as decoded messages,
++                            // including complete RADIO_TRACE packet records. Hex-encoding
++                            // that text again adds traffic but no packet evidence.
++                            let firmware_log = frame.command_id == SpinelCommandId::PropValueIs
++                                && packed_uint21_deserialize(&frame.payload)
++                                    .is_ok_and(|(property, _)| property == SpinelPropertyId::StreamLog as u32);
++                            if !firmware_log {
++                                tracing::trace!(target: "ziggurat_raw",
++                                    "SPINEL_RX unix_us={} iid={} tid={} command={:?} payload={:02X?}",
++                                    wire_time_us(), frame.header.network_link_id, frame.header.transaction_id,
++                                    frame.command_id, frame.payload);
++                            }
                              let protocols = protocols.lock().expect("Failed to lock interfaces");
                              // STREAM_LOG uses the broadcast IID on multi-PAN RCPs.
                              // Consume it once here, before per-interface routing.
@@ -89,7 +97,7 @@ index 05042fd..383398a 100644
                                  }
                              } else if let Some(status) = global_reset_status(&frame) {
                                  for protocol in protocols.values() {
-@@ -436,7 +458,14 @@ impl SpinelClient {
+@@ -436,7 +466,14 @@ impl SpinelClient {
      // serializes outbound frames on the wire
      #[allow(clippy::significant_drop_tightening)]
      async fn send_frame(&self, frame: &SpinelFrame) -> Result<(), SpinelError> {
@@ -104,7 +112,7 @@ index 05042fd..383398a 100644
          let SpinelWriter {
              port,
              frame_scratch,
-@@ -453,10 +482,14 @@ impl SpinelClient {
+@@ -453,10 +490,14 @@ impl SpinelClient {
  
          tracing::trace!("Writing {hdlc_scratch:02X?}");
  
@@ -123,7 +131,7 @@ index 05042fd..383398a 100644
          Ok(())
      }
  
-@@ -507,7 +540,13 @@ impl SpinelClient {
+@@ -507,7 +548,13 @@ impl SpinelClient {
              return Err(error);
          }
  
@@ -138,7 +146,7 @@ index 05042fd..383398a 100644
              Ok(Ok(response_frame)) => {
                  self.consecutive_timeouts.store(0, Ordering::Relaxed);
                  Ok(response_frame)
-@@ -630,12 +669,16 @@ impl SpinelClient {
+@@ -630,12 +677,16 @@ impl SpinelClient {
                      for frame in decoder.parse_frames_from_bytes(&buffer[..n]) {
                          if frame.command_id == SpinelCommandId::Noop { continue; }
                          let header = frame.header;
@@ -155,7 +163,7 @@ index 05042fd..383398a 100644
                              self.send_command(frame.command_id, frame.payload).await
                          };
                          let response = match result {
-@@ -655,7 +698,13 @@ impl SpinelClient {
+@@ -655,7 +706,13 @@ impl SpinelClient {
                                  }
                              }
                          };
@@ -170,7 +178,7 @@ index 05042fd..383398a 100644
                      }
                  }
              }
-@@ -721,7 +770,10 @@ impl SpinelClient {
+@@ -721,7 +778,10 @@ impl SpinelClient {
          }
          let got = payload.first().copied().ok_or(SpinelError::EmptyResponse)?;
          if got != level {

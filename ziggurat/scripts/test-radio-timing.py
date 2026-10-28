@@ -25,5 +25,7 @@ with tempfile.TemporaryDirectory(prefix='radio-timing-') as directory:
         assert marker in text, marker
     times = [int(value) for value in re.findall(r'reply_us=(\d+)',text)]
     assert max(times) >= 40_000, max(times)
+    assert text.count('fixture_packet psdu=010203') == 1, 'decoded firmware packet record missing or repeated'
+    assert not re.search(r'SPINEL_RX .*payload=\[74,', text), 'firmware log text was hex-encoded again'
     assert 'dropped ' not in text, 'diagnostic fixture lost log entries'
     print('PASS both Spinel packet interfaces, writer/arbitration/reply timings, and injected 50 ms radio delay')

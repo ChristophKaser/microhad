@@ -211,6 +211,8 @@ done
                 thread_socket = socket.socket(socket.AF_UNIX)
                 thread_socket.connect(thread_path)
             thread = HdlcPeer(thread_socket)
+        if args.debug_packets:
+            radio.send(0xb0, 116, b"RADIO_TRACE fixture_packet psdu=010203\0")
         api = sim.Client(api_port, [])
         assert api.request(2) == sim.EUI
         passed("Zigbee API uses IID 1 through actual server")
