@@ -6,9 +6,9 @@ use std::sync::mpsc::{self, SyncSender};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
-// At most 256 KiB of queued text, plus the entry being emitted. Long frames
+// At most 4 MiB of queued text, plus the entry being emitted. Long frames
 // remain intact; overload drops whole entries rather than orphaning fragments.
-const QUEUE_DEPTH: usize = 16;
+const QUEUE_DEPTH: usize = 256;
 const MAX_ENTRY_BYTES: usize = 16 * 1024;
 
 enum Message {

@@ -2,6 +2,22 @@ From: Christoph Kaser <christoph@caser.de>
 Subject: [PATCH] ziggurat: time shared radio requests and capture both Spinel interfaces
 
 ---
+diff --git a/crates/ziggurat-server/src/async_syslog.rs b/crates/ziggurat-server/src/async_syslog.rs
+index c55ed3f..2af7c9a 100644
+--- a/crates/ziggurat-server/src/async_syslog.rs
++++ b/crates/ziggurat-server/src/async_syslog.rs
+@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
+ use std::sync::mpsc::{self, SyncSender};
+ use std::thread::{self, JoinHandle};
+ 
+-// At most 256 KiB of queued text, plus the entry being emitted. Long frames
++// At most 4 MiB of queued text, plus the entry being emitted. Long frames
+ // remain intact; overload drops whole entries rather than orphaning fragments.
+-const QUEUE_DEPTH: usize = 16;
++const QUEUE_DEPTH: usize = 256;
+ const MAX_ENTRY_BYTES: usize = 16 * 1024;
+ 
+ enum Message {
 diff --git a/crates/ziggurat-spinel/src/client.rs b/crates/ziggurat-spinel/src/client.rs
 index 05042fd..383398a 100644
 --- a/crates/ziggurat-spinel/src/client.rs

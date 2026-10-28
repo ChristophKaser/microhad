@@ -205,7 +205,8 @@ Diagnostic defaults are `debug` for Ziggurat and Matter, with
 These defaults apply to fresh supervisor starts and reboots; explicit environment
 settings still override them. Temporary control requests last for that supervisor
 lifetime. Both Spinel interfaces, Zigbee radio frames, Thread radio traces and
-Matter UDP payloads are captured through the bounded logging queues; check drop
+Matter UDP payloads are captured through bounded 256-entry logging queues
+(up to 4 MiB each, allocated only as entries arrive); check drop
 markers before treating missing packets as evidence. Packet logs include keys.
 
 The coordinator uses normal nice priority (0). `COORDINATOR_SLOW` reports work

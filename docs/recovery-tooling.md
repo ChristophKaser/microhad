@@ -41,7 +41,7 @@ with recovery backoff on unexpected failure. Levels last for the current supervi
 and reset to `ZIGGURAT_LOG_LEVEL` / `MATTER_LOG_LEVEL` (normally `debug`) on a fresh
 launch. The diagnostic defaults also enable radio and UDP packet capture. Matter trace can expose decrypted data.
 
-Ziggurat's asynchronous logger queues at most 16 complete entries of up to
+Ziggurat's asynchronous logger queues at most 256 complete entries of up to
 16 KiB each. A dedicated thread fragments and writes them to syslog, so a slow
 syslog receiver cannot block the radio tasks. On overload it drops whole entries
 and reports the number lost. Existing fragment markers and host collection remain
