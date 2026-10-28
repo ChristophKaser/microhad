@@ -43,6 +43,7 @@ if [ "$ZIGGURAT_MULTIPAN" = 1 ]; then
 fi
 mailboxes+=(ziggurat/patches/ziggurat-key-rng-readiness.patch)
 if [ "$ZIGGURAT_MULTIPAN" = 1 ]; then mailboxes+=(ziggurat/patches/ziggurat-radio-timing.patch);fi
+mailboxes+=(ziggurat/patches/ziggurat-lean-gateway.patch)
 mailbox_paths=()
 for mailbox in "${mailboxes[@]}"; do mailbox_paths+=("$experiment_root/$mailbox"); done
 if [[ ${MICROHAD_SOURCE_BUNDLE:-0} == 1 ]]; then
@@ -71,7 +72,10 @@ export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static'
 if [[ "$LINK_MODE" == dynamic ]]; then
     RUSTFLAGS="${RUSTFLAGS/+crt-static/-crt-static} -L native=$STOCK_ROOTFS/link"
 fi
+# Favor size on the gateway; retain upstream LTO, stripping and panic settings.
 cargo +$RUST_TOOLCHAIN build --locked --release \
+    --no-default-features \
+    --config 'profile.release.opt-level="s"' \
     --manifest-path ${build_worktree}/Cargo.toml -p ziggurat-server \
     --target "targets/$TARGET_SPEC_NAME.json" \
     -Z json-target-spec -Z build-std=std,panic_abort \

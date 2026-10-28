@@ -81,9 +81,12 @@ def main():
     parser.add_argument('--host', nargs='?', const=setting('GATEWAY_IP'), type=gateway_host)
     parser.add_argument("--password-file", default=None)
     parser.add_argument("--binary", type=Path)
+    parser.add_argument("--cobs-unix", action="store_true", help="Use the gateway COBS API (host fixture only)")
     parser.add_argument("--thread-tcp", action="store_true", help="Test the TCP Thread endpoint (host fixture only)")
     parser.add_argument("--debug-packets", action="store_true", help="Capture radio timings and packets in the host fixture")
     args = parser.parse_args()
+    if args.cobs_unix and args.host:
+        parser.error("--cobs-unix supports only the host fixture")
     if args.debug_packets and args.host:
         parser.error("--debug-packets supports only the host fixture")
     if args.thread_tcp and args.host:
@@ -106,6 +109,7 @@ def main():
     listener.close()
     thread_path = f"/tmp/ziggurat-hdlc-{token}.sock"
     process = bridge = api = thread_socket = None
+    api_directory = None
     output = []
     report = {"target": device, "results": [], "thread_query_ms": []}
     ssh_base = sim.ssh_args(args) if args.host else []
@@ -190,8 +194,13 @@ done
                     rejected = subprocess.run([str(binary), "--device", "/not/a/radio", *invalid], capture_output=True, text=True, timeout=3)
                     assert rejected.returncode != 0 and expected in rejected.stdout + rejected.stderr
                 passed("TCP endpoint rejects wrong IID, conflicting endpoints and invalid addresses")
+            api_args = ["--api", "ws", "--listen", f"127.0.0.1:{api_port}"]
+            if args.cobs_unix:
+                api_directory = tempfile.TemporaryDirectory(prefix="ziggurat-multipan-api-")
+                api_path = Path(api_directory.name) / "api.sock"
+                api_args = ["--api", "cobs-unix", "--listen", f"unix:{api_path}"]
             process = subprocess.Popen([str(binary), "--device", f"tcp://{radio.address}:{radio.port}",
-                "--spinel-iid", "1", *thread_endpoint, "--listen", f"127.0.0.1:{api_port}",
+                "--spinel-iid", "1", *thread_endpoint, *api_args,
                 "--log-level", "debug" if args.debug_packets else "info",
                 *(["--raw-frames"] if args.debug_packets else [])], stdout=log_file, stderr=subprocess.STDOUT)
             deadline = time.monotonic() + 5
@@ -213,7 +222,15 @@ done
             thread = HdlcPeer(thread_socket)
         if args.debug_packets:
             radio.send(0xb0, 116, b"RADIO_TRACE fixture_packet psdu=010203\0")
-        api = sim.Client(api_port, [])
+        if args.cobs_unix:
+            from ziggurat_cobs import Client
+            while not api_path.exists():
+                if process.poll() is not None or time.monotonic() > deadline:
+                    raise RuntimeError("Host COBS API startup failed")
+                time.sleep(0.02)
+            api = Client.connect(api_path)
+        else:
+            api = sim.Client(api_port, [])
         assert api.request(2) == sim.EUI
         passed("Zigbee API uses IID 1 through actual server")
         assert thread.request(2, 8) == (8, sim.EUI[::-1])
@@ -310,6 +327,7 @@ done
         report["simulator_error"] = radio.error
         log_file.close()
         if not args.host: Path(thread_path).unlink(missing_ok=True)
+        if api_directory: api_directory.cleanup()
         path = ROOT / "logs" / f"hdlc-multipan-{token}.json"
         path.write_text(json.dumps(report, indent=2) + "\n")
         print("Report:", path, flush=True)

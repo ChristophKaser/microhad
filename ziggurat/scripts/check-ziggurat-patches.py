@@ -89,6 +89,7 @@ def main() -> int:
             names.append("ziggurat-key-rng-readiness.patch")
             if args.multipan == "1":
                 names.append("ziggurat-radio-timing.patch")
+            names.append("ziggurat-lean-gateway.patch")
             for name in names:
                 run(["git", "-C", str(expected), "am", str(root / "ziggurat/patches" / name)])
 

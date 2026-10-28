@@ -1,0 +1,104 @@
+From 1111111111111111111111111111111111111111 Mon Sep 17 00:00:00 2001
+From: Gateway maintainers <gateway@localhost>
+Date: Wed, 28 Oct 2026 12:00:00 +0100
+Subject: [PATCH] Make WebSockets optional and replace regex log filtering
+
+Gateway clients use COBS Unix or stdio. Keep WebSockets available as a
+default feature for other clients, and use Targets for level/module filters.
+
+diff --git a/crates/ziggurat-server/Cargo.toml b/crates/ziggurat-server/Cargo.toml
+index 8123c55..b9e77fe 100644
+--- a/crates/ziggurat-server/Cargo.toml
++++ b/crates/ziggurat-server/Cargo.toml
+@@ -20,8 +20,12 @@ clap = { version = "4.6", features = ["derive"] }
+ tracing = "0.1"
+-futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
++futures-util = { version = "0.3", default-features = false, features = ["std", "sink"], optional = true }
+ cobs = "0.5"
+-tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono"] }
++tracing-subscriber = { version = "0.3", features = ["chrono"] }
+ tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util", "io-std"] }
+ tokio-serial = "5.5"
+-tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
++tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"], optional = true }
++
++[features]
++default = ["websocket"]
++websocket = ["dep:futures-util", "dep:tokio-tungstenite"]
+ 
+diff --git a/crates/ziggurat-server/src/async_syslog.rs b/crates/ziggurat-server/src/async_syslog.rs
+index 2af7c9a..ce4771a 100644
+--- a/crates/ziggurat-server/src/async_syslog.rs
++++ b/crates/ziggurat-server/src/async_syslog.rs
+@@ -201,4 +201,5 @@ mod tests {
+         .unwrap();
+-        let filter = tracing_subscriber::EnvFilter::new("info")
+-            .add_directive("ziggurat_raw=trace".parse().unwrap());
++        let filter = tracing_subscriber::filter::Targets::new()
++            .with_default(tracing::Level::INFO)
++            .with_target("ziggurat_raw", tracing::Level::TRACE);
+         let subscriber = tracing_subscriber::registry().with(
+diff --git a/crates/ziggurat-server/src/main.rs b/crates/ziggurat-server/src/main.rs
+index 73caa23..0314d3f 100644
+--- a/crates/ziggurat-server/src/main.rs
++++ b/crates/ziggurat-server/src/main.rs
+@@ -6,2 +6,3 @@ use std::time::Duration;
+ use clap::{Parser, ValueEnum};
++#[cfg(feature = "websocket")]
+ use futures_util::{SinkExt, StreamExt};
+@@ -12,2 +13,3 @@ use tokio::task::JoinHandle;
+ use tokio_serial::{FlowControl, SerialPortBuilderExt};
++#[cfg(feature = "websocket")]
+ use tokio_tungstenite::tungstenite::Message;
+@@ -17,3 +19,3 @@ use tracing_subscriber::fmt::time::ChronoLocal;
+ use tracing_subscriber::prelude::*;
+-use tracing_subscriber::{EnvFilter, fmt};
++use tracing_subscriber::{filter::Targets, fmt};
+ 
+@@ -124,2 +126,3 @@ impl ZigguratServer {
+ 
++    #[cfg(feature = "websocket")]
+     pub async fn run(self: Arc<Self>, listen_addr: &str) -> std::io::Result<()> {
+@@ -199,2 +202,3 @@ impl ZigguratServer {
+ 
++    #[cfg(feature = "websocket")]
+     async fn run_tcp(self: Arc<Self>, listen_addr: &str) -> std::io::Result<()> {
+@@ -209,2 +213,3 @@ impl ZigguratServer {
+ 
++    #[cfg(feature = "websocket")]
+     async fn run_unix(self: Arc<Self>, path: &str) -> std::io::Result<()> {
+@@ -228,2 +233,3 @@ impl ZigguratServer {
+ 
++    #[cfg(feature = "websocket")]
+     fn spawn_connection<S>(self: &Arc<Self>, socket: S, addr: String)
+@@ -431,2 +437,3 @@ impl ZigguratServer {
+ 
++    #[cfg(feature = "websocket")]
+     async fn handle_connection<S>(
+@@ -1219,2 +1226,3 @@ enum ApiMode {
+     /// Binary protocol over WebSocket on `--listen`
++    #[cfg(feature = "websocket")]
+     Ws,
+@@ -1233,3 +1241,5 @@ struct Args {
+     /// How to expose the Zigbee API to clients
+-    #[arg(long, value_enum, default_value_t = ApiMode::Ws)]
++    #[arg(long, value_enum)]
++    #[cfg_attr(feature = "websocket", arg(default_value_t = ApiMode::Ws))]
++    #[cfg_attr(not(feature = "websocket"), arg(default_value_t = ApiMode::Stdio))]
+     api: ApiMode,
+@@ -1291,6 +1301,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+         let (log_writer, _log_guard) = LogWriter::start()?;
+-        let mut filter = EnvFilter::try_from_default_env()
+-            .unwrap_or_else(|_| EnvFilter::new(args.log_level.to_string()));
++        let mut filter = std::env::var("RUST_LOG")
++            .ok()
++            .and_then(|value| value.parse::<Targets>().ok())
++            .unwrap_or_else(|| Targets::new().with_default(args.log_level));
+         if args.raw_frames {
+-            filter = filter.add_directive("ziggurat_raw=trace".parse()?);
++            filter = filter.with_target("ziggurat_raw", LevelFilter::TRACE);
+         }
+@@ -1333,2 +1345,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+         match args.api {
++            #[cfg(feature = "websocket")]
+             ApiMode::Ws => server.run(&args.listen).await?,
