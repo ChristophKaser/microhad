@@ -78,13 +78,12 @@ sleep 1
 }
 # Keep signal deaths visible in dmesg across supervisor starts/reboots. Never
 # change the development host's kernel settings during synthetic host tests.
-case "$(uname -m)" in
-    mips*)
-        if [ -w /proc/sys/kernel/print-fatal-signals ]; then
-            printf '1\n' > /proc/sys/kernel/print-fatal-signals ||
-                echo 'Cannot enable kernel fatal-signal logging' >&2
-        fi ;;
-esac
+if awk '/^mips16 implemented[[:space:]]*:/ || /^isa[[:space:]]*:.*mips/ {found=1} END {exit !found}' /proc/cpuinfo 2>/dev/null; then
+    if [ -w /proc/sys/kernel/print-fatal-signals ]; then
+        printf '1\n' > /proc/sys/kernel/print-fatal-signals ||
+            echo 'Cannot enable kernel fatal-signal logging' >&2
+    fi
+fi
 # Fault diagnostics go to RAM/syslog; never create core files on gateway flash.
 ulimit -c 0
 zig_pid=;native_pid=;matter_pid=;zig_logger_pid=;matter_logger_pid=
