@@ -44,6 +44,7 @@ python3 ziggurat/scripts/test-hdlc-multipan.py --cobs-unix
 python3 ziggurat/scripts/test-hdlc-multipan.py --cobs-unix --thread-tcp
 python3 ziggurat/scripts/test-fresh-join-replay.py
 python3 ziggurat/scripts/test-end-device-relay.py
+python3 ziggurat/scripts/test-neighbor-recovery.py
 ```
 
 Run the multipan build first to prepare its worktree. Tests default to synthetic
@@ -77,3 +78,21 @@ before the update, and does not change the network keys or identity.
 Original project code is MIT licensed; upstream components retain their own terms.
 See the repository-wide [third-party inventory](../THIRD_PARTY.md) for attribution,
 notice generation and release requirements.
+
+## Neighbor recovery
+
+A complete empty Link Status advertisement requests a populated, encrypted
+one-hop response after 1–2 seconds of jitter. Requests share one pending slot;
+extra responses are limited to one per link-status period (15 seconds by
+default). Periodic advertisements continue independently, and extra responses
+do not accelerate neighbor or route activity ageing.
+
+When a neighbor becomes bidirectional again, the stack wakes pending routing
+work and the concentrator advertisement scheduler, preserving its minimum
+spacing. Each queued discovery may send one additional route request, without
+extending its original deadline or replaying commands already failed. This
+improves recovery from lost links; it does not diagnose the cause of their loss.
+
+The synthetic neighbor recovery fixture uses only a loopback radio and test
+keys; it checks authentication, bootstrap coalescing, queued delivery, bounded
+retries and timely terminal failure.

@@ -1,0 +1,363 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gateway maintainers <gateway@example.invalid>
+Date: Thu, 29 Oct 2026 17:00:00 +0100
+Subject: [PATCH] Recover neighbor links with bounded bootstrap and route retries
+
+Coalesce jittered replies to complete empty link-status advertisements.
+Retry queued discoveries once on recovery without extending their deadlines,
+and kick concentrator advertisements through their existing rate limiter.
+
+---
+diff --git a/crates/ziggurat-driver/src/zigbee_stack.rs b/crates/ziggurat-driver/src/zigbee_stack.rs
+index cb96e08..f626423 100644
+--- a/crates/ziggurat-driver/src/zigbee_stack.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack.rs
+@@ -458,6 +458,8 @@ pub struct PendingFrame {
+ /// discarded together, so ten frames to one device ride a single discovery.
+ #[derive(Debug)]
+ pub struct PendingRoute {
++    pub(crate) recovery_requested: bool,
++    pub(crate) recovery_used: bool,
+     pub(crate) frames: Vec<PendingFrame>,
+     /// Discoveries left before the bucket is discarded. Seeded from
+     /// `Tunables::pending_route_discovery_attempts` and decremented on each timeout.
+@@ -690,6 +692,7 @@ pub struct State {
+     /// resolves the oldest match — so every mutation here must preserve it.
+     pub pending_aps_acks: Mutex<Vec<PendingApsAck>>,
+     pub pending_routes: Mutex<FlatMap<Nwk, PendingRoute>>,
++    pub(crate) link_recovery: Mutex<neighbor::LinkRecovery>,
+     /// Broadcasts awaiting retransmission, keyed by (source, sequence number).
+     pub pending_broadcasts: Mutex<FlatMap<(Nwk, u8), PendingBroadcast>>,
+     /// Unicasts awaiting re-transmission after a failed attempt. Unordered: each entry
+@@ -792,6 +795,7 @@ impl State {
+             }),
+             pending_aps_acks: Mutex::new(Vec::new()),
+             pending_routes: Mutex::new(FlatMap::new()),
++            link_recovery: Mutex::new(neighbor::LinkRecovery::default()),
+             pending_broadcasts: Mutex::new(FlatMap::new()),
+             pending_unicast_retries: Mutex::new(Vec::new()),
+             address_conflicts: Mutex::new(FlatMap::new()),
+@@ -980,6 +984,7 @@ pub struct ZigbeeStack<P: RadioPhy, R: Runtime = crate::runtime::DefaultRuntime>
+     /// Signaled whenever a link status command is digested; the MTORR startup wait
+     /// uses it to advertise as soon as a neighbor link is established
+     pub(crate) link_status_received: Notify,
++    pub(crate) link_recovery_wake: Notify,
+     /// Wakes the broadcast-retransmit reactor: signaled on every recorded passive ack
+     /// and whenever a broadcast is queued for retransmission.
+     pub(crate) broadcast_retransmit_wake: Notify,
+@@ -1104,6 +1109,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+             parent_annce_received: Mutex::new(None),
+             mtorr_kick: Notify::new(),
+             link_status_received: Notify::new(),
++            link_recovery_wake: Notify::new(),
+             broadcast_retransmit_wake: Notify::new(),
+             address_conflict_wake: Notify::new(),
+             unicast_retry_wake: Notify::new(),
+diff --git a/crates/ziggurat-driver/src/zigbee_stack/neighbor.rs b/crates/ziggurat-driver/src/zigbee_stack/neighbor.rs
+index c14dacc..1c8f371 100644
+--- a/crates/ziggurat-driver/src/zigbee_stack/neighbor.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack/neighbor.rs
+@@ -1,7 +1,9 @@
+ use crate::runtime::Runtime;
+ use alloc::vec::Vec;
++use core::time::Duration;
+ use ziggurat_ieee_802154::types::{Eui64, Nwk};
+ use ziggurat_phy::RadioPhy;
++use ziggurat_zigbee::Instant;
+ 
+ use ziggurat_zigbee::nwk::commands::{NwkCommand, NwkLinkStatusCommand};
+ use ziggurat_zigbee::nwk::frame::{BROADCAST_ALL_ROUTERS_AND_COORDINATOR, NwkFrame};
+@@ -15,6 +17,33 @@ use super::{
+ /// Maximum number of link status entries that can be carried in a single frame.
+ const MAX_LINK_STATUSES: usize = 7;
+ 
++/// One global response slot bounds work even when many routers request recovery.
++#[derive(Debug, Default)]
++pub(crate) struct LinkRecovery {
++    due: Option<Instant>,
++    last_sent: Option<Instant>,
++}
++
++impl LinkRecovery {
++    fn schedule(&mut self, now: Instant, jitter: Duration, period: Duration) -> bool {
++        if self.due.is_some() {
++            return false;
++        }
++        let earliest = self.last_sent.map(|last| last + period).unwrap_or(now);
++        self.due = Some(core::cmp::max(now + jitter, earliest));
++        true
++    }
++
++    fn take_due(&mut self, now: Instant) -> bool {
++        if !self.due.is_some_and(|due| due <= now) {
++            return false;
++        }
++        self.due = None;
++        self.last_sent = Some(now);
++        true
++    }
++}
++
+ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+     pub(super) fn maybe_recompute_lqa(&self, sender_nwk: Nwk, lqi: u8, _rssi: i8) {
+         self.core().nib.neighbors.record_lqa(sender_nwk, lqi);
+@@ -75,6 +104,13 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+             return;
+         };
+ 
++        let source = nwk_frame.nwk_header.source;
++        let previous_cost = self
++            .core()
++            .nib
++            .neighbors
++            .link(source)
++            .map_or(0, |link| link.outgoing_cost);
+         let lost_link = self.core().nib.neighbors.on_link_status(
+             self.state.network_address,
+             source_ieee,
+@@ -90,12 +126,47 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+             self.invalidate_routes_via(neighbor_nwk);
+         }
+ 
++        // Only a complete empty list requests bootstrap; an empty chunk does not.
++        if link_status_cmd.is_first_frame
++            && link_status_cmd.is_last_frame
++            && link_status_cmd.link_statuses.is_empty()
++        {
++            let jitter =
++                Duration::from_secs(1) + Duration::from_secs(1).mul_f32(crate::rng::random_f32());
++            if self.state.link_recovery.lock().schedule(
++                self.core_now(),
++                jitter,
++                self.tunables.link_status_period(),
++            ) {
++                tracing::debug!("Scheduling jittered link status recovery for {source:?}");
++                self.link_recovery_wake.notify_one();
++            }
++        }
++
++        let current_cost = self
++            .core()
++            .nib
++            .neighbors
++            .link(source)
++            .map_or(0, |link| link.outgoing_cost);
++        if previous_cost == 0 && current_cost > 0 {
++            tracing::debug!("Neighbor link recovered: {source:?}, outgoing_cost={current_cost}");
++            for (_, bucket) in self.state.pending_routes.lock().iter_mut() {
++                if !bucket.recovery_used {
++                    bucket.recovery_requested = true;
++                }
++            }
++            self.pending_route_wake.notify_one();
++            if self.state.is_concentrator {
++                self.mtorr_kick.notify_one();
++            }
++        }
+         self.link_status_received.notify_one();
+     }
+ 
+     /// Broadcast the link status notification.
+     pub fn send_link_status_broadcast(&self, empty: bool) -> SendHandle {
+-        tracing::debug!("Sending periodic link status broadcast");
++        tracing::debug!("Sending link status broadcast");
+ 
+         let (handle, slot) = SendHandle::new();
+ 
+@@ -105,15 +176,11 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+             return handle;
+         }
+ 
+-        // Decrement the `recent_activity` field of every active routing table entry
+-        self.core().nib.routing.decay_activity();
+-
+         self.maybe_age_neighbors();
+ 
+-        // Decrement the inbound and outbound activity fields for neighbors
++        // Snapshot the current neighbors; only the periodic task ages activity.
+         let mut link_statuses = {
+-            let mut core = self.core();
+-            core.nib.neighbors.decay_activity();
++            let core = self.core();
+ 
+             if empty {
+                 Vec::new()
+@@ -179,15 +246,62 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+ 
+     pub async fn periodic_link_status_broadcast_task(&self) {
+         let mut next = self.core_now() + self.tunables.link_status_period();
+-
+         loop {
+-            self.sleep_until_core(next).await;
+-
+-            // The link status broadcast has a radius of 1 so delivery does not wait for
+-            // a relay quorum.
++            let recovery = self.state.link_recovery.lock().due;
++            let deadline = recovery.map_or(next, |due| core::cmp::min(next, due));
++            let _ = self
++                .timeout_at_core(deadline, self.link_recovery_wake.notified())
++                .await;
++            let now = self.core_now();
++            let recover = self.state.link_recovery.lock().take_due(now);
++            let periodic = now >= next;
++            if !recover && !periodic {
++                continue;
++            }
++            if periodic {
++                // Extra bootstrap traffic must not accelerate activity ageing.
++                let mut core = self.core();
++                core.nib.routing.decay_activity();
++                core.nib.neighbors.decay_activity();
++                next = now + self.tunables.link_status_period();
++            }
++            if recover {
++                tracing::debug!("Sending link status recovery broadcast");
++            }
+             let _ = self.send_link_status_broadcast(false).delivered().await;
++        }
++    }
++}
++
++#[cfg(test)]
++mod recovery_tests {
++    use super::*;
++    fn at(seconds: u64) -> Instant {
++        Instant::from_micros(seconds * 1_000_000)
++    }
++
++    #[test]
++    fn coalesces_without_postponing_and_limits_response_rate() {
++        let mut recovery = LinkRecovery::default();
++        let period = Duration::from_secs(15);
++        assert!(recovery.schedule(at(0), Duration::from_secs(1), period));
++        assert!(!recovery.schedule(at(0), Duration::from_secs(2), period));
++        assert_eq!(recovery.due, Some(at(1)));
++        assert!(!recovery.take_due(at(0)));
++        assert!(recovery.take_due(at(1)));
++        assert!(!recovery.take_due(at(1)));
++        assert!(recovery.schedule(at(2), Duration::from_secs(2), period));
++        assert_eq!(recovery.due, Some(at(16)));
++        assert!(!recovery.take_due(at(15)));
++        assert!(recovery.take_due(at(16)));
++    }
+ 
+-            next = next + self.tunables.link_status_period();
++    #[test]
++    fn idle_requests_keep_the_requested_jitter() {
++        for jitter in [Duration::from_secs(1), Duration::from_secs(2)] {
++            let mut recovery = LinkRecovery::default();
++            assert!(recovery.schedule(at(20), jitter, Duration::from_secs(15)));
++            assert_eq!(recovery.due, Some(at(20) + jitter));
+         }
+     }
+ }
+diff --git a/crates/ziggurat-driver/src/zigbee_stack/nwk.rs b/crates/ziggurat-driver/src/zigbee_stack/nwk.rs
+index a7ac906..6840e9d 100644
+--- a/crates/ziggurat-driver/src/zigbee_stack/nwk.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack/nwk.rs
+@@ -915,6 +915,8 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+                 .or_insert_with(|| PendingRoute {
+                     frames: Vec::new(),
+                     attempts_remaining: self.tunables.pending_route_discovery_attempts(),
++                    recovery_requested: false,
++                    recovery_used: false,
+                 })
+                 .frames
+                 .push(PendingFrame {
+@@ -977,7 +979,29 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+             match self.discovery_state(destination) {
+                 DiscoveryState::Resolved => self.release_queued_frames(destination),
+                 DiscoveryState::Lapsed => self.retry_or_fail_discovery(destination),
+-                DiscoveryState::InFlight => {}
++                DiscoveryState::InFlight => {
++                    let retry = {
++                        let mut pending = self.state.pending_routes.lock();
++                        pending.get_mut(&destination).is_some_and(|bucket| {
++                            if !bucket.recovery_requested || bucket.recovery_used {
++                                return false;
++                            }
++                            bucket.recovery_requested = false;
++                            bucket.recovery_used = true;
++                            true
++                        })
++                    };
++                    if retry {
++                        let now = self.core_now();
++                        let deadline = self.core().nib.routing.discovery_deadline(destination, now);
++                        if let Some(deadline) = deadline {
++                            tracing::debug!(
++                                "Retrying pending discovery after neighbor recovery: {destination:?}"
++                            );
++                            self.send_route_discovery_until(destination, deadline, 1);
++                        }
++                    }
++                }
+             }
+         }
+     }
+diff --git a/crates/ziggurat-driver/src/zigbee_stack/route.rs b/crates/ziggurat-driver/src/zigbee_stack/route.rs
+index c1c9be0..dad404e 100644
+--- a/crates/ziggurat-driver/src/zigbee_stack/route.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack/route.rs
+@@ -459,13 +459,31 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+     /// discovery.
+     #[allow(clippy::significant_drop_tightening)]
+     pub(super) fn send_route_discovery(&self, destination: Nwk) {
++        self.send_route_discovery_until(
++            destination,
++            self.core_now() + self.tunables.route_discovery_time(),
++            self.tunables.initial_rreq_retries() + 1,
++        );
++    }
++
++    /// Recovery retries keep the original deadline and transmit only once.
++    pub(super) fn send_route_discovery_until(
++        &self,
++        destination: Nwk,
++        deadline: ziggurat_zigbee::Instant,
++        attempts: u8,
++    ) {
+         tracing::debug!("Sending route discovery for NWK {destination:?}");
+ 
++        let now = self.core_now();
++        if deadline <= now {
++            return;
++        }
+         let route_request_identifier = self.core().nib.routing.begin_discovery(
+             self.state.network_address,
+             destination,
+-            self.core_now(),
+-            self.tunables.route_discovery_time(),
++            now,
++            deadline.saturating_duration_since(now),
+         );
+ 
+         // If we know the EUI64 corresponding to the NWK, use it
+@@ -488,10 +506,6 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+ 
+         // Spec 3.6.4.5.1: the initial broadcast is repeated `nwkcInitialRREQRetries`
+         // times, separated by the retry interval
+-        self.broadcast_route_request(
+-            route_request_frame,
+-            self.tunables.initial_rreq_retries() + 1,
+-            Duration::ZERO,
+-        );
++        self.broadcast_route_request(route_request_frame, attempts, Duration::ZERO);
+     }
+ }
+diff --git a/crates/ziggurat-zigbee/src/nwk/neighbors.rs b/crates/ziggurat-zigbee/src/nwk/neighbors.rs
+index 72f9f4f..a327218 100644
+--- a/crates/ziggurat-zigbee/src/nwk/neighbors.rs
++++ b/crates/ziggurat-zigbee/src/nwk/neighbors.rs
+@@ -726,11 +726,6 @@ impl Neighbors {
+             }
+         }
+ 
+-        if link_status_cmd.link_statuses.is_empty() {
+-            // TODO: Initiate a gratuitous link status broadcast, jittered by
+-            // nwkcMinRouterBootstrapJitter < nwkcMaxRouterBootstrapJitter
+-        }
+-
+         tracing::trace!("Updated neighbor table entry: {neighbor_entry:?}");
+ 
+         let lost_link = previous_outgoing_cost > 0 && neighbor_entry.outgoing_cost == 0;

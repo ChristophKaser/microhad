@@ -21,7 +21,7 @@ def patch_path(name: str) -> Path:
 ZIGGURAT = ROOT / "ziggurat/dependencies/ziggurat"
 RS_MATTER = ROOT / "micro-thread-matter-daemon/dependencies/rs-matter"
 
-ZIGGURAT_COMMON = ["ziggurat-stock-compat.patch", "ziggurat-syslog.patch", "ziggurat-syslog-fragments.patch", "ziggurat-async-syslog.patch", "ziggurat-key-rng-readiness.patch", "ziggurat-lean-gateway.patch", "ziggurat-fresh-join-notification.patch"]
+ZIGGURAT_COMMON = ["ziggurat-stock-compat.patch", "ziggurat-syslog.patch", "ziggurat-syslog-fragments.patch", "ziggurat-async-syslog.patch", "ziggurat-key-rng-readiness.patch", "ziggurat-lean-gateway.patch", "ziggurat-fresh-join-notification.patch", "ziggurat-neighbor-recovery.patch", "ziggurat-route-diagnostics.patch"]
 ZIGGURAT_MULTI_COMMON = [
     "ziggurat-multipan-stock-compat.patch",
     "ziggurat-multipan-syslog.patch",
@@ -42,6 +42,8 @@ ZIGGURAT_MULTI = [
     "ziggurat-radio-timing.patch",
     "ziggurat-lean-gateway.patch",
     "ziggurat-fresh-join-notification.patch",
+    "ziggurat-neighbor-recovery.patch",
+    "ziggurat-route-diagnostics.patch",
 ]
 RS_MATTER_SERVICE = [
     "rs-matter-spake2p.patch",
