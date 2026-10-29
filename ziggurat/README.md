@@ -3,7 +3,7 @@
 The gateway's Zigbee stack and radio multiplexer. The pinned upstream source is
 in `dependencies/ziggurat/`; local patches and synthetic tooling live here.
 `stock-uclibc-compat/` supplies syscall wrappers missing from factory uClibc
-and an early illegal-instruction reporter. It is production compatibility code.
+and early SIGILL/SIGSEGV register and fault-address capture. It is production compatibility code.
 
 Host tools read compiler, gateway and SSH settings from the private root
 `workspace.local.env`; see [shared host settings](../docs/workspace-settings.md).

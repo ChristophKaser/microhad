@@ -219,6 +219,17 @@ Matter UDP payloads are captured through bounded 256-entry logging queues
 (up to 4 MiB each, allocated only as entries arrive); check drop
 markers before treating missing packets as evidence. Packet logs include keys.
 
+On MIPS, supervisor startup enables `/proc/sys/kernel/print-fatal-signals` and
+keeps core dumps disabled. The Rust services' shared startup shim catches
+SIGSEGV and SIGILL and writes a bounded, signal-safe stderr record with PC,
+return address, stack pointer, fault address, signal code and kernel thread ID.
+The existing stderr FIFO forwards it to `mthread-matter-stderr` or
+`ziggurat-stderr`. The handler restores default signal handling and re-delivers
+the signal, preserving kernel crash logging and supervisor signal-death status.
+A private alternate stack covers the main thread; no core files or crash state
+are written to gateway flash. Retain the matching unstripped local binaries for
+address resolution. Kernel settings are untouched by synthetic host fixtures.
+
 The coordinator uses normal nice priority (0). `COORDINATOR_SLOW` reports work
 turns above 100 ms, rate-limited to one every five seconds, with command, poll,
 publish and thread CPU timings. `MATTER_SLOW` reports stages above 50 ms and

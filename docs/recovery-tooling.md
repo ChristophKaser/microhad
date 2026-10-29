@@ -139,6 +139,27 @@ binaries/scripts still uses the documented maintenance deployment procedure.
 See the [no-flash OTBR procedure](matter-otbr-commissioning-diagnostic-plan.md#primary-path--host-otbr-through-ziggurat-tcp-without-flashing)
 for the host `&no-reset` setting, dataset/channel requirements and capture scope.
 
+## Fatal-signal evidence
+
+Gateway supervisor startup enables kernel fatal-signal logging
+(`/proc/sys/kernel/print-fatal-signals=1`). Core dumps remain disabled. On a
+SIGSEGV or SIGILL, Matter and Ziggurat report `pc`, `ra`, `sp`, `addr`, `code`
+and kernel `tid` to their stderr syslog tags. The record uses fixed storage and
+signal-safe writes; the process then dies from the original signal so kernel
+logging and the supervisor wait status remain meaningful. Check `dmesg`,
+`gateway-events.log`, and `mthread-matter-stderr` / `ziggurat-stderr` together.
+Use the matching unstripped build artifact when resolving instruction addresses.
+The main thread has an alternate signal stack; other-thread stack corruption
+may leave only the kernel report. No core files are written to flash.
+
+The isolated regression checks deliberately crash only a temporary probe:
+
+```sh
+python3 ziggurat/scripts/test-fault-report.py
+# Explicit device run: private /tmp files, no production service or radio access.
+python3 ziggurat/scripts/test-fault-report.py --device
+```
+
 ## Supervisor and startup
 
 `/tuya/tuya_start.sh` starts the paired supervisor once. Its private control

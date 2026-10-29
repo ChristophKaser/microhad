@@ -77,8 +77,8 @@ fn main() {
         .arg("-o")
         .arg(&fault_object)
         .status()
-        .expect("cannot compile the SIGILL reporter");
-    assert!(status.success(), "SIGILL reporter did not compile");
+        .expect("cannot compile the fatal-signal reporter");
+    assert!(status.success(), "fatal-signal reporter did not compile");
     let status = Command::new(&archiver)
         .arg("rcs")
         .arg(&archive)
