@@ -79,6 +79,8 @@ void snapshot_fault(int number,void *info,void *context) {
     __asm__ __volatile__("" ::: "memory");job->armed=1;
     /* A failed notification must not strand a task. The watchdog also polls
      * armed shared state, including if the collector dies before notification. */
-    if(write(notify,"!",1)!=1){job->armed=0;return;}
+    /* LinuxThreads' write cancellation wrapper cannot identify a thread from
+     * an alternate stack. The handler must use the kernel entry directly. */
+    if(syscall(SYS_write,notify,"!",1)!=1){job->armed=0;return;}
     syscall(SYS_kill,job->fault_tid,SIGSTOP);
 }

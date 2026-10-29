@@ -6,6 +6,16 @@
 #include <sys/ucontext.h>
 #include <unistd.h>
 
+#if defined(__UCLIBC__)
+/* LinuxThreads' sigaction wrapper looks up the current thread from SP before
+ * entering our handler. That lookup is invalid on our alternate signal stack.
+ * Register directly with libc so the kernel enters our handler itself. */
+extern int __libc_sigaction(int, const struct sigaction *, struct sigaction *);
+#define fault_sigaction __libc_sigaction
+#else
+#define fault_sigaction sigaction
+#endif
+
 #if CRASH_SNAPSHOTS_BUILD
 extern void snapshot_fault(int, void *, void *);
 #endif
@@ -56,7 +66,8 @@ static void report_fault(int number, siginfo_t *info, void *context)
     /* No allocation, formatting library, locks or syslog in a signal handler.
      * The supervisor's stderr FIFO sends this bounded record to host syslog.
      */
-    (void)write(STDERR_FILENO, message, (size_t)(out - message));
+    /* Bypass LinuxThreads' cancellation wrapper, which also consults SP. */
+    (void)syscall(SYS_write, STDERR_FILENO, message, (size_t)(out - message));
     #if CRASH_SNAPSHOTS_BUILD
     snapshot_fault(number, info, context);
     #endif
@@ -86,6 +97,6 @@ __attribute__((constructor)) static void install_fault_report(void)
     action.sa_sigaction = report_fault;
     sigemptyset(&action.sa_mask);
     action.sa_flags = SA_SIGINFO | SA_RESETHAND | SA_ONSTACK;
-    if (sigaction(SIGILL, &action, 0) != 0 || sigaction(SIGSEGV, &action, 0) != 0)
+    if (fault_sigaction(SIGILL, &action, 0) != 0 || fault_sigaction(SIGSEGV, &action, 0) != 0)
         _exit(125);
 }

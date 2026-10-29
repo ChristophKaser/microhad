@@ -32,6 +32,14 @@ installs alternate signal stacks. On SIGSEGV or SIGILL, the handler saves the
 original fault registers, sends a nonblocking notification through a pre-opened
 socket, and stops the faulting task. It performs no allocation or network setup.
 
+On stock uClibc, register fatal handlers through `__libc_sigaction` rather than
+the LinuxThreads `sigaction` wrapper. The wrapper derives its thread descriptor
+from the stack pointer and can fault on the alternate stack before invoking the
+application handler. Handler writes (including the collector notification) use
+`SYS_write` directly to avoid the same lookup in cancellation wrappers. Verify
+both main-thread and worker-thread faults with a dynamically linked disposable
+probe against the stock runtime; a static-only probe does not cover this path.
+
 The watchdog launches a separate collector, which stops the application's other
 tasks and reads their registers and memory through `ptrace` and `/proc`. This
 includes the stock LinuxThreads manager and workers, which have separate process
