@@ -260,7 +260,9 @@ sampled time was spent; they are not precise CPU percentages.
 
 ## TCP core capture
 
-See [core capture](../scripts/core-capture/README.md) for the MIPS pipe helper,
+See the [crash snapshot guide](crash-snapshots.md) for build, deployment, host
+receiver management, dump retrieval and GDB analysis, and the
+[implementation README](../scripts/core-capture/README.md) for the MIPS pipe helper,
 host receiver, bounded RAM fallback and explicit deployment/probe commands.
 The stock production ELF loader has no core-dump callback. Opt-in
 `CRASH_SNAPSHOTS=true` builds userspace SIGSEGV/SIGILL snapshot capture for all

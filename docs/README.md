@@ -15,6 +15,7 @@ Commands run on the development computer unless marked **gateway**.
 - [Build setup](building.md): prerequisites, toolchains and output paths.
 - [Deploy application updates](deployment.md): staging, activation, complete releases and rollback.
 - [Recovery and diagnostics](recovery-tooling.md): supervisor control, logs and radio ownership.
+- [Crash snapshots](crash-snapshots.md): architecture, builds, host receiver, dump retrieval and GDB analysis.
 - [Sensor reporting](sensor-reporting.md): troubleshoot missing Zigbee readings.
 - [Automation scripting](scripting.md): write, reload and debug gateway-local Lua scripts.
 - [Automation examples](../microhad/automation/examples/): complete Lua scripts for alerts, remotes, scenes and thermostat controls.

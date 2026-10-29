@@ -1,5 +1,9 @@
 # Gateway TCP core capture
 
+See the [crash snapshot guide](../../docs/crash-snapshots.md) for architecture,
+build/deployment instructions, receiver reboot persistence, capture retrieval
+and GDB analysis. This README covers implementation details and bounds.
+
 Shared clients in MicroHAD, Matter and Ziggurat capture fatal-signal registers
 and ask an external collector to produce a userspace ELF core. A small MIPS
 transport helper streams it to `receiver.py`. The same transport can accept
@@ -108,8 +112,9 @@ Flash stores only the installed executable, script and small configuration.
 The watchdog and transport lock serialize captures; concurrent crashes can be
 skipped and are logged. Tracing keeps application memory available during
 userspace capture. Kernel-pipe mode separately uses `core_pipe_limit=1`. Executable and maps metadata are bounded to one
-16 KiB frame. Kernel dump eligibility rules still apply (e.g. non-dumpable
-processes and ordinary termination/OOM kill do not produce cores). Pipe dumps
+16 KiB frame. Kernel dump eligibility rules apply to kernel-pipe mode;
+userspace collection requires permission to trace the application. Neither
+path captures ordinary termination or SIGKILL/OOM kill. Kernel-pipe dumps
 ignore `RLIMIT_CORE`; regular core files remain disabled in the launcher.
 
 Host directories contain `process.txt`, `capture.json`, and either `core`,
