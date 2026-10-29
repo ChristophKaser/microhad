@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { accessStatus, login, logout, roles, sessionToken, setPassword } from './auth'
 
-export function AccessControls() {
+export function AccessControls({ passwordsOnly = false }: { passwordsOnly?: boolean }) {
   const [open, setOpen] = useState(false)
   const [access, setAccess] = useState(-1)
   const [configured, setConfigured] = useState<boolean[]>([])
@@ -13,7 +14,7 @@ export function AccessControls() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const refresh = () => { void accessStatus().then(value => { setAccess(value.role); setConfigured(value.passwords) }).catch(() => {}) }
-  useEffect(() => { refresh(); const required = () => setOpen(true); window.addEventListener('microhad-login-required', required); return () => window.removeEventListener('microhad-login-required', required) }, [])
+  useEffect(() => { refresh(); if (passwordsOnly) return; const required = () => setOpen(true); window.addEventListener('microhad-login-required', required); return () => window.removeEventListener('microhad-login-required', required) }, [passwordsOnly])
   async function submit() {
     setBusy(true); setError('')
     try {
@@ -24,19 +25,19 @@ export function AccessControls() {
     finally { setBusy(false) }
   }
   return <>
-    <span className="muted small">{access < 0 ? 'Login required' : roles[access]}</span>
+    {!passwordsOnly && <><span className="muted small">{access < 0 ? 'Login required' : roles[access]}</span>
     <button className="button" onClick={() => { setEditing(false); setOpen(true) }}>Log in</button>
-    {sessionToken() && <button className="button" onClick={() => void logout().then(() => location.reload()).catch(e => setError(String(e)))}>Log out</button>}
-    {access === 2 && <button className="button" onClick={() => { setEditing(true); setOpen(true) }}>Access passwords</button>}
-    {open && <div className="modal"><section className="dialog" role="dialog" aria-modal="true" aria-label={editing ? 'Access passwords' : 'Log in'}>
+    {sessionToken() && <button className="button" onClick={() => void logout().then(() => location.reload()).catch(e => setError(String(e)))}>Log out</button>}</>}
+    {passwordsOnly && access === 2 && <button type="button" className="button" onClick={() => { setEditing(true); setOpen(true) }}>Access passwords</button>}
+    {open && createPortal(<div className="modal"><section className="dialog" role="dialog" aria-modal="true" aria-label={editing ? 'Access passwords' : 'Log in'}>
       <h2>{editing ? 'Access passwords' : 'Log in'}</h2>
-      <form onSubmit={event => { event.preventDefault(); void submit() }}>
+      <form onSubmit={event => { event.preventDefault(); event.stopPropagation(); void submit() }}>
         <label className="field">Access level<select value={role} onChange={event => setRole(event.target.value)}>{roles.map((name, i) => <option key={name} value={name}>{name}{configured[i] ? ' (password set)' : ''}</option>)}</select></label>
         <label className="field">{editing ? 'New password (empty removes it)' : 'Password'}<input type="password" autoFocus autoComplete={editing ? 'new-password' : 'current-password'} value={password} onChange={event => setValue(event.target.value)} /></label>
         {editing ? <><label className="field">Confirm password<input type="password" autoComplete="new-password" value={confirmation} onChange={event => setConfirmation(event.target.value)} /></label><p className="muted">Empty roles inherit the password below them. Changes log out all sessions.</p></> : <label><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} /> Remember me</label>}
         {error && <p role="alert">{error}</p>}
         <div className="toolbar"><button className="button primary" disabled={busy} type="submit">{busy ? 'Please wait…' : editing ? 'Save password' : 'Log in'}</button><button className="button" type="button" disabled={busy} onClick={() => { setOpen(false); setValue(''); setConfirmation(''); setError('') }}>Cancel</button></div>
       </form>
-    </section></div>}
+    </section></div>, document.body)}
   </>
 }

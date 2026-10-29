@@ -6,7 +6,7 @@ The gateway has three shared access levels, with one optional password each:
 - **User:** guest access plus device controls, thermostat controls, scene activation, refresh and identify.
 - **Administrator:** user access plus gateway and device configuration, pairing and commissioning, network management, diagnostics, push-client management, automations and access passwords.
 
-Use **Access passwords** in the dashboard to set, replace or remove a password. Empty passwords inherit the nearest configured password below that role. With no passwords set, everything is accessible without login. Examples:
+Use **Gateway settings → Access passwords** in the dashboard to set, replace or remove a password. Empty passwords inherit the nearest configured password below that role. With no passwords set, everything is accessible without login. Examples:
 
 | Passwords set | Guest functions | User functions | Administrator functions |
 | --- | --- | --- | --- |

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { errorMessage, form, jsonRequest, post } from './api'
 import { matterCall, threadResult } from './matter'
+import { AccessControls } from './AccessControls'
 
 interface GatewaySettings {
   broadcast_passive_ack_quorum: number
@@ -138,6 +139,7 @@ export function GatewaySettingsDialog({ onClose, onReplaceZigbeeNetwork, matterN
           {networkBusy ? 'Creating network…' : matterNetworkConfigured || networkCreated ? 'Recreate Matter network' : 'Create Matter network'}</button>}
       </fieldset>}
       <div className="dialog-actions">
+        <AccessControls passwordsOnly />
         {onReplaceZigbeeNetwork && <button type="button" className="button danger" disabled={saving || networkBusy} onClick={onReplaceZigbeeNetwork}>Replace Zigbee network</button>}
         <button type="button" className="button" onClick={onClose}>Cancel</button>
         <button type="submit" className="button primary" disabled={!settings || saving || networkBusy}>{saving ? 'Saving…' : 'Save settings'}</button>
