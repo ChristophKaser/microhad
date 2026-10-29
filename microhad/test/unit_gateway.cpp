@@ -517,6 +517,92 @@ public:
         if (hadValues) assert(rename(backup.c_str(), values.c_str()) == 0);
         assert(rmdir(directory) == 0);
     }
+    static void freshJoinRestoresConfiguration() {
+        char directory[] = "/tmp/microhad-fresh-join-XXXXXX";
+        assert(mkdtemp(directory));
+        Gateway gateway("/dev/null", 115200, directory, "", "", "");
+        const std::string ieee = "0x5c0272fffeca3ba7";
+        const unsigned short node = 0xb589;
+        const unsigned char eui[] = {0xa7,0x3b,0xca,0xfe,0xff,0x72,0x02,0x5c};
+        Device& device = gateway.devices_[ieee];
+        device.ieeeAddress = ieee; device.zigbee.ensure().networkAddress = node;
+        EndpointDescriptor endpoint; endpoint.endpoint = 1; endpoint.profileId = 0x0104;
+        endpoint.inputClusters.push_back(4); endpoint.inputClusters.push_back(5);
+        endpoint.inputClusters.push_back(6); endpoint.inputClusters.push_back(8);
+        device.zigbee.ensure().endpoints.push_back(endpoint);
+        device.zigbee.ensure().configuredSignature = gateway.deviceConfigurationSignature(device);
+        gateway.nodeAddresses_[node] = ieee;
+        SceneGroup group; group.id = 2; group.name = "Kitchen"; group.members.push_back(ieee);
+        Scene scene; scene.id = 1; scene.name = "Work";
+        SceneLightState light; light.ieeeAddress = ieee; light.on = true; light.brightnessPercent = 70;
+        scene.states.push_back(light); group.scenes.push_back(scene); gateway.sceneGroups_.push_back(group);
+        Gateway::SceneProvisionState unrelated; unrelated.waitingForTraffic = true;
+        gateway.sceneProvisioning_["unrelated"] = unrelated;
+        // An ordinary announcement and a preserving join keep the cached settings.
+        gateway.registerNode(node, eui);
+        assert(gateway.interviews_.empty());
+#if MICROHAD_ZIGGURAT_ENABLED
+        gateway.useZiggurat("/tmp/fresh-join-test.sock");
+        ZigguratClient::Event joined(ZigguratClient::Event::Joined);
+        joined.payload.push_back(0x89); joined.payload.push_back(0xb5);
+        joined.payload.insert(joined.payload.end(), eui, eui + 8);
+        joined.payload.push_back(0); joined.payload.push_back(0); joined.payload.push_back(3);
+        gateway.ziggurat_->events_.push_back(joined); gateway.pollZiggurat();
+        assert(gateway.interviews_.empty());
+        joined.payload[12] |= 8;
+        gateway.ziggurat_->events_.push_back(joined); gateway.pollZiggurat();
+#else
+        gateway.registerNode(node, eui, true);
+#endif
+        assert(device.zigbee.read().configuredSignature.empty());
+        assert(gateway.interviews_[node].forceConfiguration);
+        assert(gateway.interviews_[node].operations[0].type == Gateway::InterviewActiveEndpoints);
+        // Complete discovery with the saved descriptors and exercise real planning.
+        Gateway::InterviewState& interview = gateway.interviews_[node];
+        interview.operations.clear(); interview.operationIndex = 0;
+        gateway.buildConfigurationOperations(node);
+        assert(!gateway.interviews_[node].operations.empty());
+        while (gateway.interviews_.count(node)) gateway.completeInterviewOperation(node);
+        assert(device.zigbee.read().configuredSignature == gateway.deviceConfigurationSignature(device));
+        assert(gateway.sceneProvisioning_.count("unrelated"));
+        const Gateway::SceneProvisionState& restored = gateway.sceneProvisioning_[ieee];
+        assert(restored.commands.size() == 2);
+        assert(restored.commands[0].cluster == 4 && restored.commands[0].groupId == 2);
+        assert(restored.commands[1].cluster == 5 && restored.commands[1].sceneId == 1);
+        // The subsequent duplicate announcement must not restart restoration.
+        gateway.registerNode(node, eui);
+        assert(gateway.interviews_.empty());
+        assert(gateway.sceneProvisioning_[ieee].commands.size() == 2);
+        // A freshly associated remote must recover its native output bindings,
+        // without clearing another remote's queued work.
+        const std::string remoteIeee = "0x70ac08fffe75827b";
+        const unsigned char remoteEui[] = {0x7b,0x82,0x75,0xfe,0xff,0x08,0xac,0x70};
+        Device& remote = gateway.devices_[remoteIeee];
+        remote.ieeeAddress = remoteIeee; remote.remote.setPresent(true);
+        remote.zigbee.ensure().networkAddress = 0xd938;
+        EndpointDescriptor remoteEndpoint; remoteEndpoint.endpoint = 1; remoteEndpoint.profileId = 0x0104;
+        remoteEndpoint.outputClusters.push_back(6); remoteEndpoint.outputClusters.push_back(8);
+        remote.zigbee.ensure().endpoints.push_back(remoteEndpoint);
+        remote.zigbee.ensure().configuredSignature = gateway.deviceConfigurationSignature(remote);
+        NativeRemoteBinding binding; binding.ieeeAddress = remoteIeee; binding.groupId = 2;
+        gateway.nativeBindings_.push_back(binding);
+        Gateway::NativeBindOperation otherBinding; otherBinding.ieeeAddress = "unrelated-remote";
+        gateway.nativeBindOperations_.push_back(otherBinding);
+        gateway.registerNode(0xd938, remoteEui, true);
+        gateway.interviews_[0xd938].operations.clear(); gateway.interviews_[0xd938].operationIndex = 0;
+        gateway.buildConfigurationOperations(0xd938);
+        while (gateway.interviews_.count(0xd938)) gateway.completeInterviewOperation(0xd938);
+        bool restoredBinding = false, preservedBinding = false;
+        for (unsigned long i = 0; i < gateway.nativeBindOperations_.size(); ++i) {
+            const Gateway::NativeBindOperation& operation = gateway.nativeBindOperations_[i];
+            if (operation.ieeeAddress == remoteIeee && !operation.unbind) restoredBinding = true;
+            if (operation.ieeeAddress == "unrelated-remote") preservedBinding = true;
+        }
+        assert(restoredBinding && preservedBinding);
+        assert(gateway.sceneProvisioning_.count("unrelated"));
+        unlink((std::string(directory) + "/devices.json").c_str());
+        rmdir(directory);
+    }
     static void gatewaySettings() {
         char directory[]="/tmp/microhad-quorum-test-XXXXXX"; assert(mkdtemp(directory));
         Gateway gateway("/dev/null",115200,directory,"","","");
@@ -3771,6 +3857,7 @@ void runUnitTests() {
     { DeviceCacheIsolation cache; GatewayTestPeer::trvzb(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::deviceDeletion(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::reportingConfigurationPersistence(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::freshJoinRestoresConfiguration(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::gatewaySettings(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::emptyDeadlineIsUnscheduled(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::inactiveDeadlinesAreResetBeforeSelection(); }

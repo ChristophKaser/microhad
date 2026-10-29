@@ -1,0 +1,190 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Thu, 29 Oct 2026 17:00:00 +0100
+Subject: [PATCH] Distinguish fresh associations from preserving rejoins
+
+Use a reserved notification flag so hosts can restore configuration erased
+by a reset without reconfiguring devices on ordinary rejoins.
+
+diff --git a/crates/ziggurat-driver/src/zigbee_stack.rs b/crates/ziggurat-driver/src/zigbee_stack.rs
+index 2c814d5..cb96e08 100644
+--- a/crates/ziggurat-driver/src/zigbee_stack.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack.rs
+@@ -892,6 +892,7 @@ pub enum ZigbeeNotification {
+         nwk: Nwk,
+         ieee: Eui64,
+         parent: Nwk,
++        fresh_join: bool,
+         device_type: Option<NwkDeviceType>,
+         rx_on_when_idle: bool,
+     },
+diff --git a/crates/ziggurat-driver/src/zigbee_stack/joining.rs b/crates/ziggurat-driver/src/zigbee_stack/joining.rs
+index 6d7c8cf..913c0dd 100644
+--- a/crates/ziggurat-driver/src/zigbee_stack/joining.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack/joining.rs
+@@ -176,17 +176,18 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+             return;
+         }
+ 
+-        self.announce_join(nwk, eui64);
++        self.announce_join(nwk, eui64, join_kind == JoinKind::New);
+     }
+ 
+     /// Emit the `DeviceJoined` notification for a device whose key material is in place.
+-    fn announce_join(&self, nwk: Nwk, eui64: Eui64) {
++    fn announce_join(&self, nwk: Nwk, eui64: Eui64, fresh_join: bool) {
+         let (device_type, rx_on_when_idle) = self.device_join_capability(eui64);
+ 
+         self.push_notification(ZigbeeNotification::DeviceJoined {
+             nwk,
+             ieee: eui64,
+             parent: self.state.network_address,
++            fresh_join,
+             device_type,
+             rx_on_when_idle,
+         });
+@@ -1024,6 +1025,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+                     nwk: update.device_short_address,
+                     ieee: update.device_address,
+                     parent: router_nwk,
++                    fresh_join: true,
+                     // Learned via the router's Update-Device, which carries no capability
+                     device_type: None,
+                     rx_on_when_idle: true,
+@@ -1048,6 +1050,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+                     nwk: update.device_short_address,
+                     ieee: update.device_address,
+                     parent: router_nwk,
++                    fresh_join: false,
+                     // Learned via the router's Update-Device, which carries no capability
+                     device_type: None,
+                     rx_on_when_idle: true,
+@@ -1060,6 +1063,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+                     nwk: update.device_short_address,
+                     ieee: update.device_address,
+                     parent: router_nwk,
++                    fresh_join: false,
+                     // Learned via the router's Update-Device, which carries no capability
+                     device_type: None,
+                     rx_on_when_idle: true,
+@@ -1264,7 +1268,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+                     .await;
+             });
+         } else {
+-            self.announce_join(assigned_nwk, source_ieee);
++            self.announce_join(assigned_nwk, source_ieee, false);
+         }
+     }
+ 
+diff --git a/crates/ziggurat-protocol/src/bridge.rs b/crates/ziggurat-protocol/src/bridge.rs
+index ccffaa9..7834e9d 100644
+--- a/crates/ziggurat-protocol/src/bridge.rs
++++ b/crates/ziggurat-protocol/src/bridge.rs
+@@ -472,6 +472,7 @@ pub fn notification_frame(update: &ZigbeeNotification) -> Option<Vec<u8>> {
+             nwk,
+             ieee,
+             parent,
++            fresh_join,
+             device_type,
+             rx_on_when_idle,
+         } => {
+@@ -486,9 +487,10 @@ pub fn notification_frame(update: &ZigbeeNotification) -> Option<Vec<u8>> {
+                 nwk: *nwk,
+                 ieee: *ieee,
+                 parent: *parent,
+-                flags: ChildFlags {
++                flags: DeviceJoinedFlags {
+                     rx_on_when_idle: *rx_on_when_idle,
+                     device_type,
++                    fresh_join: *fresh_join,
+                 },
+             })
+         }
+@@ -578,3 +580,27 @@ pub fn notification_frame(update: &ZigbeeNotification) -> Option<Vec<u8>> {
+     };
+     notification.frame()
+ }
++
++#[cfg(test)]
++mod fresh_join_tests {
++    use super::*;
++
++    #[test]
++    fn fresh_join_notification_reaches_host_without_changing_payload_size() {
++        for fresh_join in [false, true] {
++            let notification = ZigbeeNotification::DeviceJoined {
++                nwk: Nwk(0xb589),
++                ieee: Eui64::from_hex("5c0272fffeca3ba7"),
++                parent: Nwk(0),
++                fresh_join,
++                device_type: Some(NwkDeviceType::Router),
++                rx_on_when_idle: true,
++            };
++            let bytes = notification_frame(&notification).unwrap();
++            assert_eq!(bytes.len(), 3 + 13);
++            assert_eq!(bytes[0], 0x20);
++            assert_eq!(&bytes[3..5], &[0x89, 0xb5]);
++            assert_eq!(bytes[15] & 8 != 0, fresh_join);
++        }
++    }
++}
+diff --git a/crates/ziggurat-protocol/src/wire.rs b/crates/ziggurat-protocol/src/wire.rs
+index 35fafd9..187291b 100644
+--- a/crates/ziggurat-protocol/src/wire.rs
++++ b/crates/ziggurat-protocol/src/wire.rs
+@@ -736,13 +736,24 @@ pub struct BroadcastConfirmPayload {
+     pub status: SendStatus,
+ }
+ 
++/// Join notifications retain their 13-byte layout. Bit 3 distinguishes a fresh
++/// association (configuration may have been erased) from a preserving rejoin.
++#[abstract_bits]
++#[derive(Debug, Clone)]
++pub struct DeviceJoinedFlags {
++    pub rx_on_when_idle: bool,
++    pub device_type: ChildDeviceType,
++    pub fresh_join: bool,
++    pub reserved: u4,
++}
++
+ #[abstract_bits]
+ #[derive(Debug, Clone)]
+ pub struct DeviceJoinedPayload {
+     pub nwk: Nwk,
+     pub ieee: Eui64,
+     pub parent: Nwk,
+-    pub flags: ChildFlags,
++    pub flags: DeviceJoinedFlags,
+ }
+ 
+ #[abstract_bits]
+@@ -1078,3 +1089,29 @@ pub fn parse<T: AbstractBits>(payload: &[u8]) -> Option<T> {
+ pub fn require<T: AbstractBits>(payload: &[u8]) -> Result<T, Error> {
+     parse(payload).ok_or(Error::Status(Status::MalformedPayload))
+ }
++
++#[cfg(test)]
++mod fresh_join_tests {
++    use super::*;
++
++    #[test]
++    fn join_flags_preserve_layout_and_child_capabilities() {
++        for fresh_join in [false, true] {
++            let mut bytes = Vec::new();
++            append(&mut bytes, &DeviceJoinedFlags {
++                rx_on_when_idle: true,
++                device_type: ChildDeviceType::Router,
++                fresh_join,
++            });
++            assert_eq!(bytes.len(), 1);
++            assert_eq!(bytes[0] & 8 != 0, fresh_join);
++            let legacy: ChildFlags = parse(&bytes).unwrap();
++            assert!(legacy.rx_on_when_idle);
++            assert!(matches!(legacy.device_type, ChildDeviceType::Router));
++            let decoded: DeviceJoinedFlags = parse(&bytes).unwrap();
++            assert_eq!(decoded.fresh_join, fresh_join);
++        }
++        let legacy: DeviceJoinedFlags = parse(&[0]).unwrap();
++        assert!(!legacy.fresh_join);
++    }
++}

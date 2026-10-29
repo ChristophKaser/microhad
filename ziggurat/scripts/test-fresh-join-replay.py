@@ -60,7 +60,7 @@ def main():
             def report(marker):
                 return b'\x00\x01' + struct.pack('<HH', 0x402, 0x104) + bytes([1, marker]) + bytes.fromhex('18') + bytes([marker]) + bytes.fromhex('0a000029b508')
 
-            def receive_until_fence(marker, joined=False):
+            def receive_until_fence(marker, joined=False, expected_fresh=None):
                 found = False
                 got_join = False
                 deadline = time.monotonic() + 4
@@ -68,6 +68,9 @@ def main():
                     frame = client.receive(timeout=4)
                     if frame[0] == 0x20 and frame[1] & 3 == 3 and frame[5:13] == child:
                         got_join = True
+                        assert len(frame[3:]) == 13, 'join notification payload size changed'
+                        if expected_fresh is not None:
+                            assert bool(frame[15] & 8) == expected_fresh, 'incorrect fresh-join flag'
                     if frame[0] == 0x10 and frame[1] & 3 == 3:
                         value = frame[3:]
                         data = value[17:]
@@ -94,7 +97,7 @@ def main():
                 aps = bytes([1, sequence + 1, 6]) + child + struct.pack('<H', 0x1234) + bytes([status])
                 radio.inject(encrypted(router, 0x2222, router_counter, aps))
                 fence()
-                return receive_until_fence(249, joined=True)
+                return receive_until_fence(249, joined=True, expected_fresh=status == 1)
 
             assert inject_report(100, 1), 'initial authenticated report missing'
             assert not inject_report(1, 2), 'stale report accepted before join'
@@ -121,6 +124,7 @@ def main():
             assert int.from_bytes(after[39:43], 'little') >= int.from_bytes(before[39:43], 'little'), 'outgoing counter regressed'
             print('PASS actual encrypted reports recover only after an authorized fresh join')
             print('PASS ordinary secured rejoins, denied joins, duplicates and other relayers retain replay protection')
+            print('PASS fresh-join flag distinguishes new joins from secured/trust-center rejoins')
             print('PASS network identity and outgoing counter retained; synthetic host radio only')
         except Exception:
             log.seek(0)

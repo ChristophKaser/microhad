@@ -624,7 +624,7 @@ private:
     void beginJoinWindow(unsigned int seconds);
     void handleAshFrame(const std::vector<unsigned char>& frame);
     void handleEzspFrame(const std::vector<unsigned char>& frame);
-    void registerNode(unsigned short nodeId, const unsigned char* eui64);
+    void registerNode(unsigned short nodeId, const unsigned char* eui64, bool freshJoin = false);
     int allocateIasZoneId(const std::string& ieeeAddress);
     void sendIasEnrollResponse(unsigned short destination, unsigned char sourceEndpoint,
                                unsigned char destinationEndpoint, unsigned char transactionSequence,
@@ -639,6 +639,7 @@ private:
     void sendNextInterviewOperation();
     void sendInterviewOperation(unsigned short destination, InterviewOperation* operation);
     void completeInterviewOperation(unsigned short destination);
+    void finishInterview(unsigned short destination);
     void failInterviewOperation(unsigned short destination, const std::string& reason, bool localFailure = false);
     void buildDescriptorOperations(unsigned short destination, const std::vector<unsigned char>& endpoints);
     void buildConfigurationOperations(unsigned short destination);
@@ -655,7 +656,8 @@ private:
                             const std::string& sourceIeeeAddress, unsigned char transactionSequence,
                             unsigned char messageTag);
     void queueNativeBindingChanges(const std::vector<NativeRemoteBinding>& oldBindings,
-                                   const std::vector<SceneGroup>& oldGroups, bool force = false);
+                                   const std::vector<SceneGroup>& oldGroups, bool force = false,
+                                   const std::string& onlyRemote = "");
     void pollNativeBindings();
     bool nativeBindingEnabled(const std::string& ieeeAddress) const;
     void sendZclReadAttribute(unsigned short destination, unsigned char endpoint, unsigned short cluster,
@@ -677,7 +679,7 @@ private:
                            int transaction = -1);
     bool logMatterButtonEvent(const MatterButtonEvent& event);
     bool sceneMemberNative(const Device& device, const Scene& scene, const SceneLightState& state) const;
-    void queueSceneProvisioning();
+    void queueSceneProvisioning(const std::string& onlyDevice = "");
     void pollSceneProvisioning();
     void wakeSceneProvisioning(const std::string& ieeeAddress);
     bool handleSceneProvisionResponse(const std::string& ieeeAddress, unsigned short cluster,

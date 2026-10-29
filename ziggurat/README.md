@@ -53,6 +53,25 @@ See [building](../docs/building.md) and [integration](../docs/native-ziggurat-in
 For a host OTBR, use `--thread-listen IP:PORT` instead of `--thread-socket`.
 See [TCP Thread transport and no-reset configuration](../docs/hdlc-multipan-usage.md#tcp-endpoint-for-host-otbr).
 
+## Fresh join recovery
+
+Join notifications keep the 13-byte payload. Bit 3 (`0x08`) of the final flags
+byte now marks an accepted fresh association or router-reported unsecured new
+join. Secured and trust-center rejoins leave it clear; ordinary Device Announce
+packets do not imply configuration loss. Existing child capability bits retain
+their meaning. Older Ziggurat builds leave the new bit clear.
+
+MicroHAD uses this evidence to invalidate the device's saved configuration
+signature, restart endpoint discovery and reporting/binding setup, and then
+restore its configured groups, scenes and native remote bindings. Restoration
+uses the existing acknowledged provisioning queues and only replaces work for
+the affected device. Existing timeout/retry behavior applies. Ordinary
+announcements and preserving rejoins keep their cached configuration.
+
+Update both Ziggurat and MicroHAD to enable automatic fresh-join recovery. This
+change does not retroactively repair a reset device whose fresh join happened
+before the update, and does not change the network keys or identity.
+
 ## Licenses and attribution
 
 Original project code is MIT licensed; upstream components retain their own terms.

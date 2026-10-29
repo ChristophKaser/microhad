@@ -1327,7 +1327,7 @@ void Gateway::pollZiggurat() {
         const ZigguratWire::Bytes& b=event.payload;
         if (event.type==ZigguratClient::Event::Joined && b.size()==13) {
             unsigned short node=static_cast<unsigned short>(b[0] | (static_cast<unsigned short>(b[1])<<8));
-            registerNode(node,&b[2]);
+            registerNode(node,&b[2], (b[12] & 8) != 0);
         } else if (event.type==ZigguratClient::Event::Left && b.size()==22) {
             unsigned short node=static_cast<unsigned short>(b[0] | (static_cast<unsigned short>(b[1])<<8));
             std::map<unsigned short,std::string>::iterator known=nodeAddresses_.find(node);
@@ -2227,11 +2227,13 @@ bool Gateway::sceneMemberNative(const Device& device, const Scene&, const SceneL
     return state.brightnessPercent < 0 || endpointForCluster(device, kLevelCluster, &endpoint);
 }
 
-void Gateway::queueSceneProvisioning() {
-    sceneProvisioning_.clear(); /* A newer Save supersedes every unfinished write. */
+void Gateway::queueSceneProvisioning(const std::string& onlyDevice) {
+    if (onlyDevice.empty()) sceneProvisioning_.clear();
+    else sceneProvisioning_.erase(onlyDevice); /* A newer Save supersedes every unfinished write. */
     for (unsigned long i = 0; i < sceneGroups_.size(); ++i) {
         const SceneGroup& group = sceneGroups_[i];
         for (unsigned long m = 0; m < group.members.size(); ++m) {
+            if (!onlyDevice.empty() && group.members[m] != onlyDevice) continue;
             std::map<std::string, Device>::const_iterator found = devices_.find(group.members[m]);
             unsigned char endpoint;
             if (found == devices_.end() || !endpointForCluster(found->second, kGroupsCluster, &endpoint)) continue;
@@ -2577,12 +2579,14 @@ bool Gateway::nativeBindingEnabled(const std::string& ieeeAddress) const {
 }
 
 void Gateway::queueNativeBindingChanges(const std::vector<NativeRemoteBinding>& oldBindings,
-                                        const std::vector<SceneGroup>& oldGroups, bool force) {
+                                        const std::vector<SceneGroup>& oldGroups, bool force,
+                                        const std::string& onlyRemote) {
     std::set<std::string> remotes;
     unsigned long i;
     for (i = 0; i < oldBindings.size(); ++i) remotes.insert(oldBindings[i].ieeeAddress);
     for (i = 0; i < nativeBindings_.size(); ++i) remotes.insert(nativeBindings_[i].ieeeAddress);
     for (std::set<std::string>::const_iterator name = remotes.begin(); name != remotes.end(); ++name) {
+        if (!onlyRemote.empty() && *name != onlyRemote) continue;
         unsigned short oldGroup = 0, newGroup = 0;
         const SceneGroup* oldSceneGroup = 0;
         const SceneGroup* newSceneGroup = 0;
@@ -4958,7 +4962,7 @@ void Gateway::continueNetworkFormation(unsigned short completedCommand) {
     }
 }
 
-void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
+void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64, bool freshJoin) {
     std::ostringstream address;
     int i;
     address << "0x" << std::hex << std::setfill('0');
@@ -5011,6 +5015,25 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
     nodeAddresses_[nodeId] = address.str();
     Device& device = devices_[address.str()];
     bool persistentChanged = device.zigbee.read().networkAddress != nodeId;
+    if (freshJoin) {
+        /* A fresh association may follow a factory reset without a Leave. Cached
+           descriptors/signatures cannot establish what the device still stores. */
+        device.zigbee.ensure().configuredSignature.clear();
+        interviews_.erase(nodeId);
+        lastActiveEndpointRequestAt_.erase(nodeId);
+        sceneProvisioning_.erase(address.str());
+        if (interviewRequestInFlight_ && interviewNode_ == nodeId) {
+            interviewRequestInFlight_ = false;
+            interviewDeadline_ = 0;
+        }
+        for (unsigned long operation = 0; operation < nativeBindOperations_.size(); ) {
+            if (nativeBindOperations_[operation].ieeeAddress == address.str())
+                nativeBindOperations_.erase(nativeBindOperations_.begin() + operation);
+            else ++operation;
+        }
+        persistentChanged = true;
+        addLog("Fresh join; restoring device configuration: " + address.str());
+    }
     device.zigbee.ensure().networkAddress = nodeId;
     if (!sensorRefreshEligible(nodeId)) nextSensorRefreshAt_.erase(nodeId);
     else nextSensorRefreshAt_[nodeId] = sensorRefreshDeadline(time(0), device.sensorRefreshIntervalMinutes);
@@ -5040,7 +5063,7 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64) {
        sleepy-device setup transactions. */
     if (lastActiveEndpointRequestAt_[nodeId] == 0 || time(0) - lastActiveEndpointRequestAt_[nodeId] >= 30) {
         lastActiveEndpointRequestAt_[nodeId] = time(0);
-        startInterview(nodeId, false);
+        startInterview(nodeId, false, freshJoin, freshJoin);
     } else addLog("Ignoring duplicate device announcement during interview");
 }
 
@@ -5317,7 +5340,7 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
     }
     if (state.operations.empty()) {
         addLog("Interview completed: no configurable sensor clusters");
-        interviews_.erase(destination);
+        finishInterview(destination);
     }
 }
 
@@ -5525,19 +5548,36 @@ void Gateway::completeInterviewOperation(unsigned short destination) {
     } else if (state.configurationPending) {
         buildConfigurationOperations(destination);
     } else {
-        if (!state.refreshOnly && !state.configurationFailed && !state.configurationSignature.empty() &&
-            state.configurationSignature == deviceConfigurationSignature(device) &&
-            device.zigbee.read().configuredSignature != state.configurationSignature) {
-            device.zigbee.ensure().configuredSignature = state.configurationSignature;
-            savePersistentState();
-            saveState();
-        }
-        if (!state.refreshOnly && !device.zigbee.read().initialInterviewComplete) {
-            device.zigbee.ensure().initialInterviewComplete = true;
-            savePersistentState(); saveState(); markViewDirty();
-        }
-        addLog(state.refreshOnly ? "Sensor attribute refresh completed" : "Sensor interview completed");
-        interviews_.erase(destination);
+        finishInterview(destination);
+    }
+}
+
+void Gateway::finishInterview(unsigned short destination) {
+    std::map<unsigned short, InterviewState>::iterator found = interviews_.find(destination);
+    if (found == interviews_.end()) return;
+    InterviewState& state = found->second;
+    Device& device = devices_[state.ieeeAddress];
+    if (!state.refreshOnly && !state.configurationFailed && !state.configurationSignature.empty() &&
+        state.configurationSignature == deviceConfigurationSignature(device) &&
+        device.zigbee.read().configuredSignature != state.configurationSignature) {
+        device.zigbee.ensure().configuredSignature = state.configurationSignature;
+        savePersistentState();
+        saveState();
+    }
+    if (!state.refreshOnly && !device.zigbee.read().initialInterviewComplete) {
+        device.zigbee.ensure().initialInterviewComplete = true;
+        savePersistentState(); saveState(); markViewDirty();
+    }
+    addLog(state.refreshOnly ? "Sensor attribute refresh completed" : "Sensor interview completed");
+    const bool restoreConfiguration = !state.refreshOnly && !state.configurationFailed;
+    const std::string configuredDevice = state.ieeeAddress;
+    interviews_.erase(destination);
+    if (restoreConfiguration) {
+        /* Provision only this device after its descriptors/configuration are
+           known. Existing queues for unrelated devices remain intact. */
+        queueSceneProvisioning(configuredDevice);
+        if (nativeBindingEnabled(configuredDevice))
+            queueNativeBindingChanges(nativeBindings_, sceneGroups_, true, configuredDevice);
     }
 }
 
