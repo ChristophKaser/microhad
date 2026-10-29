@@ -31,6 +31,18 @@ object GatewayTransport {
     fun client(pin: String = ""): OkHttpClient {
         val builder = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS).callTimeout(15, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val request = chain.request()
+                val scheme = if (request.url.isHttps) "https" else "http"
+                val host = if (':' in request.url.host) "[${request.url.host}]" else request.url.host
+                val defaultPort = if (request.url.isHttps) 443 else 80
+                val origin = "$scheme://$host" + if (request.url.port == defaultPort) "" else ":${request.url.port}"
+                val token = GatewayAuth.token(origin)
+                val authenticated = if (token.isEmpty()) request else request.newBuilder().header("Authorization", "Bearer $token").build()
+                val response = chain.proceed(authenticated)
+                if (response.code == 401 && token.isNotEmpty()) GatewayAuth.clear()
+                response
+            }
             .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
         if (pin.isNotEmpty()) {
             require(pin.matches(Regex("[0-9a-f]{64}")))

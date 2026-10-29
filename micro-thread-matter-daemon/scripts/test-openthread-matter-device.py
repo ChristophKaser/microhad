@@ -20,6 +20,7 @@ spec = importlib.util.spec_from_file_location('ot_sim', ROOT / 'micro-thread-mat
 sim = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sim)
 from workspace_config import setting, gateway_host, ssh_command
+from gateway_api import urlopen
 
 
 def main():
@@ -62,7 +63,7 @@ def main():
                               stderr=subprocess.STDOUT, check=True, timeout=timeout).stdout.decode()
 
     def status():
-        with urllib.request.urlopen('http://' + args.host + '/api/status', timeout=8) as response:
+        with urlopen('http://' + args.host + '/api/status', timeout=8) as response:
             data = json.load(response)
         return {key: data[key] for key in ('online', 'network_formed', 'coordinator_backend') if key in data}
 

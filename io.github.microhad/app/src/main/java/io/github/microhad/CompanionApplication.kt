@@ -8,6 +8,7 @@ import com.google.firebase.FirebaseOptions
 class CompanionApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        GatewayAuth.initialize(this)
         GatewayStore(this).processStarted()
         (getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager).createNotificationChannel(
             android.app.NotificationChannel(GatewayMessagingService.CHANNEL, getString(R.string.gateway_alerts_channel_name), android.app.NotificationManager.IMPORTANCE_DEFAULT))

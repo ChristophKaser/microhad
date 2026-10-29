@@ -28,6 +28,7 @@ spec = importlib.util.spec_from_file_location("sim", ROOT / "ziggurat/scripts/si
 sim = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sim)
 from workspace_config import setting, gateway_host
+from gateway_api import urlopen
 
 
 class ThreadRcp(sim.Rcp):
@@ -95,7 +96,7 @@ class ThreadRcp(sim.Rcp):
 
 
 def status(host):
-    with urllib.request.urlopen(f"http://{host}/api/status", timeout=8) as response:
+    with urlopen(f"http://{host}/api/status", timeout=8) as response:
         data = json.load(response)
     # Never log configuration, addresses, keys or the complete status body.
     return {key: data[key] for key in ("online", "network_formed", "coordinator_backend", "state") if key in data}

@@ -5,6 +5,11 @@ trusted-LAN HTTP transport. HTTPS may use the same routes, but an installed
 trusted gateway certificate is not a prerequisite. `MATTER=0` returns 404 for
 these control/job routes and retains disabled read-only status responses.
 
+Gateway API access levels apply to these routes. Commissioning and the BLE relay
+require administrator access; device reads require guest access and device commands
+require user access. Job results require the access level of their originating
+operation. See [API access](../../docs/api-access.md) for authentication.
+
 ## Commissioning calls
 
 Send a JSON object with `schema:1` to these routes. HTTP bodies retain strict

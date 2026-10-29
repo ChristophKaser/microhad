@@ -21,10 +21,15 @@ configuration or a bundled Firebase project.
    registration. Its completion updates the home screen status.
 5. **Open gateway dashboard** opens the configured address in your browser.
 
-No password is built into the app. This version uses the gateway's existing
-trusted-network API access model; it does not add an account system, remote
-access tunnel or authentication proxy support. HTTP remains unencrypted. Use
-HTTPS when your network requires encrypted communication.
+Use **Log in** on the App page to select guest, user or administrator access and
+enter the effective gateway password. During initial setup, enter the gateway
+address and use **Log in to gateway** if access is protected. App sessions do not
+expire and are encrypted using Android Keystore storage. Logout clears the stored
+session locally and works offline. Changing any gateway access password invalidates
+all issued tokens. Push registration requires guest access; device commissioning requires administrator access. See
+[API access](api-access.md) for password inheritance and browser sessions.
+Login supports HTTP and HTTPS and never sends plaintext passwords. HTTP leaves
+session tokens and traffic visible to the network; HTTPS protects transport.
 
 HTTPS normally requires an Android-trusted certificate. For a self-signed,
 expired or differently named certificate, choose **Allow an untrusted HTTPS

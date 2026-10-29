@@ -21,12 +21,13 @@ from ziggurat_cobs import Client
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
 from workspace_config import setting, gateway_host, has_credentials
+from gateway_api import urlopen
 
 
 def http(args, path, post=False):
     request = urllib.request.Request('http://' + args.host + path,
                                      data=b'' if post else None)
-    with urllib.request.urlopen(request, timeout=10) as response:
+    with urlopen(request, timeout=10) as response:
         return json.load(response)
 
 

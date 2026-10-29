@@ -190,11 +190,11 @@ start_remote_launcher() {
 }
 
 verification_get() {
-    curl --noproxy '*' --connect-timeout 5 --max-time "${2:-10}" -fsS "http://$host$1"
+    python3 "$repo_root/scripts/gateway_api.py" --timeout "${2:-10}" "http://$host$1"
 }
 
 verification_headers() {
-    curl --noproxy '*' --connect-timeout 5 --max-time "${2:-10}" -fsS -D - -o /dev/null "http://$host$1"
+    python3 "$repo_root/scripts/gateway_api.py" --headers --timeout "${2:-10}" "http://$host$1"
 }
 
 wait_for_dashboard() {

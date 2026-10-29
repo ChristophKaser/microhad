@@ -30,6 +30,7 @@ SIM_SPEC = importlib.util.spec_from_file_location(
 sim = importlib.util.module_from_spec(SIM_SPEC)
 SIM_SPEC.loader.exec_module(sim)
 from workspace_config import setting, gateway_host, ssh_command
+from gateway_api import urlopen
 
 
 def build_ipc_client():
@@ -91,7 +92,7 @@ def main():
         return (result.returncode, output) if not check else output
 
     def status():
-        with urllib.request.urlopen('http://' + args.host + '/api/status', timeout=8) as response:
+        with urlopen('http://' + args.host + '/api/status', timeout=8) as response:
             value = json.load(response)
         return {key: value.get(key) for key in ('online', 'network_formed', 'coordinator_backend')}
 

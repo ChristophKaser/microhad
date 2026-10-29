@@ -14,6 +14,8 @@ import time
 from common import sha, verify_binary
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'scripts'))
+from workspace_config import settings as workspace_settings
 TARGET = '/tuya/native'
 
 
@@ -21,6 +23,7 @@ class Installer:
     def __init__(self, args):
         self.args = args
         self.env = {k: v for k, v in os.environ.items() if k in ('PATH', 'HOME', 'TMPDIR', 'LANG', 'SSH_AUTH_SOCK')}
+        self.env['API_ADMIN_PASSWORD_FILE'] = workspace_settings().get('API_ADMIN_PASSWORD_FILE', '')
         self.env.update(WORKSPACE_CONFIG='/dev/null', TOOLCHAIN='crosstool-ng', LINK_MODE='static',
                         SSH_PORT=str(args.ssh_port), SSH_USER='root', SSH_PASSWORD_FILE=str(args.password_file),
                         TARGET_READELF=shutil.which('readelf') or 'readelf')
@@ -168,7 +171,7 @@ class Installer:
             if running != 'running':
                 time.sleep(1)
                 continue
-            result = subprocess.run(['curl', '-fsS', '--connect-timeout', '2', '--max-time', '4', base + '/api/status'],
+            result = subprocess.run([sys.executable, str(ROOT / 'scripts/gateway_api.py'), '--timeout', '4', base + '/api/status'],
                                     capture_output=True, env=self.env)
             if result.returncode == 0:
                 try:

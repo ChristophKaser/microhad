@@ -49,6 +49,12 @@ class MainActivity : ComponentActivity() {
     private var destination by mutableStateOf(Destination.SETUP)
     private var status by mutableStateOf("")
     private var address by mutableStateOf("")
+    private var setupFingerprintBase = ""
+    private var setupFingerprint = ""
+    private var loginOpen by mutableStateOf(false)
+    private var loginRole by mutableStateOf("administrator")
+    private var loginPassword by mutableStateOf("")
+    private var loginError by mutableStateOf("")
     private var busy by mutableStateOf(false)
     private var confirmDisconnect by mutableStateOf(false)
     private var certificateProposal by mutableStateOf<String?>(null)
@@ -126,6 +132,7 @@ class MainActivity : ComponentActivity() {
             status = it.message ?: "Enter a valid gateway address."
             return
         }
+        if (store.base.isEmpty()) { setupFingerprintBase = base; setupFingerprint = pin }
         busy = true
         status = "Connecting to gateway…"
         discovery?.close()
@@ -140,8 +147,10 @@ class MainActivity : ComponentActivity() {
                 busy = false
                 home()
                 if (store.config?.firebase != null && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } catch (_: Exception) {
-                status = "Connection failed. Check the address and configuration. For an untrusted HTTPS certificate, use the certificate option."
+            } catch (error: Exception) {
+                if (error is GatewayHttpException && error.code in listOf(401, 403)) {
+                    status = "Login required. Use Log in to gateway."; loginOpen = true
+                } else status = "Connection failed. Check the address and configuration. For an untrusted HTTPS certificate, use the certificate option."
             } finally { busy = false }
         }
     }
@@ -186,6 +195,7 @@ class MainActivity : ComponentActivity() {
                     Destination.DISCONNECTED -> Disconnected()
                 }
             }
+            LoginDialog()
             CertificateDialog()
             DisconnectDialog()
         }
@@ -229,6 +239,10 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun Dashboard() = Page(stringResource(R.string.companion_title)) {
+        Action("Log in") { loginOpen = true }
+        if (GatewayAuth.token(store.base).isNotEmpty()) Action("Log out") {
+            lifecycleScope.launch { runCatching { GatewayAuth.logout() }.onSuccess { status = "Logged out" }.onFailure { status = "Unable to log out" } }
+        }
         Header(store.config?.name ?: "Your gateway", store.base)
         StatusCard(status)
         Text(stringResource(R.string.manage_gateway), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -242,6 +256,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun Setup() = Page(stringResource(R.string.connect_title)) {
+        Action("Log in to gateway") { loginOpen = true }
         Header(stringResource(R.string.welcome_title), stringResource(R.string.welcome_subtitle))
         Text(stringResource(R.string.connect_intro), style = MaterialTheme.typography.bodyLarge)
         OutlinedTextField(address, { address = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.gateway_address)) }, placeholder = { Text("https://gateway[:port]") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), enabled = !busy)
@@ -263,6 +278,34 @@ class MainActivity : ComponentActivity() {
         Header(stringResource(R.string.disconnected_heading), stringResource(R.string.disconnected_subtitle))
         Text(stringResource(R.string.disconnected_intro))
         Action(stringResource(R.string.close_app), true) { finishAndRemoveTask() }
+    }
+
+    @Composable
+    private fun LoginDialog() {
+        if (!loginOpen) return
+        AlertDialog(onDismissRequest = { if (!busy) { loginOpen = false; loginPassword = "" } },
+            title = { Text("Log in to gateway") },
+            text = { Column {
+                listOf("guest", "user", "administrator").forEach { role ->
+                    Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = loginRole == role, onClick = { loginRole = role }); Text(role) }
+                }
+                OutlinedTextField(value = loginPassword, onValueChange = { loginPassword = it }, label = { Text("Password") }, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true)
+                if (loginError.isNotEmpty()) Text(loginError, color = MaterialTheme.colorScheme.error)
+            } },
+            confirmButton = { TextButton(enabled = !busy, onClick = {
+                busy = true; loginError = ""
+                lifecycleScope.launch {
+                    try {
+                        val base = if (store.base.isEmpty()) GatewayTransport.normalize(address) else store.base
+                        val pin = if (store.base.isNotEmpty()) store.fingerprint else if (setupFingerprintBase == base) setupFingerprint else ""
+                        withContext(Dispatchers.IO) { GatewayAuth.login(base, pin, loginRole, loginPassword) }
+                        loginPassword = ""; loginOpen = false; status = "Logged in as $loginRole"
+                        if (store.base.isEmpty()) connect(base, pin) else PushRegistration.schedule(this@MainActivity)
+                    } catch (_: Exception) { loginError = "Login failed. Check gateway, access level and password." }
+                    finally { busy = false }
+                }
+            }) { Text(if (busy) "Please wait…" else "Log in") } },
+            dismissButton = { TextButton(enabled = !busy, onClick = { loginOpen = false; loginPassword = ""; loginError = "" }) { Text("Cancel") } })
     }
 
     @Composable

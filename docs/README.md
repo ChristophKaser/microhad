@@ -11,6 +11,7 @@ Commands run on the development computer unless marked **gateway**.
 - [Supported devices](supported-devices.md): available features, unsupported functions and compatibility limits.
 - [Android companion app](companion-app.md): gateway setup, Matter commissioning, FCM push and LAN discovery.
 - [Dashboard usage](native-usage.md): pairing, controls, sensors, history and alerts.
+- [API access](api-access.md): access levels, passwords, login sessions and authenticated host tools.
 - [Shared host settings](workspace-settings.md): private gateway, LAN, compiler and SSH configuration.
 - [Build setup](building.md): prerequisites, toolchains and output paths.
 - [Deploy application updates](deployment.md): staging, activation, complete releases and rollback.

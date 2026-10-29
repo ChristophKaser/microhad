@@ -27,6 +27,7 @@ from toolchain_config import target_path, settings
 spec=importlib.util.spec_from_file_location("sim",ROOT/"ziggurat/scripts/simulate-rcp.py")
 sim=importlib.util.module_from_spec(spec);spec.loader.exec_module(sim)
 from workspace_config import setting, gateway_host
+from gateway_api import urlopen
 
 
 def main():
@@ -45,7 +46,7 @@ def main():
     def remote(command,**kw):return subprocess.check_output(ssh+[args.host,command],text=True,timeout=15,**kw)
     def passed(text):report["results"].append(text);print("PASS",text,flush=True)
     def status():
-        with urllib.request.urlopen(f"http://{args.host}/api/status",timeout=8) as response:
+        with urlopen(f"http://{args.host}/api/status",timeout=8) as response:
             value=json.load(response);return {"online":value["online"],"network_formed":value["network_formed"],"device_count":len(value["devices"])}
     def upload(path,destination):
         with path.open("rb") as source:

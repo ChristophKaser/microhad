@@ -1,3 +1,4 @@
+import { authFetch } from './auth'
 /** Bounded Matter API client. No automatic mutation retries or response-body diagnostics. */
 import type { Device } from './api'
 export type MatterSession = { session: string; state: string; deadline_remaining_seconds: number; node?: string; error?: string }
@@ -39,7 +40,7 @@ async function request(url: string, body: unknown | undefined, signal: AbortSign
   if (signal.aborted) controller.abort()
   const timer = setTimeout(abort, 3000)
   try {
-    const response = await fetch(url, { method: body === undefined ? 'GET' : 'POST',
+    const response = await authFetch(url, { method: body === undefined ? 'GET' : 'POST',
       ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
       cache: 'no-store', redirect: 'error', signal: controller.signal })
     if (!response.body) throw new MatterError('protocol')

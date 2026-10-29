@@ -6,10 +6,17 @@ import hashlib
 import os
 from pathlib import Path
 import subprocess
+import sys
 import shutil
 import tempfile
 import time
 import unittest
+
+def fake_api_transport(root):
+    wrapper = root / 'python3'
+    wrapper.write_text('#!/bin/sh\nif [ "${1##*/}" = gateway_api.py ]; then\n    shift\n    exec curl "$@"\nfi\nexec ' + sys.executable + ' "$@"\n')
+    wrapper.chmod(0o700)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 os.environ['WORKSPACE_CONFIG'] = str(ROOT.parent / 'workspace.local.env.example')
@@ -75,6 +82,7 @@ elif 'df -k /tuya' in command:
     print(os.environ.get('FLASH_AVAILABLE_KIB','1000000'))
 """)
         fake.chmod(0o700)
+        fake_api_transport(root)
         curl = root / 'curl'
         curl.write_text("""#!/bin/sh
 echo '{"available":true,"controller_initialized":true,"fabric_ready":true,"state":"running"}'
@@ -198,6 +206,7 @@ echo '{"available":true,"controller_initialized":true,"fabric_ready":true,"state
             fake = root / 'sshpass'
             fake.write_text(FAKE_SSH)
             fake.chmod(0o700)
+            fake_api_transport(root)
             curl = root / 'curl'
             curl.write_text('#!/bin/sh\nexit 0\n')
             curl.chmod(0o700)
@@ -302,6 +311,7 @@ elif 'wc -c' in command or 'du -sk' in command:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
+            fake_api_transport(root)
             curl = root / 'curl'
             curl.write_text("""#!/usr/bin/env python3
 import json, os, sys
@@ -329,7 +339,7 @@ print('Content-Encoding: gzip\\r\\n')
             script = (ROOT.parent / 'deploy.sh').read_text()
             functions = script[script.index('verification_get() {'):
                                script.index('# Selective maintenance')]
-            subprocess.run(['sh', '-c', 'set -eu\nhost=$1\n' + functions +
+            subprocess.run(['sh', '-c', 'set -eu\nrepo_root=' + str(ROOT.parent) + '\nhost=$1\n' + functions +
                             '\nverify_webui_assets "$2"', 'verify',
                             '192.168.178.62', str(webui)],
                            env=env, capture_output=True, text=True, check=True, timeout=10)
@@ -337,7 +347,7 @@ print('Content-Encoding: gzip\\r\\n')
             self.assertCountEqual([row[-1] for row in rows],
                                   ['http://192.168.178.62/' + name for name in
                                    ('index.html', 'sw.js', 'app.js', 'app.css', 'licenses.html')])
-            self.assertTrue(all('-fsS' in row and '-kfsS' not in row for row in rows))
+            self.assertTrue(all('--headers' in row and '--insecure' not in row for row in rows))
             staging = [json.loads(line) for line in (root / 'staging-calls').read_text().splitlines()]
             uploads = [row['command'] for row in staging if row['command'].startswith('dd bs=64k of=')]
             self.assertTrue(any('/webui/licenses.html.gz.new' in command for command in uploads))
@@ -352,6 +362,7 @@ print('Content-Encoding: gzip\\r\\n')
                 root = Path(directory)
                 calls = root / 'calls'
                 clock = root / 'clock';clock.write_text('0')
+                fake_api_transport(root)
                 programs = {
                     'date': """from pathlib import Path
 import os
@@ -391,7 +402,7 @@ if failures < 0 or count <= failures:
                 self.assertEqual(rows[0], {'sleep': 3})
                 probes = [row['curl'] for row in rows if 'curl' in row]
                 self.assertTrue(all(row[-1] == 'http://fixture/api/status' for row in probes))
-                self.assertTrue(all(row[row.index('--max-time') + 1] == '2' for row in probes))
+                self.assertTrue(all(row[row.index('--timeout') + 1] == '2' for row in probes))
                 if failures >= 0:
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(len(probes), failures + 1)

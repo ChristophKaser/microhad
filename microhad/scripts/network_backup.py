@@ -18,6 +18,7 @@ import urllib.request
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
 from workspace_config import setting, gateway_host, ssh_command
+from gateway_api import urlopen
 
 
 def private_write(path, data):
@@ -44,7 +45,7 @@ def collect(args):
         raise ValueError("output must be new, inside a mode-0700 directory")
     data = urllib.parse.urlencode({"id": identifier}).encode()
     request = urllib.request.Request(f"http://{args.host}/api/network/backup", data=data, method="POST")
-    with urllib.request.urlopen(request, timeout=10) as response:
+    with urlopen(request, timeout=10) as response:
         if not json.load(response).get("ok"):
             raise ValueError("native export request rejected")
     command = ("if test -f " + shlex.quote(remote) + "; then cat " + shlex.quote(remote) +

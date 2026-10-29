@@ -6,7 +6,7 @@ import java.util.UUID
 class GatewayStore(context: Context) {
     private val prefs = context.getSharedPreferences("gateway", Context.MODE_PRIVATE)
     val resetPending: Boolean get() = prefs.getBoolean("reset_pending", false)
-    fun processStarted() { if (resetPending) check(prefs.edit().clear().commit()) }
+    fun processStarted() { if (resetPending) GatewayAuth.clear(); if (resetPending) check(prefs.edit().clear().commit()) }
     val base: String get() = prefs.getString("base", "").orEmpty()
     val fingerprint: String get() = prefs.getString("fingerprint", "").orEmpty()
     val generation: String get() = prefs.getString("generation", "").orEmpty()
@@ -23,5 +23,5 @@ class GatewayStore(context: Context) {
             .putString("generation", UUID.randomUUID().toString()).putString("status", "Not registered").commit())
     }
     fun status(value: String) { prefs.edit().putString("status", value).apply() }
-    fun clear() { check(prefs.edit().clear().putBoolean("reset_pending", true).commit()) }
+    fun clear() { GatewayAuth.clear(); check(prefs.edit().clear().putBoolean("reset_pending", true).commit()) }
 }

@@ -1,3 +1,4 @@
+import { sessionToken } from './auth'
 import { MatterError, type MatterSession } from './matter'
 
 const SERVICE = '0000fff6-0000-1000-8000-00805f9b34fb'
@@ -97,7 +98,7 @@ export class BrowserMatterRelay {
     this.indicationSequence = 1
     this.generation = attached.generation; trace('BLE relay attached', { generation: this.generation })
   }
-  private open(): Promise<void> { return new Promise((resolve, reject) => { const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; trace('Relay WebSocket connecting'); const socket = this.socket = new WebSocket(`${protocol}//${location.host}/api/matter/relay`); socket.onopen = () => { trace('Relay WebSocket open'); void this.call(4, {}).then(() => { trace('Commissioning status subscription active'); resolve() }, reject) }; socket.onerror = () => { trace('Relay WebSocket error'); reject(new MatterError('transport')) }; socket.onclose = event => { trace('Relay WebSocket closed', { code: event.code, clean: event.wasClean }); this.rejectPending() }; socket.onmessage = event => this.message(event.data) }) }
+  private open(): Promise<void> { return new Promise((resolve, reject) => { const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; trace('Relay WebSocket connecting'); const socket = this.socket = new WebSocket(`${protocol}//${location.host}/api/matter/relay`, sessionToken() ? [`microhad-auth.${sessionToken()}`] : []); socket.onopen = () => { trace('Relay WebSocket open'); void this.call(4, {}).then(() => { trace('Commissioning status subscription active'); resolve() }, reject) }; socket.onerror = () => { trace('Relay WebSocket error'); reject(new MatterError('transport')) }; socket.onclose = event => { trace('Relay WebSocket closed', { code: event.code, clean: event.wasClean }); this.rejectPending() }; socket.onmessage = event => this.message(event.data) }) }
   private reportFailure(error: MatterError) { trace('Relay failure', { error: error.message }); this.fail(error) }
   private message(raw: unknown) {
     try {

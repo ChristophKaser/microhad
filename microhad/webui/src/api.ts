@@ -1,3 +1,4 @@
+import { authFetch } from './auth'
 export interface EndpointDescriptor {
   endpoint: number
   id?: string
@@ -231,7 +232,7 @@ export interface HistoryPage {
 }
 
 export async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options)
+  const response = await authFetch(url, options)
   const data = (await response.json()) as T & { ok?: boolean; error?: string }
   if (!response.ok || data.ok === false)
     throw new Error(data.error || `Request failed (${response.status})`)
@@ -239,7 +240,7 @@ export async function jsonRequest<T>(url: string, options?: RequestInit): Promis
 }
 
 export async function textRequest(url: string): Promise<string> {
-  const response = await fetch(url)
+  const response = await authFetch(url)
   if (!response.ok) throw new Error(`Request failed (${response.status})`)
   return response.text()
 }

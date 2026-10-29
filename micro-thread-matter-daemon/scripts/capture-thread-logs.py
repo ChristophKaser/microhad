@@ -10,11 +10,11 @@ from pathlib import Path
 import sys
 import time
 from urllib.error import URLError
-from urllib.request import urlopen
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
 from workspace_config import setting, gateway_host
+from gateway_api import urlopen
 
 
 class LogCursor:

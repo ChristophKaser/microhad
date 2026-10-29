@@ -18,7 +18,7 @@ public:
     void stop();
     bool status(bool thread, std::string* json, std::string* error);
     bool submit(unsigned char opcode,const MatterProto::MessageBody& body,uint32_t* id,std::string* error);
-    bool job(uint32_t id, std::string* json);
+    bool job(uint32_t id, std::string* json, int accessRole = 2);
     bool takeEvent(MatterProto::MessageBody* event);
  #ifdef MICROHAD_TESTING
     bool takeEvent(std::string* json);
@@ -49,6 +49,7 @@ private:
     MatterChannel client_;
     struct Job {
         unsigned char opcode;
+        int minimumRole;
         MatterProto::MessageBody body;
         std::string state;
         std::string response;
@@ -58,7 +59,7 @@ private:
         std::string thermostatField;
         unsigned short thermostatEndpoint;
         int64_t pollAt;
-        Job() : opcode(0), serviceJob(0), thermostatEndpoint(0), pollAt(0) {}
+        Job() : opcode(0), minimumRole(2), serviceJob(0), thermostatEndpoint(0), pollAt(0) {}
     };
     std::map<uint32_t, Job> jobs_;
     std::deque<uint32_t> pending_;

@@ -1,3 +1,5 @@
+#include <psa/crypto.h>
+extern "C" int microhad_crypto_init(void);
 #include "gateway_config.h"
 #include "http_server.h"
 #include "gateway_runner.h"
@@ -56,6 +58,8 @@ extern "C" int microhad_tls_read(void* session, char* output, unsigned long capa
 extern "C" int microhad_tls_write(void* session, const char* response, unsigned long length);
 extern "C" void microhad_tls_session_close(void* session);
 #endif
+
+#include "api_auth.inc"
 
 namespace {
 const unsigned long maximumRequestBytes = 800000;
@@ -120,6 +124,7 @@ void writeResponse(int fd, int status, const char* contentType, const std::strin
     std::ostringstream response;
     response << "HTTP/1.1 " << status << (status == 200 ? " OK" : status == 202 ? " Accepted" : status == 500 ? " Internal Server Error" :
                                            status == 503 ? " Service Unavailable" :
+                                           status == 401 ? " Unauthorized" : status == 403 ? " Forbidden" : status == 429 ? " Too Many Requests" :
                                            status == 413 ? " Payload Too Large" : status == 404 ? " Not Found" : " Bad Request") << "\r\n"
              << "Content-Type: " << contentType << "\r\n";
     if (contentEncoding != 0) response << "Content-Encoding: " << contentEncoding << "\r\n";
@@ -732,10 +737,19 @@ void HttpServer::handleClient(int clientFd) {
         session != 0 ||
 #endif
         readResult == RequestReadOk) {
-        if (request.find("GET /api/matter/relay ") == 0) {
+        int authStatus=0; std::string authResponse;
+        if (api_auth::gate(webuiDirectory_, request, &authStatus, &authResponse))
+            writeResponse(clientFd, authStatus, "application/json", authResponse);
+        else if (request.find("GET /api/matter/relay ") == 0) {
 #if MICROHAD_MATTER_ENABLED
             std::string upgrade, error;
-            if (!MatterWebSocket::handshake(request, "/api/matter/relay", &upgrade))
+            const bool validHandshake = MatterWebSocket::handshake(request, "/api/matter/relay", &upgrade);
+            const std::string credential = api_auth::token(request);
+            const std::string selected = "microhad-auth." + credential;
+            if (validHandshake && api_auth::tokenShape(credential) &&
+                api_auth::header(request, "sec-websocket-protocol").find(selected) != std::string::npos)
+                upgrade.insert(upgrade.size() - 2, "Sec-WebSocket-Protocol: " + selected + "\r\n");
+            if (!validHandshake)
                 writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"malformed\"}");
             else if (!matterWorker_)
                 writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"not_ready\"}");
@@ -771,6 +785,7 @@ void HttpServer::handleClient(int clientFd) {
 }
 
 void HttpServer::handleRequest(int clientFd, const std::string& request) {
+    const std::string route = request.substr(0, request.find("\r\n"));
     if (request.find("GET /api/matter/status ") == 0 || request.find("GET /api/thread/status ") == 0) {
 #if MICROHAD_MATTER_ENABLED
         std::string status, error;
@@ -853,7 +868,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         std::string json;
         if (!valid) writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"malformed\"}");
         else if (!matterWorker_) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"not_ready\"}");
-        else if (matterWorker_->job(static_cast<uint32_t>(value), &json)) writeResponse(clientFd, 200, "application/json", json);
+        else if (matterWorker_->job(static_cast<uint32_t>(value), &json, api_auth::currentRole(webuiDirectory_, request))) writeResponse(clientFd, 200, "application/json", json);
         else writeResponse(clientFd, 404, "application/json", "{\"ok\":false,\"error\":\"not_found\"}");
 #else
         writeResponse(clientFd, 404, "application/json", "{\"ok\":false,\"error\":\"unsupported\"}");
@@ -956,19 +971,19 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         std::string error;
         if (shelly_->removeDevice(id, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
-    } else if (shelly_ != 0 && request.find("POST /api/shelly/") == 0 && request.find("/actor ") != std::string::npos) {
+    } else if (shelly_ != 0 && request.find("POST /api/shelly/") == 0 && route.find("/actor ") != std::string::npos) {
         const std::string prefix = "POST /api/shelly/";
-        std::string::size_type suffix = request.find("/actor ", prefix.size());
+        std::string::size_type suffix = route.find("/actor ", prefix.size());
         std::string id = suffix == std::string::npos ? "" : decodeComponent(request.substr(prefix.size(), suffix - prefix.size()));
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string state, error;
         bool valid = bodyAt != std::string::npos && formValue(request.substr(bodyAt + 4), "state", &state) && (state == "on" || state == "off");
         if (valid && shelly_->setActor(id, 0, state == "on", &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
         else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid actor command") + "\"}");
-    } else if ((request.find("POST /api/devices/") == 0 || request.find("GET /api/devices/") == 0) && request.find("/delete ") != std::string::npos) {
+    } else if ((request.find("POST /api/devices/") == 0 || request.find("GET /api/devices/") == 0) && route.find("/delete ") != std::string::npos) {
         const bool getting = request.find("GET ") == 0;
         const std::string prefix = getting ? "GET /api/devices/" : "POST /api/devices/";
-        const std::string::size_type end = request.find("/delete ", prefix.size());
+        const std::string::size_type end = route.find("/delete ", prefix.size());
         const std::string address = decodeComponent(request.substr(prefix.size(), end - prefix.size()));
         std::string error, json;
         if (getting) {
@@ -1079,9 +1094,9 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         GatewayRunner::ViewLease* view = gateway_->acquireView();
         if (view == 0) writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"coordinator is unavailable\"}");
         else { std::string body = view->statusJson(); delete view; writeResponse(clientFd, 200, "application/json", body); }
-    } else if (request.find("POST /api/devices/") == 0 && request.find("/actor ") != std::string::npos) {
+    } else if (request.find("POST /api/devices/") == 0 && route.find("/actor ") != std::string::npos) {
         const std::string prefix = "POST /api/devices/";
-        std::string::size_type suffix = request.find("/actor ", prefix.size());
+        std::string::size_type suffix = route.find("/actor ", prefix.size());
         std::string address = suffix == std::string::npos ? "" : decodeComponent(request.substr(prefix.size(), suffix - prefix.size()));
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         std::string state, error;
@@ -1302,13 +1317,13 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         } else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"invalid scene action\"}");
     } else if (request.find("POST /api/devices/") == 0) {
         const std::string prefix = "POST /api/devices/";
-        std::string::size_type settingsAt = request.find("/settings ", prefix.size());
-        std::string::size_type refreshAt = request.find("/refresh ", prefix.size());
-        std::string::size_type reconfigureAt = request.find("/reconfigure ", prefix.size());
-        std::string::size_type identifyAt = request.find("/identify ", prefix.size());
-        std::string::size_type configurationAt = request.find("/configuration ", prefix.size());
-        std::string::size_type thermostatAt = request.find("/thermostat ", prefix.size());
-        std::string::size_type lightAt = request.find("/light ", prefix.size());
+        std::string::size_type settingsAt = route.find("/settings ", prefix.size());
+        std::string::size_type refreshAt = route.find("/refresh ", prefix.size());
+        std::string::size_type reconfigureAt = route.find("/reconfigure ", prefix.size());
+        std::string::size_type identifyAt = route.find("/identify ", prefix.size());
+        std::string::size_type configurationAt = route.find("/configuration ", prefix.size());
+        std::string::size_type thermostatAt = route.find("/thermostat ", prefix.size());
+        std::string::size_type lightAt = route.find("/light ", prefix.size());
         std::string::size_type bodyAt = request.find("\r\n\r\n");
         if (thermostatAt != std::string::npos) {
             std::string address = decodeComponent(request.substr(prefix.size(), thermostatAt - prefix.size()));

@@ -28,7 +28,7 @@
     "micro-thread-matter-daemon/timezone/bridge.c": "f2732a7b0d8e62346ea272748d3dc0b238ccfe26c7bc09f1f1b6e51976cdb415",
     "microhad/dependencies/lua": "7579fc9d7ed90240487251dfb69168f8e64e9294",
     "microhad/dependencies/mbedtls": "ece41aa84d7879d7e55c59e955a5884b541f7f3b",
-    "microhad/webui/package-lock.json": "4bd510d04f1d5437e6140cc70fd5dabda2a8265d6e56a2cb0fdb0d45cf057630",
+    "microhad/webui/package-lock.json": "d549795621e553e80dcaf8efe73759a1fd290fb014b845ef5750a768c7a474d1",
     "patches/getrandom-0.4.3.patch": "12ad4c2e1f639ade672d1588503d295a4fc0add097c8ba124b924eefef65bcab",
     "patches/nix-0.26.4.patch": "d6a9b186442ab23daeb203d255ffb7db0be68aab09168ad4f332f449b6d69e57",
     "patches/radium-0.7.0.patch": "ef497a3f87cd43ed9a0863b21fbfcb0052a3b5a224d5eef467323cc786301acc",
@@ -75,6 +75,6 @@
     "ziggurat/scripts/build.sh": "9888abce67bd71ab964812d3d9bbcfaa9387a9e6051555f653f135bd27cbaaec",
     "ziggurat/stock-uclibc-compat/Cargo.toml": "10d8809501704a473e93541ee4cbaa922eafc1a79b4ee0f9f3445f5a7361fdc1"
   },
-  "records_sha256": "af5de07e9dea646ed2549c9bbadaa77c366e156a7353c05ccfbd929e6945d497",
-  "sha256": "c9ee456d97ccd6a2de44ef289e16413c5f7ff9acf9aa395942f5f42e6de38967"
+  "records_sha256": "19d0b2e42202fe888b81af39f566c039bdf383469e2d5c3bc727ccf8ba3acdfa",
+  "sha256": "1505c324dfe93e0ea940c55e6a519b19dedb3c7c23887c45e40a986520481cf4"
 }

@@ -109,7 +109,10 @@ bool MatterWorker::submit(unsigned char opcode,const MatterProto::MessageBody& b
         jobs_.erase(old);
     }
     *id = nextJob_++;
-    Job& value = jobs_[*id]; value.opcode = opcode; value.body = body; value.state = "queued";
+    Job& value = jobs_[*id];
+    value.minimumRole = opcode == 11 ? 1 :
+        (opcode == 10 && body.device_control_request.present && body.device_control_request.value.action.value == "read" ? 0 : 2);
+    value.opcode = opcode; value.body = body; value.state = "queued";
     if(opcode==11&&body.device_command_request.present&&body.device_command_request.value.command.value=="thermostat"){
         const MatterProto::DeviceCommandRequest& request=body.device_command_request.value;
         value.thermostatNode=MatterWire::hexId(request.node.value);value.thermostatField=request.field.value;value.thermostatEndpoint=request.endpoint.value;
@@ -117,11 +120,11 @@ bool MatterWorker::submit(unsigned char opcode,const MatterProto::MessageBody& b
     pending_.push_back(*id);
     pthread_mutex_unlock(&mutex_); return true;
 }
-bool MatterWorker::job(uint32_t id, std::string* json) {
+bool MatterWorker::job(uint32_t id, std::string* json, int accessRole) {
     json->clear();
     pthread_mutex_lock(&mutex_);
     std::map<uint32_t, Job>::const_iterator found = jobs_.find(id);
-    if (found != jobs_.end()) {
+    if (found != jobs_.end() && accessRole >= found->second.minimumRole) {
         const Job& value = found->second;
         std::ostringstream out;
         out << "{\"job\":" << id << ",\"state\":\"" << value.state << "\"";

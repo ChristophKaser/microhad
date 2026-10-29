@@ -24,6 +24,7 @@ and ignored by tools that do not use them. Do not source an untrusted file.
 | `STOCK_ROOTFS` | Extracted stock `/lib` for dynamic builds; default `build/stock-runtime` |
 | `SSH_PASSWORD_FILE` | Existing password file; empty by default |
 | `SSH_PASSWORD` | Inline password alternative; empty by default |
+| `API_ADMIN_PASSWORD_FILE` | Private file containing the gateway API administrator password; empty by default |
 | `SSH_USER` | SSH login, default `root` |
 | `SSH_PORT` | SSH port, default `22` |
 | `SSH_CONNECT_TIMEOUT` | SSH connection timeout in seconds, default `8` |
