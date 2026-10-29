@@ -35,7 +35,7 @@ identify the revisions and lockfile hashes used for the shipped gateway notices.
 | Firebase Messaging / Google Play services / Google code scanner | Companion APK | Mix of open-source dependencies and Google SDK/ML Kit terms. Preserve packaged third-party notices and review the applicable Google SDK terms; do not describe the complete SDK set as MIT. |
 | Gradle wrapper and Android/Kotlin build plugins | Android build | Apache-2.0 and component terms; wrapper sources retain upstream headers. Build tools are not app runtime libraries. |
 | Vite, TypeScript, type definitions, npm build dependencies | Web build, host only | Individual package licenses; excluded from the runtime notice bundle unless their code is actually bundled. |
-| GCC, binutils, Rust/LLVM, Arm GNU toolchain, RSDK, crosstool-NG, uClibc/uClibc-ng | Build tools and linked runtimes | Mixed GPL/LGPL/permissive licenses and runtime exceptions. `config/toolchains.mk`, `rust-toolchain.toml` and `config/crosstool-ng/sources.json` record versions. The radio release uses Arm GNU runtime libraries with the GCC Runtime Library Exception and Newlib notices. |
+| GCC, binutils, Rust/LLVM, Arm GNU toolchain, crosstool-NG, uClibc/uClibc-ng | Build tools and linked runtimes | Mixed GPL/LGPL/permissive licenses and runtime exceptions. `config/toolchains.mk`, `rust-toolchain.toml` and `config/crosstool-ng/sources.json` record versions. The radio release uses Arm GNU runtime libraries with the GCC Runtime Library Exception and Newlib notices. |
 | connectedhomeip / CHIP Tool | Optional host diagnostics | Apache-2.0 plus third-party terms; exact checkout pin and local changes are in `scripts/matter-diagnostics/build-controller.sh`. Its dependency closure differs from the gateway service. |
 | ot-br-posix, OpenThread, Ubuntu and external OTBR container | Optional host diagnostics | BSD-3-Clause and component/image-specific licenses. Dockerfile pins identify inputs. Container redistribution includes OS packages and is a separate license/source audit. |
 | Python cryptography, Docker, CMake, Ninja, system build/test packages | Host verification | Their own licenses; no claim that host tools are included in the gateway. |
@@ -110,8 +110,7 @@ For complete static software releases, use `python3 scripts/build-release.py
 --version VERSION`. The builder includes runtime attribution and a matching
 source/rebuild package for crosstool-NG/uClibc-ng, supports paired and stock-EZSP
 MicroHAD-only modes, and excludes radio firmware. See
-[binary release instructions](docs/binary-releases.md). RSDK and vendor artifacts
-are not published as part of this project. Radio firmware uses the separate
+[binary release instructions](docs/binary-releases.md). Radio firmware uses the separate
 release process described above.
 
 For other downloadable artifacts, accompany them with a host-side notice
