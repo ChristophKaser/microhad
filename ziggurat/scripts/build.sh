@@ -73,6 +73,9 @@ if [[ "$LINK_MODE" == dynamic ]]; then
     RUSTFLAGS="${RUSTFLAGS/+crt-static/-crt-static} -L native=$STOCK_ROOTFS/link"
 fi
 # Favor size on the gateway; retain upstream LTO, stripping and panic settings.
+if [[ "$CRASH_SNAPSHOTS" == true ]]; then
+    export RUSTFLAGS="$RUSTFLAGS -C link-arg=-Wl,--wrap=pthread_create"
+fi
 cargo +$RUST_TOOLCHAIN build --locked --release \
     --no-default-features \
     --config 'profile.release.opt-level="s"' \

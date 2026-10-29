@@ -222,7 +222,11 @@ markers before treating missing packets as evidence. Packet logs include keys.
 On MIPS, supervisor startup enables `/proc/sys/kernel/print-fatal-signals` and
 keeps ordinary core files disabled. Optional TCP capture is documented in
 [core capture](../scripts/core-capture/README.md); it requires ELF core support,
-which the stock production kernel currently lacks. The Rust services' shared startup shim catches
+which the stock production kernel currently lacks. The independent
+`CRASH_SNAPSHOTS=true` build option enables userspace ELF capture for MicroHAD,
+Ziggurat and Matter, with a supervised external collector and 120-second watchdog.
+Its defaults, thread handling and failure behavior are documented in that guide.
+The Rust services' shared startup shim catches
 SIGSEGV and SIGILL and writes a bounded, signal-safe stderr record with PC,
 return address, stack pointer, fault address, signal code and kernel thread ID.
 The existing stderr FIFO forwards it to `mthread-matter-stderr` or

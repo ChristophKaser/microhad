@@ -28,6 +28,8 @@ def main():
         return subprocess.run(ssh + [command], check=True, **kwargs)
     binary = ROOT / 'build' / settings()['TARGET_BUILD_SUBDIR'] / 'gateway-core'
     files = [('gateway-core', binary.read_bytes(), '700'),
+             ('gateway-snapshot', (binary.parent / 'gateway-snapshot').read_bytes(), '700'),
+             ('core-snapshots.enabled', (settings()['CRASH_SNAPSHOTS']+'\n').encode(), '600'),
              ('core-capture-control.sh', (ROOT / 'scripts/core-capture/control.sh').read_bytes(), '700'),
              ('core-capture.conf', f'{args.receiver} {args.port}\n'.encode(), '600')]
     needed = sum(len(data) for _, data, _ in files) * 2 // 1024 + 512
@@ -43,12 +45,8 @@ def main():
     if args.stage_only:
         print('Helper staged; activation not requested.')
         return
-    # A known unsupported kernel is a staged deployment, not an activation success.
-    result = subprocess.run(ssh + ['/tuya/native/core-capture-control.sh start'])
-    if result.returncode:
-        print('Helper staged; capture could not activate. Existing kernel settings preserved.')
-        raise SystemExit(3)
-    run("test \"$(cat /proc/sys/kernel/core_pattern)\" = '|/tuya/native/gateway-core %p %s %t' && cat /proc/sys/kernel/core_pattern && cat /proc/sys/kernel/core_pipe_limit")
+    print('Helpers staged. Reload the paired supervisor to apply core-snapshots.enabled; kernel settings are unchanged.')
+
 
 
 if __name__ == '__main__':

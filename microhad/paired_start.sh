@@ -83,15 +83,21 @@ if awk '/^mips16 implemented[[:space:]]*:/ || /^isa[[:space:]]*:.*mips/ {found=1
         printf '1\n' > /proc/sys/kernel/print-fatal-signals ||
             echo 'Cannot enable kernel fatal-signal logging' >&2
     fi
-    # Optional system-wide TCP core capture. No configuration means disabled.
-    core_control="${NATIVE_BIN%/*}/core-capture-control.sh"
-    if [ -x "$core_control" ]; then
-        "$core_control" start || echo 'Cannot start TCP core capture' >&2
-    fi
+
 fi
 # Regular core files stay disabled; kernel pipe handlers ignore this limit.
 ulimit -c 0
 zig_pid=;native_pid=;matter_pid=;zig_logger_pid=;matter_logger_pid=
+snapshot_pid=;snapshot_enabled=false
+snapshot_bin="${NATIVE_BIN%/*}/gateway-snapshot"
+snapshot_transport="${NATIVE_BIN%/*}/gateway-core"
+if [ -x "$snapshot_bin" ] && [ -x "$snapshot_transport" ] &&
+   [ -s "${NATIVE_BIN%/*}/core-capture.conf" ] &&
+   [ "$(cat "${NATIVE_BIN%/*}/core-snapshots.enabled" 2>/dev/null)" = true ] &&
+   awk '/^mips16 implemented[[:space:]]*:/ || /^isa[[:space:]]*:.*mips/ {found=1} END {exit !found}' /proc/cpuinfo 2>/dev/null; then
+    snapshot_enabled=true
+fi
+
 retries=0;matter_retries=0;matter_next=0;quiesced=false
 zig_diagnostic_restart=false
 # Keep stderr separate from the services' normal direct syslog output. A FIFO
@@ -124,12 +130,27 @@ stop_child() {
     fi
     wait "$child" 2>/dev/null || true
 }
+start_snapshot() {
+    "$snapshot_bin" "$snapshot_transport" </dev/null >/dev/null 2>/dev/null &
+    snapshot_pid=$!
+    snapshot_wait=0
+    while [ "$snapshot_wait" -lt 5 ]; do
+        if [ "$(cat /tmp/gateway-snapshots/daemon.pid 2>/dev/null)" = "$snapshot_pid" ] &&
+           kill -0 "$snapshot_pid" 2>/dev/null; then return 0;fi
+        kill -0 "$snapshot_pid" 2>/dev/null || break
+        sleep 1;snapshot_wait=$((snapshot_wait+1))
+    done
+    stop_child "$snapshot_pid";snapshot_pid=
+    echo 'Crash snapshot collector unavailable; services continue without snapshots' >&2
+    return 1
+}
 cleanup() {
     trap '' TERM INT HUP
     trap - EXIT
     stop_child "$matter_pid";matter_pid=
     stop_child "$native_pid";native_pid=
     stop_child "$zig_pid";zig_pid=
+    stop_child "$snapshot_pid";snapshot_pid=
     drain_stderr "$matter_logger_pid"
     drain_stderr "$zig_logger_pid"
     rm -f "$control/matter.pid" "$control/matter.failed" "$control/active-matter-log-level" "$control/requested-matter-log-level" "$control/requested-matter-log-level."* "$control/native.pid" "$control/ziggurat.pid" "$control/supervisor.pid" "$control/quiesce" "$control/quiesced" "$control/stop" "$control/active-log-level" "$control/requested-log-level" "$control/requested-log-level."*
@@ -287,6 +308,20 @@ poll_matter() {
 }
 while :; do
     [ ! -e "$control/stop" ] || exit 0
+    if [ "$snapshot_enabled" = true ] && { [ -z "$snapshot_pid" ] || ! kill -0 "$snapshot_pid" 2>/dev/null; }; then
+        if [ -n "$snapshot_pid" ]; then
+            wait "$snapshot_pid" 2>/dev/null || true
+            "$snapshot_bin" --recover || true
+            # Reconnect instrumented clients after collector loss. Quiesce
+            # retains the radio for maintenance and already forbids respawn.
+            if [ ! -e "$control/quiesce" ]; then
+                stop_child "$matter_pid";matter_pid=
+                stop_child "$native_pid";native_pid=
+                stop_child "$zig_pid";zig_pid=
+            fi
+        fi
+        start_snapshot || snapshot_enabled=false
+    fi
     if [ -e "$control/quiesce" ]; then
         if [ "$quiesced" = false ]; then
             stop_child "$matter_pid";matter_pid=

@@ -86,3 +86,11 @@ file to Docker with `--env-file`, or copy it into a build context/release archiv
 
 This file configures the development host. It does not replace the gateway's
 runtime configuration or change its remote syslog settings.
+
+## Userspace crash snapshots
+
+`CRASH_SNAPSHOTS=false` is the default. Set `CRASH_SNAPSHOTS=true` in private
+`workspace.local.env` to instrument the three target services, or override it
+for one build through the environment/Make command line. Host MicroHAD tests
+remain uninstrumented. See [snapshot collection](../scripts/core-capture/README.md)
+for the required helpers, runtime activation, demo gate and recovery bounds.

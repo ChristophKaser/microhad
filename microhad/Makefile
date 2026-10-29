@@ -160,7 +160,8 @@ $(MIPS_BUILD)/lua-%.o: $(LUA_DIR)/%.c
 $(MIPS_BIN): $(SOURCES) $(wildcard include/*.h) $(wildcard include/*.inc) ../config/thermostat-attributes.def $(MIPS_MBEDTLS_LIBS) $(MIPS_C_OBJECTS)
 	@test -x $(TARGET_CXX) || (echo "Selected target compiler not found: $(TARGET_CXX)"; exit 1)
 	@mkdir -p $(MIPS_BUILD)
-	$(TARGET_CXX) $(TARGET_CXXFLAGS) $(TARGET_LINK_FLAGS) -Wl,--gc-sections $(SOURCES) $(MIPS_C_OBJECTS) -o $@ $(MIPS_MBEDTLS_LIBS) $(LDFLAGS)
+	$(TARGET_CXX) $(TARGET_CXXFLAGS) $(TARGET_LINK_FLAGS) -Wl,--gc-sections $(SOURCES) $(MIPS_C_OBJECTS) $(SNAPSHOT_OBJECTS) $(SNAPSHOT_LINK_FLAGS) -o $@ $(MIPS_MBEDTLS_LIBS) $(LDFLAGS)
+	cp $@ $@.elf
 	$(TARGET_STRIP) $@
 
 # Recompile after changing feature definitions or build recipes.
@@ -279,3 +280,26 @@ $(HOST_BIN) $(HOST_TEST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN): $(HOST_BU
 $(MIPS_BIN): $(MIPS_BUILD)/device-cache-pb.o ../protocol/generated/device_cache_encode.inc ../protocol/generated/protobuf_operations.inc
 
 $(HOST_BIN) $(HOST_TEST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN) $(MIPS_BIN): ../protocol/generated/matter_messages.pb.h ../protocol/generated/matter_codec.inc ../protocol/generated/matter_json.inc
+
+# Crash instrumentation is target-only; host fixtures never start collectors.
+SNAPSHOT_STAMP := $(MIPS_BUILD)/crash-snapshots-$(CRASH_SNAPSHOTS)
+$(SNAPSHOT_STAMP):
+	@mkdir -p $(MIPS_BUILD)
+	@rm -f $(MIPS_BUILD)/crash-snapshots-*
+	@touch $@
+$(MIPS_BIN) $(MIPS_C_OBJECTS): $(SNAPSHOT_STAMP)
+ifeq ($(CRASH_SNAPSHOTS),true)
+TARGET_CXXFLAGS += -g
+TARGET_CFLAGS += -g
+SNAPSHOT_LINK_FLAGS := -Wl,--wrap=pthread_create
+SNAPSHOT_DIR := $(ZIGGURAT_ROOT)/scripts/core-capture
+SNAPSHOT_OBJECTS := $(MIPS_BUILD)/snapshot-client.o $(MIPS_BUILD)/snapshot-writer.o $(MIPS_BUILD)/fault_report.o
+$(MIPS_BUILD)/snapshot-%.o: $(SNAPSHOT_DIR)/snapshot-%.c $(SNAPSHOT_DIR)/snapshot.h $(SNAPSHOT_STAMP)
+	@mkdir -p $(MIPS_BUILD)
+	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -msoft-float -c $< -o $@
+$(MIPS_BUILD)/fault_report.o: $(ZIGGURAT_ROOT)/ziggurat/stock-uclibc-compat/native/fault_report.c $(SNAPSHOT_STAMP)
+	$(TARGET_CC) -std=gnu99 $(TARGET_CFLAGS) -DCRASH_SNAPSHOTS_BUILD=1 -msoft-float -c $< -o $@
+$(MIPS_BIN): $(SNAPSHOT_OBJECTS)
+endif
+
+$(MIPS_C_OBJECTS) $(SNAPSHOT_OBJECTS): Makefile

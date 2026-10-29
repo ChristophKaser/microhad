@@ -39,8 +39,10 @@ class Tests(unittest.TestCase):
         self.thread.join()
         self.temp.cleanup()
 
-    def capture(self, data=b'ELF-test', retry=False):
+    def capture(self, data=b'ELF-test', retry=False, snapshot=False):
         args = ['--retry'] if retry else [str(os.getpid()), '11', '123']
+        if snapshot:
+            args.insert(0, '--snapshot')
         return subprocess.run([str(BINARY), '--paths', str(self.config), str(self.spool), *args],
                               input=data, capture_output=True, timeout=25)
 
@@ -54,6 +56,30 @@ class Tests(unittest.TestCase):
 
     def online(self):
         self.config.write_text(f'127.0.0.1 {self.server.server_address[1]}\n')
+
+    def test_killed_transport_prefix_recovery(self):
+        import struct
+        self.spool.mkdir(mode=0o700)
+        wire = b'GCORE1 1 11 123\n' + struct.pack('!I', 4) + b'meta'
+        wire += struct.pack('!I', 6) + b'prefix' + struct.pack('!I', 100) + b'incomplete'
+        (self.spool/'partial').write_bytes(wire)
+        self.assertEqual(self.capture(retry=True).returncode, 0)
+        self.assertEqual(next(self.output.glob('*/core.truncated')).read_bytes(), b'prefix')
+        self.assertFalse((self.spool/'partial').exists())
+
+    def test_snapshot_length_validation(self):
+        import struct
+        data = b'ELF snapshot'
+        self.assertEqual(self.capture(struct.pack('!Q', len(data))+data, snapshot=True).returncode, 0)
+        self.assertTrue(self.metadata()[0]['complete'])
+        self.assertEqual(self.capture(struct.pack('!Q', len(data)+100)+data, snapshot=True).returncode, 0)
+        self.assertEqual(len(list(self.output.glob('*/core.truncated'))), 1)
+
+    def test_successful_new_stream_preserves_older_fallback(self):
+        self.offline(); self.capture(b'older')
+        pending = self.spool/'pending'; original = pending.read_bytes()
+        self.online(); self.assertEqual(self.capture(b'newer').returncode, 0)
+        self.assertEqual(pending.read_bytes(), original)
 
     def test_large_unlimited_stream(self):
         data = os.urandom(5 * 1024 * 1024 + 7)

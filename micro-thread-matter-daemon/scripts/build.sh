@@ -30,6 +30,9 @@ if [ "$mode" = mips ]; then
     fi
     args+=(--target "targets/$TARGET_SPEC_NAME.json" -Z json-target-spec -Z build-std=std,panic_abort)
 fi
+if [[ "$mode" == mips && "$CRASH_SNAPSHOTS" == true ]]; then
+    export RUSTFLAGS="$RUSTFLAGS -C link-arg=-Wl,--wrap=pthread_create"
+fi
 cargo +$RUST_TOOLCHAIN build "${args[@]}"
 if [ "$mode" = mips ]; then
     "$LLVM_STRIP" --keep-section=.gnu.attributes -o "$output_root/$output" \

@@ -21,7 +21,7 @@ class Capture(socketserver.StreamRequestHandler):
     def handle(self):
         if self.server.gateway and self.client_address[0] != self.server.gateway:
             return
-        self.request.settimeout(10)  # idle timeout, no total transfer deadline
+        self.request.settimeout(getattr(self.server, 'idle_timeout', 130))  # idle timeout, no total transfer deadline
         identity = f'{time.time_ns()}-{uuid.uuid4().hex}'
         directory = self.server.output / identity
         directory.mkdir(mode=0o700)

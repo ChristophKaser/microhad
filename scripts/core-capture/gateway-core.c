@@ -77,10 +77,38 @@ static int acknowledged(void) {
 static int open_private(const char *path) {
     return open(path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0600);
 }
+/* Recover a killed producer's bounded prefix under the transport lock. */
+static void recover_partial(void) {
+    int fd,valid=0,complete=0;struct stat st;char header[128],status='T';
+    size_t used=0;off_t end=0;uint32_t size,zero=0;
+    if(!lstat(pending,&st))return;
+    fd=open(partial,O_RDWR|O_NOFOLLOW);if(fd<0)return;
+    if(fstat(fd,&st)||!S_ISREG(st.st_mode)||st.st_size>CAP)goto discard;
+    while(used<sizeof(header)-1){if(read(fd,header+used,1)!=1)goto discard;if(header[used++]=='\n')break;}
+    header[used]=0;if(strncmp(header,"GCORE1 ",7)||!used||header[used-1]!='\n')goto discard;
+    end=(off_t)used;
+    for(;;){
+        off_t at=lseek(fd,0,SEEK_CUR);ssize_t n=read(fd,&size,4);
+        if(n!=4)break;
+        size=ntohl(size);
+        if(!size){if(valid&&read(fd,&status,1)==1&&(status=='C'||status=='T')&&at+5==st.st_size){end=st.st_size;complete=1;}break;}
+        if(size>CHUNK||at+4+(off_t)size>st.st_size)break;
+        if(lseek(fd,size,SEEK_CUR)<0)break;
+        end=at+4+(off_t)size;valid=1;
+    }
+    if(!valid||end+(!complete?5:0)>CAP)goto discard;
+    if(!complete){
+        if(ftruncate(fd,end)||lseek(fd,end,SEEK_SET)<0||put(fd,&zero,4,0)||put(fd,"T",1,0))goto discard;
+    }
+    close(fd);if(rename(partial,pending))unlink(partial);return;
+discard:
+    close(fd);unlink(partial);
+}
 int main(int argc, char **argv) {
     char config[1024], root[768]="/tmp/gateway-core-capture", host[64], path[1100];
     char header[128], meta[CHUNK], exe[1024];
-    int port, lock, fd, retry=0, offset=1;
+    int port, lock, fd, retry=0, offset=1, snapshot=0;
+    uint64_t expected=0,received=0;
     ssize_t n;
     struct stat st;
     FILE *f;
@@ -96,6 +124,7 @@ int main(int argc, char **argv) {
         if(strlen(argv[2])>=sizeof(config) || strlen(argv[3])>=sizeof(root)) return 2;
         strcpy(config,argv[2]); strcpy(root,argv[3]); offset=4;
     }
+    if(argc==offset+4 && !strcmp(argv[offset],"--snapshot")){snapshot=1;offset++;}
     if(argc==offset+1 && !strcmp(argv[offset],"--retry")) retry=1;
     else if(argc!=offset+3) return 2;
     if(!retry) { int i; for(i=offset;i<argc;i++)
@@ -115,15 +144,18 @@ int main(int argc, char **argv) {
     }
     snprintf(pending,sizeof(pending),"%s/pending",root);
     snprintf(partial,sizeof(partial),"%s/partial",root);
-    sock=connect_host(host,port);
+    recover_partial();
     if(retry) {
         fd=open(pending,O_RDONLY|O_NOFOLLOW);
-        if(fd<0 || sock<0) return 1;
+        if(fd<0)return 1;
+        sock=connect_host(host,port);
+        if(sock<0)return 1;
         while((n=read(fd,buffer,sizeof(buffer)))>0) sendpart(buffer,(size_t)n);
         close(fd);
         if(n<0 || !acknowledged()) return 1;
         unlink(pending); syslog(LOG_INFO,"RAM fallback delivered"); return 0;
     }
+    sock=connect_host(host,port);
     /* Never overwrite an older pending capture. Partial is owned under lock. */
     unlink(partial);
     if(lstat(pending,&st) && errno==ENOENT) spool=open_private(partial);
@@ -139,21 +171,27 @@ int main(int argc, char **argv) {
     fd=open(path,O_RDONLY);
     if(fd>=0) { ssize_t r=read(fd,meta+n,sizeof(meta)-(size_t)n); if(r>0) n+=r; close(fd); }
     frame(meta,(size_t)n);
+    if(snapshot){unsigned char length[8];int i;size_t got=0;
+        while(got<8){ssize_t r;if(!waitfd(0,POLLIN,120000))break;r=read(0,length+got,8-got);if(r<=0)break;got+=r;}
+        if(got!=8){if(spool>=0)close(spool);unlink(partial);return 1;}
+        for(i=0;i<8;i++)expected=(expected<<8)|length[i];
+    }
     for(;;) {
         struct pollfd input;
         int ready;
         input.fd=STDIN_FILENO; input.events=POLLIN; input.revents=0;
-        do { ready=poll(&input,1,10000); } while(ready<0 && errno==EINTR);
+        do { ready=poll(&input,1,snapshot?120000:10000); } while(ready<0 && errno==EINTR);
         if(ready<=0) { n=-1; break; }
         n=read(STDIN_FILENO,buffer,sizeof(buffer));
         if(n<0 && errno==EINTR) continue;
         if(n<=0) break;
+        received+=(size_t)n;
         frame(buffer,(size_t)n);
     }
-    { uint32_t zero=0; char complete=n==0?'C':'T';
+    { uint32_t zero=0; char complete=n==0&&(!snapshot||received==expected)?'C':'T';
       sendpart(&zero,4); sendpart(&complete,1);
       if(spool>=0) {
-          char status=truncated || n<0?'T':'C';
+          char status=truncated || n<0 || (snapshot&&received!=expected)?'T':'C';
           if(put(spool,&zero,4,0) || put(spool,&status,1,0)) {close(spool);spool=-1;unlink(partial);}
           else {close(spool);spool=-1; if(rename(partial,pending)) unlink(partial);}
       }

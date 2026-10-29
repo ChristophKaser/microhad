@@ -6,6 +6,10 @@
 #include <sys/ucontext.h>
 #include <unistd.h>
 
+#if CRASH_SNAPSHOTS_BUILD
+extern void snapshot_fault(int, void *, void *);
+#endif
+
 static unsigned char fault_stack[64 * 1024] __attribute__((aligned(16)));
 
 static char *text(char *out, const char *value)
@@ -53,6 +57,9 @@ static void report_fault(int number, siginfo_t *info, void *context)
      * The supervisor's stderr FIFO sends this bounded record to host syslog.
      */
     (void)write(STDERR_FILENO, message, (size_t)(out - message));
+    #if CRASH_SNAPSHOTS_BUILD
+    snapshot_fault(number, info, context);
+    #endif
     /* Return to a synchronous fault so the default action captures its original
      * registers, rather than the handler's re-delivery syscall. */
     if (info->si_code > 0) return;

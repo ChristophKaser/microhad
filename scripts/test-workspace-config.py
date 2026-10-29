@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from workspace_config import ROOT, settings, ssh_command
 
-KEYS = 'GATEWAY_IP LAN_INTERFACE TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT STOCK_ROOTFS SSH_PASSWORD_FILE SSH_PASSWORD SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT'.split()
+KEYS = 'CRASH_SNAPSHOTS GATEWAY_IP LAN_INTERFACE TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT STOCK_ROOTFS SSH_PASSWORD_FILE SSH_PASSWORD SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT'.split()
 
 
 class WorkspaceSettings(unittest.TestCase):
@@ -36,6 +36,16 @@ class WorkspaceSettings(unittest.TestCase):
     def resolved(self):
         with patch.dict(os.environ, self.env, clear=True):
             return settings()
+
+    def test_snapshot_flag_default_override_and_validation(self):
+        self.assertEqual(self.resolved()['CRASH_SNAPSHOTS'], 'false')
+        self.config.write_text('CRASH_SNAPSHOTS=true\n')
+        self.assertEqual(self.resolved()['CRASH_SNAPSHOTS'], 'true')
+        self.env['CRASH_SNAPSHOTS'] = 'false'
+        self.assertEqual(self.resolved()['CRASH_SNAPSHOTS'], 'false')
+        self.env['CRASH_SNAPSHOTS'] = 'yes'
+        result = subprocess.run(['sh', str(ROOT/'scripts/workspace-env.sh'), '--get', 'CRASH_SNAPSHOTS'], env=self.env, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
 
     def test_source_quotes_unknown_keys_and_relative_paths(self):
         self.config.write_text("""# ordinary shell configuration

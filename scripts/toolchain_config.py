@@ -17,6 +17,10 @@ def settings():
         if line and not line.startswith('#'):
             key, value = line.split('=', 1)
             values[key] = environment.get(key, value)
+    snapshots = environment.get('CRASH_SNAPSHOTS', 'false')
+    if snapshots not in ('true', 'false'):
+        raise ValueError('CRASH_SNAPSHOTS must be true or false')
+    values['CRASH_SNAPSHOTS'] = snapshots
     backend = environment.get('TOOLCHAIN', 'rsdk')
     if backend not in ('rsdk', 'crosstool-ng'):
         raise ValueError('TOOLCHAIN must be rsdk or crosstool-ng: ' + backend)

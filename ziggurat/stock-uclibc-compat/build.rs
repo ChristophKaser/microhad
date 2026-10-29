@@ -19,11 +19,14 @@ fn main() {
     let compiler = resolve("TARGET_CC");
     let archiver = resolve("TARGET_AR");
     let nm = resolve("TARGET_NM");
-    for variable in ["STOCK_ROOTFS", "LINK_MODE", "TOOLCHAIN", "RSDK_ROOT", "CROSSTOOL_NG_ROOT", "TARGET_PREFIX", "TARGET_CC", "TARGET_AR", "TARGET_NM"] {
+    for variable in ["CRASH_SNAPSHOTS", "STOCK_ROOTFS", "LINK_MODE", "TOOLCHAIN", "RSDK_ROOT", "CROSSTOOL_NG_ROOT", "TARGET_PREFIX", "TARGET_CC", "TARGET_AR", "TARGET_NM"] {
         println!("cargo:rerun-if-env-changed={variable}");
     }
     println!("cargo:rerun-if-changed=../../config/toolchains.mk");
     println!("cargo:rerun-if-changed=../../scripts/toolchain_config.py");
+    println!("cargo:rerun-if-changed=../../scripts/core-capture");
+    println!("cargo:rerun-if-changed=../../workspace.local.env");
+    let snapshots = resolve("CRASH_SNAPSHOTS").to_string_lossy() == "true";
     let dynamic = env::var("LINK_MODE").as_deref() == Ok("dynamic");
     let mut symbols = std::collections::HashSet::new();
     for library in if dynamic { ["libc.so.0", "libpthread.so.0", "librt.so.0"] } else { ["libc.a", "libpthread.a", "librt.a"] } {
@@ -73,17 +76,32 @@ fn main() {
     let fault_object = object.with_file_name("fault_report.o");
     let status = Command::new(&compiler)
         .args(["-O2", "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-c"])
+        .arg(if snapshots { "-DCRASH_SNAPSHOTS_BUILD=1" } else { "-DCRASH_SNAPSHOTS_BUILD=0" })
         .arg(manifest.join("native/fault_report.c"))
         .arg("-o")
         .arg(&fault_object)
         .status()
         .expect("cannot compile the fatal-signal reporter");
     assert!(status.success(), "fatal-signal reporter did not compile");
+    let mut extra_objects = Vec::new();
+    if snapshots {
+        for source in ["snapshot-client", "snapshot-writer"] {
+            let target = object.with_file_name(format!("{source}.o"));
+            let status = Command::new(&compiler)
+                .args(["-O2", "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-msoft-float", "-ffunction-sections", "-fdata-sections", "-c"])
+                .arg(root.join(format!("scripts/core-capture/{source}.c")))
+                .arg("-o").arg(&target).status().expect("cannot compile snapshots");
+            assert!(status.success(), "snapshot client did not compile");
+            extra_objects.push(target);
+        }
+    }
+    let _ = std::fs::remove_file(&archive);
     let status = Command::new(&archiver)
         .arg("rcs")
         .arg(&archive)
         .arg(&object)
         .arg(&fault_object)
+        .args(extra_objects)
         .status()
         .expect("cannot run the selected target archiver");
     assert!(status.success(), "cannot archive the compatibility shim");

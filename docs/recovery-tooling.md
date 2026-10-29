@@ -262,5 +262,7 @@ sampled time was spent; they are not precise CPU percentages.
 
 See [core capture](../scripts/core-capture/README.md) for the MIPS pipe helper,
 host receiver, bounded RAM fallback and explicit deployment/probe commands.
-The stock production kernel appears to lack ELF core dumping; the installer
-stages tooling but refuses activation when its ELF callback is absent.
+The stock production ELF loader has no core-dump callback. Opt-in
+`CRASH_SNAPSHOTS=true` builds userspace SIGSEGV/SIGILL snapshot capture for all
+three services, bypassing that missing kernel writer without changing it.
+Run the isolated device snapshot demo before deploying the instrumented stack.

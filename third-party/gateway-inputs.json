@@ -22,7 +22,7 @@
     "micro-thread-matter-daemon/patches/rs-matter-peer-identity.patch": "215026c502ef770dbd4f7e6720da9c68b8352086037a545b731ca69aa551c276",
     "micro-thread-matter-daemon/patches/rs-matter-sessionless-icd.patch": "3313ae7829de9e6d520467339b8b896b35037145afb34c994d45b31931e9e303",
     "micro-thread-matter-daemon/patches/rs-matter-spake2p.patch": "e8e6357352fe600fa4241a9e806afa0ea8806a5cb0ff5bd03ad5d20f95bc8788",
-    "micro-thread-matter-daemon/scripts/build.sh": "111395d0a4dcb71d8f40f777fc692fdddc9e1fcf0684aa344508bc4e86f3af3f",
+    "micro-thread-matter-daemon/scripts/build.sh": "0bda2019c2a011a4d309b3c9c9929f9b47231ad2cfde97346ebaf0525d96891b",
     "micro-thread-matter-daemon/scripts/generate-acetime-subset.py": "68fe490932623ed72abfb0ec82594831dc0759197cc8974558b8dc887d61dca3",
     "micro-thread-matter-daemon/scripts/prepare-acetime.py": "44ffb520f64d6d396b1a61e136b11184677110b8196658d0f8418be891772a43",
     "micro-thread-matter-daemon/timezone/bridge.c": "f2732a7b0d8e62346ea272748d3dc0b238ccfe26c7bc09f1f1b6e51976cdb415",
@@ -72,7 +72,7 @@
     "ziggurat/patches/ziggurat-syslog-fragments.patch": "8daa50e80ee63abf4a2d61133c6238d01fd5261a8d14dc7df7262fa45f4f4a05",
     "ziggurat/patches/ziggurat-syslog.patch": "89711ce172906331f6aeeb697f4ada0bbe71d39d72083b5b3fd1d069aa71401b",
     "ziggurat/patches/ziggurat-thread-tcp.patch": "befe2262c44c3a6a9cc5861e80e9c81c4951ac6eda874de1bf68fc10825137f5",
-    "ziggurat/scripts/build.sh": "6ef5ca6d25f7cc736871cd44fc8c5acfc3d7a360ad45bc7cd41d8dce82aaa60d",
+    "ziggurat/scripts/build.sh": "9888abce67bd71ab964812d3d9bbcfaa9387a9e6051555f653f135bd27cbaaec",
     "ziggurat/stock-uclibc-compat/Cargo.toml": "10d8809501704a473e93541ee4cbaa922eafc1a79b4ee0f9f3445f5a7361fdc1"
   },
   "records_sha256": "af5de07e9dea646ed2549c9bbadaa77c366e156a7353c05ccfbd929e6945d497",
