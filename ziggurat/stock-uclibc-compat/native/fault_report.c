@@ -53,6 +53,9 @@ static void report_fault(int number, siginfo_t *info, void *context)
      * The supervisor's stderr FIFO sends this bounded record to host syslog.
      */
     (void)write(STDERR_FILENO, message, (size_t)(out - message));
+    /* Return to a synchronous fault so the default action captures its original
+     * registers, rather than the handler's re-delivery syscall. */
+    if (info->si_code > 0) return;
     /* SA_RESETHAND restored SIG_DFL. Re-deliver to this kernel thread so the
      * kernel can log the fatal signal and the parent sees a signal death.
      * Raw kernel IDs also work with stock LinuxThreads' distinct task IDs.

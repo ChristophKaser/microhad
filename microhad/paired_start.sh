@@ -83,8 +83,13 @@ if awk '/^mips16 implemented[[:space:]]*:/ || /^isa[[:space:]]*:.*mips/ {found=1
         printf '1\n' > /proc/sys/kernel/print-fatal-signals ||
             echo 'Cannot enable kernel fatal-signal logging' >&2
     fi
+    # Optional system-wide TCP core capture. No configuration means disabled.
+    core_control="${NATIVE_BIN%/*}/core-capture-control.sh"
+    if [ -x "$core_control" ]; then
+        "$core_control" start || echo 'Cannot start TCP core capture' >&2
+    fi
 fi
-# Fault diagnostics go to RAM/syslog; never create core files on gateway flash.
+# Regular core files stay disabled; kernel pipe handlers ignore this limit.
 ulimit -c 0
 zig_pid=;native_pid=;matter_pid=;zig_logger_pid=;matter_logger_pid=
 retries=0;matter_retries=0;matter_next=0;quiesced=false

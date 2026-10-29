@@ -220,12 +220,15 @@ Matter UDP payloads are captured through bounded 256-entry logging queues
 markers before treating missing packets as evidence. Packet logs include keys.
 
 On MIPS, supervisor startup enables `/proc/sys/kernel/print-fatal-signals` and
-keeps core dumps disabled. The Rust services' shared startup shim catches
+keeps ordinary core files disabled. Optional TCP capture is documented in
+[core capture](../scripts/core-capture/README.md); it requires ELF core support,
+which the stock production kernel currently lacks. The Rust services' shared startup shim catches
 SIGSEGV and SIGILL and writes a bounded, signal-safe stderr record with PC,
 return address, stack pointer, fault address, signal code and kernel thread ID.
 The existing stderr FIFO forwards it to `mthread-matter-stderr` or
-`ziggurat-stderr`. The handler restores default signal handling and re-delivers
-the signal, preserving kernel crash logging and supervisor signal-death status.
+`ziggurat-stderr`. The handler restores default signal handling and returns to synchronous faults
+to preserve original core registers; asynchronous signals are re-delivered.
+Both paths preserve kernel crash logging and supervisor signal-death status.
 A private alternate stack covers the main thread; no core files or crash state
 are written to gateway flash. Retain the matching unstripped local binaries for
 address resolution. Kernel settings are untouched by synthetic host fixtures.

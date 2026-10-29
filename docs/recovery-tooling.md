@@ -257,3 +257,10 @@ reads MIPS EPC and detaches; the default is 100 samples, bounded to 1–1000.
 Translate addresses on the host with `addr2line -f -C -e MATCHING_UNSTRIPPED_BINARY`.
 The unstripped binary must match the running revision. Counts estimate where
 sampled time was spent; they are not precise CPU percentages.
+
+## TCP core capture
+
+See [core capture](../scripts/core-capture/README.md) for the MIPS pipe helper,
+host receiver, bounded RAM fallback and explicit deployment/probe commands.
+The stock production kernel appears to lack ELF core dumping; the installer
+stages tooling but refuses activation when its ELF callback is absent.
