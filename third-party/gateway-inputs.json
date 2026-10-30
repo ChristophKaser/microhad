@@ -71,11 +71,12 @@
     "ziggurat/patches/ziggurat-radio-timing.patch": "410e3b6e148c9021e47c7b5de1ab8d018594cfa7f5e7b1f85cc06557d3ac6b2f",
     "ziggurat/patches/ziggurat-radio-trace.patch": "ed5075fe0e181b48b8712f19ba6425bf053cc16bf651ab807010d34702c54233",
     "ziggurat/patches/ziggurat-route-diagnostics.patch": "4f3620e629af79cd0e3f04b176c232e38c99ddc898d23435cf9295b7ad1da137",
+    "ziggurat/patches/ziggurat-router-child-expiry.patch": "33c99cbb95ef08b56b4a54dfb5d488b82171f092a5d62ea2ba98c50e354268a9",
     "ziggurat/patches/ziggurat-stock-compat.patch": "5c8155759d260c0c1bc9dd8a1d013929f657c9cbf7996f400b456c457fad0a32",
     "ziggurat/patches/ziggurat-syslog-fragments.patch": "8daa50e80ee63abf4a2d61133c6238d01fd5261a8d14dc7df7262fa45f4f4a05",
     "ziggurat/patches/ziggurat-syslog.patch": "89711ce172906331f6aeeb697f4ada0bbe71d39d72083b5b3fd1d069aa71401b",
     "ziggurat/patches/ziggurat-thread-tcp.patch": "befe2262c44c3a6a9cc5861e80e9c81c4951ac6eda874de1bf68fc10825137f5",
-    "ziggurat/scripts/build.sh": "661c8bd9cb05347200c12fb1b0f20178378e2c6d7eb5f5b3011c143b76f3610b",
+    "ziggurat/scripts/build.sh": "20dfc2aca5d63cc7b44deca94dd1e6da5e61660936c051a98a272afeeeef3927",
     "ziggurat/stock-uclibc-compat/Cargo.toml": "10d8809501704a473e93541ee4cbaa922eafc1a79b4ee0f9f3445f5a7361fdc1"
   },
   "records_sha256": "19d0b2e42202fe888b81af39f566c039bdf383469e2d5c3bc727ccf8ba3acdfa",

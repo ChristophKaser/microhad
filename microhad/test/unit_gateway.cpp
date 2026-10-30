@@ -2211,6 +2211,46 @@ public:
         gateway.sceneBindings_.push_back(binding);
         binding.action = "off"; binding.off = true; gateway.sceneBindings_.push_back(binding);
     }
+    static void sceneMulticastIgnoresMissingMemberAddresses() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        sceneDeliveryFixture(gateway);
+        for (unsigned long i = 0; i < gateway.sceneGroups_[0].members.size(); ++i)
+            gateway.devices_[gateway.sceneGroups_[0].members[i]].zigbee.ensure().networkAddress = 0xffff;
+        std::string error;
+        assert(gateway.activateScene(1, 1, &error));
+        const Gateway::SceneRetry& retry = gateway.sceneRetries_[1];
+        assert(retry.inFlight && !retry.unicast && retry.sentSceneId == 1);
+        assert(gateway.logsJson().find("profile=0x104 cluster=0x5") != std::string::npos);
+        assert(gateway.logsJson().find("dst_ep=255") != std::string::npos);
+        assert(gateway.logsJson().find("Scene retry waiting for unavailable member") == std::string::npos);
+
+        Gateway off("/dev/null", 115200, "/tmp", "", "", "");
+        sceneDeliveryFixture(off);
+        off.devices_["light0"].zigbee.ensure().networkAddress = 0xffff;
+        assert(off.turnOffSceneGroup(1, &error));
+        assert(off.sceneRetries_[1].inFlight && !off.sceneRetries_[1].unicast);
+        assert(off.logsJson().find("profile=0x104 cluster=0x6") != std::string::npos);
+    }
+#if MICROHAD_ZIGGURAT_ENABLED
+    static void sceneUnicastSkipsUnavailableMembers() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        sceneDeliveryFixture(gateway);
+        gateway.devices_["light0"].zigbee.ensure().networkAddress = 0xffff;
+        gateway.devices_.erase("light2");
+        std::string error;
+        assert(gateway.activateScene(1, 1, &error));
+        Gateway::SceneRetry& retry = gateway.sceneRetries_[1];
+        assert(retry.inFlight && !retry.unicast);
+        gateway.zigguratSendResult(retry.ezspSequence, false, 1);
+        gateway.pollSceneRetries();
+        assert(retry.inFlight && retry.unicast && retry.memberIndex == 1);
+        assert(gateway.logsJson().find("node=0x1235 profile=0x104 cluster=0x5") != std::string::npos);
+        assert(gateway.logsJson().find("node=0xffff profile=0x104") == std::string::npos);
+        gateway.zigguratSendResult(retry.ezspSequence, true, 0);
+        gateway.pollSceneRetries();
+        assert(!retry.inFlight && retry.retryAt == LONG_MAX && gateway.selectedScenes_[1] == 1);
+    }
+#endif
     static bool pendingSceneKeepsLatestRemoteAction() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         sceneDeliveryFixture(gateway);
@@ -3305,6 +3345,10 @@ static void testSceneBusyDoesNotAdvanceSelection() {
     assert(GatewayTestPeer::sceneBusyDoesNotAdvanceSelection());
     assert(GatewayTestPeer::sceneRuntimePersistence());
     assert(GatewayTestPeer::nativeAndFallbackSceneOutcomes());
+    GatewayTestPeer::sceneMulticastIgnoresMissingMemberAddresses();
+#if MICROHAD_ZIGGURAT_ENABLED
+    GatewayTestPeer::sceneUnicastSkipsUnavailableMembers();
+#endif
     GatewayTestPeer::sceneBusyUnicastFallback();
 }
 

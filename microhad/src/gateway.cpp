@@ -2401,11 +2401,10 @@ bool Gateway::sendSceneRetry(unsigned short groupId, SceneRetry* retry) {
     } else {
         for (unsigned long i = 0; i < scene->states.size(); ++i) {
             std::map<std::string, Device>::const_iterator device = devices_.find(scene->states[i].ieeeAddress);
-            if (device == devices_.end() || device->second.zigbee.read().networkAddress == 0xffff) {
-                addLog("Scene retry waiting for unavailable member");
-                return false;
-            }
-            if (sceneMemberNative(device->second, *scene, scene->states[i])) multicast = true;
+            /* Group recalls need the group/scene definition, not each member's
+               short address. A missing address must not suppress the multicast. */
+            if (device != devices_.end() && sceneMemberNative(device->second, *scene, scene->states[i]))
+                multicast = true;
         }
     }
     if (!multicast) {
@@ -2429,7 +2428,7 @@ bool Gateway::sendSceneRetry(unsigned short groupId, SceneRetry* retry) {
            user actions or cause a burst of unicast requests. */
         for (; retry->memberIndex < group->members.size(); ++retry->memberIndex) {
             std::map<std::string, Device>::const_iterator device = devices_.find(group->members[retry->memberIndex]);
-            if (device == devices_.end()) return false;
+            if (device == devices_.end()) continue;
             unsigned char endpoint;
             bool native = false;
             if (retry->off) native = endpointForCluster(device->second, kGroupsCluster, &endpoint);
@@ -2438,7 +2437,10 @@ bool Gateway::sendSceneRetry(unsigned short groupId, SceneRetry* retry) {
                     native = sceneMemberNative(device->second, *scene, scene->states[i]);
             if (!native) continue; /* handled by completeSceneRetry */
             if (device->second.zigbee.read().networkAddress == 0xffff ||
-                !endpointForCluster(device->second, retry->off ? kOnOffCluster : kScenesCluster, &endpoint)) return false;
+                !endpointForCluster(device->second, retry->off ? kOnOffCluster : kScenesCluster, &endpoint)) {
+                addLog("Scene unicast skipped unavailable member: " + device->first);
+                continue;
+            }
             retry->ezspSequence = sendApsUnicast(device->second.zigbee.read().networkAddress, kHomeAutomationProfile,
                 retry->off ? kOnOffCluster : kScenesCluster, kCoordinatorEndpoint, endpoint, message);
             retry->inFlight = true;
