@@ -408,6 +408,7 @@ void GatewayRunner::execute(Command* command) {
     else if (command->type == MatterNodesReconcile) result = gateway_->reconcileMatterNodes(command->ids, &error);
     else if (command->type == DeviceRefresh) result = gateway_->refreshDevice(command->address, &error);
     else if (command->type == DeviceReconfigure) result = gateway_->reconfigureDevice(command->address, &error);
+    else if (command->type == OtaStart) result = gateway_->startOta(command->address, command->name, &error);
     else if (command->type == DeviceIdentify) result = gateway_->identifyDevice(command->address, &error);
     else if (command->type == NetworkBackup) result = gateway_->exportNetworkBackup(command->address, &error);
     else if (command->type == DeviceConfiguration) result = gateway_->queryDeviceConfiguration(command->address, &error);
@@ -543,6 +544,10 @@ void GatewayRunner::waitForWork(LoopDebugStats* stats, bool debugEnabled) {
         timeout.tv_sec = 1; timeout.tv_usec = 0; timeoutPointer = &timeout;
     }
 #endif
+    const long otaDelay = gateway_->otaWaitMilliseconds();
+    if (otaDelay >= 0 && (timeoutPointer == 0 || otaDelay < timeout.tv_sec * 1000 + timeout.tv_usec / 1000)) {
+        timeout.tv_sec=otaDelay/1000;timeout.tv_usec=(otaDelay%1000)*1000;timeoutPointer=&timeout;
+    }
     const long cacheDelay = gateway_->deviceCacheWaitMilliseconds();
     if (cacheDelay >= 0 && (timeoutPointer == 0 || cacheDelay < timeout.tv_sec * 1000 + timeout.tv_usec / 1000)) {
         timeout.tv_sec=cacheDelay/1000;timeout.tv_usec=(cacheDelay%1000)*1000;timeoutPointer=&timeout;
@@ -831,3 +836,5 @@ bool GatewayRunner::setEventLoopDebug(bool enabled, std::string* error) {
 bool GatewayRunner::exportNetworkBackup(const std::string& id, std::string* error) {
     Command command; command.type = NetworkBackup; command.address = id; return invoke(&command, error);
 }
+
+bool GatewayRunner::startOta(const std::string& address,const std::string& image,std::string* error){Command command;command.type=OtaStart;command.address=address;command.name=image;return invoke(&command,error);}

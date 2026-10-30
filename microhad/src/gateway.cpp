@@ -1,3 +1,4 @@
+#include "ota.h"
 #include "gateway.h"
 #include "automation_profile.h"
 #include "gateway_config.h"
@@ -347,6 +348,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
 #if MICROHAD_ZIGGURAT_ENABLED
     ziggurat_ = 0;
 #endif
+    OtaStore::instance();
     configureBroadcastQuorum(8);
     lastSecurityDiagnosticsAt_ = 0;
     unsupportedSecurityValues_ = 0;
@@ -1392,6 +1394,7 @@ void Gateway::pollZiggurat() {
 #endif
 
 void Gateway::poll() {
+    pollOtaPage();
     for (std::map<std::string, DeviceDeletion>::iterator it = deviceDeletions_.begin(); it != deviceDeletions_.end(); ++it) {
         if (it->second.state == "pending" && time(0) >= it->second.deadline) {
             it->second.state = "failed"; it->second.error = "Device did not confirm unpairing within 15 seconds";
@@ -6042,16 +6045,30 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
             markDeviceDirty(device.ieeeAddress);
         }
     }
-    if (cluster == 0x0019 && (frameControl & 0x0f) == 0x01 && command == 0x01 &&
-        message.size() >= zclOffset + 9) {
-        /* Query Next Image: acknowledge that this gateway has no OTA image.
-           Zigbee2MQTT does this even when no firmware update is requested. */
-        std::vector<unsigned char> response;
-        response.push_back(0x19); response.push_back(transactionSequence);
-        response.push_back(0x02); response.push_back(0x98); /* NO_IMAGE_AVAILABLE */
-        sendApsUnicast(sender, 0x0104, cluster, destinationEndpoint, sourceEndpoint, response);
-        addLog("OTA query answered: no image available for " + address->second);
-        return;
+    if (cluster == 0x0019 && (frameControl & 0x0b) == 0x01) {
+        std::vector<unsigned char> args(message.begin()+zclOffset,message.end()), payload;
+        if(OtaStore::instance().zigbee(address->second,command,args,&payload)) {
+            if(otaPage_.address==address->second)otaPage_.remaining=0;
+            if(command==4 && payload.size()>=15 && payload[1]==0) {
+                unsigned long offset=static_cast<unsigned long>(args[9])|(static_cast<unsigned long>(args[10])<<8)|(static_cast<unsigned long>(args[11])<<16)|(static_cast<unsigned long>(args[12])<<24);
+                unsigned long page=static_cast<unsigned long>(args[14])|(static_cast<unsigned long>(args[15])<<8);
+                long size=0;jsonLongField(OtaStore::instance().status(),"size",&size);
+                if(offset<static_cast<unsigned long>(size))page=std::min(page,static_cast<unsigned long>(size)-offset);
+                otaPage_.address=address->second;otaPage_.node=sender;otaPage_.profile=0x0104;
+                otaPage_.source=destinationEndpoint;otaPage_.destination=sourceEndpoint;otaPage_.sequence=transactionSequence;
+                otaPage_.args.assign(args.begin(),args.begin()+14);otaPage_.args[0]=0;
+                otaPage_.offset=offset+payload[14];otaPage_.remaining=page>payload[14]?page-payload[14]:0;
+                otaPage_.spacing=std::max<unsigned long>(20,static_cast<unsigned long>(args[16])|(static_cast<unsigned long>(args[17])<<8));
+                timespec now;clock_gettime(CLOCK_MONOTONIC,&now);
+                otaPage_.next=static_cast<uint64_t>(now.tv_sec)*1000+now.tv_nsec/1000000+otaPage_.spacing;
+            }
+            if(!payload.empty()) {
+                std::vector<unsigned char> response; response.push_back(payload[0]==0x0b?0x18:0x19);response.push_back(transactionSequence);
+                response.insert(response.end(),payload.begin(),payload.end());
+                sendApsUnicast(sender,0x0104,cluster,destinationEndpoint,sourceEndpoint,response);
+            }
+            return;
+        }
     }
     if ((frameControl & 0x03) == 0x01) {
         std::vector<unsigned char> arguments(message.begin() + zclOffset, message.end());
@@ -6147,4 +6164,42 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
             }
         }
     }
+}
+
+bool Gateway::startOta(const std::string& address,const std::string& image,std::string* error) {
+    std::map<std::string,Device>::const_iterator found=devices_.find(resolveDeviceId(address));
+    if(found==devices_.end()||found->second.source!="zigbee"||!found->second.zigbee.present()){*error="Unknown Zigbee device";return false;}
+    if(!online_||!networkFormed_||coordinatorInitializationStep_!=0){*error="Zigbee network is not ready";return false;}
+    const ZigbeeDeviceState& z=found->second.zigbee.read();
+    if(z.networkAddress==0xffff){*error="Device has no network address";return false;}
+    for(unsigned long i=0;i<z.endpoints.size();++i){const EndpointDescriptor& ep=z.endpoints[i];
+        if(std::find(ep.outputClusters.begin(),ep.outputClusters.end(),0x0019)==ep.outputClusters.end())continue;
+        if(!OtaStore::instance().startZigbee(image,found->first,error))return false;
+        std::vector<unsigned char> notify;notify.push_back(0x19);notify.push_back(++zclTransactionSequence_);notify.push_back(0);notify.push_back(0);notify.push_back(100);
+        sendApsUnicast(z.networkAddress,ep.profileId,0x0019,kCoordinatorEndpoint,ep.endpoint,notify);
+        return true;
+    }
+    *error="Device has no OTA requestor endpoint";return false;
+}
+
+long Gateway::otaWaitMilliseconds() const {
+    if(!otaPage_.remaining)return -1;
+    timespec now;clock_gettime(CLOCK_MONOTONIC,&now);
+    uint64_t ms=static_cast<uint64_t>(now.tv_sec)*1000+now.tv_nsec/1000000;
+    return otaPage_.next>ms?static_cast<long>(otaPage_.next-ms):0;
+}
+void Gateway::pollOtaPage() {
+    if(otaWaitMilliseconds()!=0)return;
+    for(unsigned int i=0;i<4;++i)otaPage_.args[9+i]=static_cast<unsigned char>(otaPage_.offset>>(8*i));
+    otaPage_.args[13]=static_cast<unsigned char>(std::min<unsigned long>(otaPage_.args[13],otaPage_.remaining));
+    std::vector<unsigned char> payload;
+    OtaStore::instance().zigbee(otaPage_.address,3,otaPage_.args,&payload);
+    if(payload.size()<15||payload[1]!=0){otaPage_.remaining=0;return;}
+    std::vector<unsigned char> response;response.push_back(0x19);response.push_back(otaPage_.sequence);
+    response.insert(response.end(),payload.begin(),payload.end());
+    sendApsUnicast(otaPage_.node,otaPage_.profile,0x0019,otaPage_.source,otaPage_.destination,response);
+    otaPage_.offset+=payload[14];otaPage_.remaining-=payload[14];otaPage_.next+=otaPage_.spacing;
+    /* Start each spacing interval after actual transmission, avoiding catch-up bursts. */
+    timespec now;clock_gettime(CLOCK_MONOTONIC,&now);
+    otaPage_.next=static_cast<uint64_t>(now.tv_sec)*1000+now.tv_nsec/1000000+otaPage_.spacing;
 }

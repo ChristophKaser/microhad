@@ -53,3 +53,6 @@ extern crate ziggurat_stock_uclibc_compat;
 
 #[cfg(feature = "controller-service")]
 pub mod time_sync;
+
+#[cfg(feature = "controller-service")]
+pub mod ota;

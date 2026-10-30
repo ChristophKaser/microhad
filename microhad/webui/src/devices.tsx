@@ -1,3 +1,4 @@
+import { OtaUpdate } from './OtaUpdate'
 import { useEffect, useState } from 'react'
 import { ThermostatPanel } from './ThermostatPanel'
 import type { TemperatureSource } from './api'
@@ -809,6 +810,7 @@ export function DeviceSettings({
             {error}
           </p>
         )}
+        {(device.source === 'zigbee' || device.source === 'matter') && <OtaUpdate device={device} />}
         <label className="field">
           Name
           <input

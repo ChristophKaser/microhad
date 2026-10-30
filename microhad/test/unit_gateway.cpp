@@ -1690,6 +1690,24 @@ public:
                gateway.logsJson().find("action=on") != std::string::npos &&
                gateway.logsJson().find("action=move") != std::string::npos;
     }
+    static void otaPageTransfers() {
+        Gateway gateway("/dev/null",115200,"/tmp","","","");
+        gateway.nodeAddresses_[0x1234]="device";
+        gateway.devices_["device"].ieeeAddress="device";
+        std::vector<unsigned char> incoming(19,0);
+        incoming[1]=4;incoming[2]=1;incoming[3]=0x19;incoming[5]=1;incoming[6]=1;
+        incoming[14]=0x34;incoming[15]=0x12;
+        const unsigned char page[]={0x11,0x33,4,0,0x34,0x12,0x78,0x56,2,0,0,0,0,0,0,0,48,96,0,20,0};
+        incoming[18]=sizeof(page);incoming.insert(incoming.end(),page,page+sizeof(page));
+        gateway.handleIncomingMessage(incoming);
+        assert(gateway.otaPage_.remaining==48);
+        assert(gateway.otaWaitMilliseconds()>=0);
+        assert(gateway.logsJson().find("payload=19330500")!=std::string::npos);
+        gateway.logs_.clear();gateway.otaPage_.next=0;gateway.pollOtaPage();
+        assert(gateway.otaPage_.remaining==0);
+        assert(gateway.otaWaitMilliseconds()==-1);
+        assert(gateway.logsJson().find("payload=1933050034127856020000003000000030")!=std::string::npos);
+    }
     static void tradfriFirmwareBindingAndOta() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         const std::string ieee = "0x70ac08fffe75827b";
@@ -3917,3 +3935,5 @@ void runUnitTests() {
     { DeviceCacheIsolation cache; testApiFormattingAndProcStats(); }
     { DeviceCacheIsolation cache; testSharedJsonUtilities(); }
 }
+
+void runOtaGatewayPageTests(){GatewayTestPeer::otaPageTransfers();}

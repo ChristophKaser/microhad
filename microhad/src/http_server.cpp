@@ -1,3 +1,4 @@
+#include "ota.h"
 #include <psa/crypto.h>
 extern "C" int microhad_crypto_init(void);
 #include "gateway_config.h"
@@ -579,6 +580,7 @@ HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webu
     matter_(new MatterClient("/tmp/microhad-matter.sock")), matterWorker_(matterWorker), automations_(automations), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false),
     previousCpuTotal_(0), previousCpuIdle_(0), hasPreviousCpu_(false), previousThreadSampleUptime_(0) {
+    OtaStore::instance();
     pthread_mutex_init(&queueMutex_, 0);
     pthread_cond_init(&queueReady_, 0);
     pthread_mutex_init(&statsMutex_, 0);
@@ -786,6 +788,36 @@ void HttpServer::handleClient(int clientFd) {
 
 void HttpServer::handleRequest(int clientFd, const std::string& request) {
     const std::string route = request.substr(0, request.find("\r\n"));
+    if(request.find("GET /api/ota/status ")==0) {
+        writeResponse(clientFd,200,"application/json",OtaStore::instance().status());return;
+    }
+    if(request.find("POST /api/ota/")==0) {
+        const std::string action=route.substr(14,route.find(' ',14)-14);
+        const std::string body=request.substr(request.find("\r\n\r\n")+4);
+        std::string error,image,address;bool ok=false;
+        jsonStringField(body,"image",&image);jsonStringField(body,"address",&address);
+        if(action=="begin"||action=="chunk"||action=="finish")ok=OtaStore::instance().upload(action,body,&error);
+        else if(action=="cancel"||action=="discard")ok=OtaStore::instance().cancel(image,action=="discard",&error);
+        else if(action=="start") {
+            std::string node, ignored;
+            if(gateway_->matterDeletionTarget(address,&node,&ignored)) {
+                long endpoint=0;jsonLongField(body,"endpoint",&endpoint);
+                if(endpoint<0||endpoint>65535)error="Invalid OTA requestor endpoint";
+                else if(matterWorker_)ok=OtaStore::instance().matterControl("start",image,node,matterWorker_->otaSocket(),&error,static_cast<unsigned short>(endpoint));
+                else error="Matter service unavailable";
+            } else ok=gateway_->startOta(address,image,&error);
+        }
+        else error="Unknown OTA action";
+        if(ok&&action=="finish") {
+            std::string protocol;jsonStringField(OtaStore::instance().status(),"protocol",&protocol);
+            if(protocol=="matter") {
+                ok=matterWorker_&&OtaStore::instance().matterControl("inspect",image,"",matterWorker_->otaSocket(),&error);
+                if(!ok&&error.empty())error="Matter service unavailable";
+                if(!ok){std::string ignored;OtaStore::instance().cancel(image,true,&ignored);}
+            }
+        }
+        writeResponse(clientFd,ok?200:400,"application/json",ok?OtaStore::instance().status():"{\"error\":\""+jsonEscape(error)+"\"}");return;
+    }
     if (request.find("GET /api/matter/status ") == 0 || request.find("GET /api/thread/status ") == 0) {
 #if MICROHAD_MATTER_ENABLED
         std::string status, error;

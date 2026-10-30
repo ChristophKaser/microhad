@@ -207,3 +207,44 @@ recipients return `nil, error` without sending; use stable IDs to distinguish
 clients with the same label. Empty recipients and malformed lists are invalid.
 Repeated recipients receive one copy. `device_id` and `tag` retain their existing
 notification grouping behavior.
+
+## Accessory firmware updates
+
+Open **Device settings → Firmware update** for a Zigbee or Matter accessory.
+Upload a vendor OTA container, review its version and identifiers, then select
+**Install on …**. Uploading does not authorize installation. These operations
+require administrator access under the gateway's existing access settings.
+Wake battery devices before starting. Only one installation runs at a time.
+
+The gateway keeps one uploaded image, up to 16 MiB, in a private temporary file
+under `/tmp`. It never writes OTA images or transfer journals to flash. A reboot
+clears the image; upload it again to retry. Interrupted uploads can be discarded
+from the same panel. Idle uploads and installations time out after one hour.
+Cancel stops further serving but cannot undo firmware already accepted by an
+accessory. Transfer completion is shown separately from installation confirmation.
+
+Zigbee supports standard OTA containers, manufacturer/image-type matching,
+optional hardware-version limits, individual blocks, paced image pages, and
+upgrade-end responses. Device-specific destination-address containers are rejected.
+The device must query for a compatible newer image before downloading; other
+devices continue receiving “no image available.” After upgrade-end, a query
+reporting the offered file version confirms installation. Devices that do not
+query again remain unconfirmed and eventually time out.
+
+Matter supports standard OTA containers with SHA-256 payload digests. The service
+checks the digest and advertised vendor/product/version applicability, announces
+the provider on the requestor endpoint, and serves the image over authenticated
+BDX. The selected fabric/node and opaque update token restrict download and apply
+authorization. `NotifyUpdateApplied` confirms the installed version. Vendor
+signatures remain part of the firmware payload and are enforced by the accessory.
+The private control socket is the configured Matter socket with `.ota` appended;
+it uses owner-only permissions and accepts commands only from the same Unix user.
+
+The administrator HTTP API is `GET /api/ota/status` and JSON `POST` requests to
+`/api/ota/{begin,chunk,finish,start,cancel,discard}`. `begin` takes `protocol` and
+`size`, returning a server-generated `image` identifier. `chunk` takes `image`,
+`offset`, and up to 4096 bytes encoded as lowercase hexadecimal `data`; offsets
+must be contiguous. `finish` validates the uploaded container. `start` takes
+`image` and the device `address`; Matter accepts an optional requestor `endpoint`
+(default 0). `cancel` and `discard` take `image`. Uploads work identically over
+HTTP and HTTPS without buffering an entire firmware image in memory.

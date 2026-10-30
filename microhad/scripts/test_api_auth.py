@@ -138,6 +138,34 @@ class AccessTests(unittest.TestCase):
         self.assertEqual(self.call('/api/auth/login', body)[0], 401)
         self.assertEqual(self.call('/api/auth/password', {'role': 'guest', 'salt': '', 'verifier': ''})[0], 401)
 
+    def test_ota_upload_validation_and_administrator_access(self):
+        import struct
+        self.change(0, 'shared-secret')
+        guest, user, admin = [self.login(role) for role in range(3)]
+        for token in (guest, user):
+            self.assertEqual(self.call('/api/ota/status', token=token)[0], 403)
+            self.assertEqual(self.call('/api/ota/begin', {'size': 162, 'protocol': 'zigbee'}, token)[0], 403)
+        payload = b'x' * 10000
+        size = 56 + 6 + len(payload)
+        image = struct.pack('<IHHHHHIH32sI', 0x0beef11e, 0x100, 56, 0, 0x1234, 0x5678, 2, 2, b'', size)
+        image += struct.pack('<HI', 0, len(payload)) + payload
+        code, state = self.call('/api/ota/begin', {'size': size, 'protocol': 'zigbee'}, admin)
+        self.assertEqual(code, 200, state)
+        identity = state['image']
+        self.assertEqual(self.call('/api/ota/finish', {'image': identity}, admin)[0], 400)
+        self.assertEqual(self.call('/api/ota/chunk', {'image': identity, 'offset': 1, 'data': '00'}, admin)[0], 400)
+        for offset in range(0, size, 4096):
+            code, state = self.call('/api/ota/chunk', {'image': identity, 'offset': offset, 'data': image[offset:offset + 4096].hex()}, admin)
+            self.assertEqual(code, 200, state)
+        code, state = self.call('/api/ota/finish', {'image': identity}, admin)
+        self.assertEqual(code, 200, state)
+        self.assertEqual(state['state'], 'ready')
+        self.assertEqual(state['version'], 2)
+        self.assertEqual(self.call('/api/ota/start', {'image': identity, 'address': 'unknown'}, admin)[0], 400)
+        code, state = self.call('/api/ota/discard', {'image': identity}, admin)
+        self.assertEqual(code, 200, state)
+        self.assertEqual(state['state'], 'empty')
+
     def test_matter_job_permissions_and_relay_handshake_authentication(self):
         from test_matter_native_worker import MatterPeer, RelaySocket
         from test_ziggurat_native_peer import wait_for

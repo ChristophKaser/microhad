@@ -16,6 +16,7 @@ public:
     ~MatterWorker();
     bool start(std::string* error);
     void stop();
+    std::string otaSocket() const { return otaSocket_; }
     bool status(bool thread, std::string* json, std::string* error);
     bool submit(unsigned char opcode,const MatterProto::MessageBody& body,uint32_t* id,std::string* error);
     bool job(uint32_t id, std::string* json, int accessRole = 2);
@@ -26,6 +27,7 @@ public:
     bool adoptRelay(int fd, const std::string& handshake, std::string* error);
 
 private:
+    std::string otaSocket_;
     GatewayRunner* gateway_;
     int phonePendingFd_;
     std::string phoneHandshake_;

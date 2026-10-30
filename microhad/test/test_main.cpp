@@ -3,6 +3,7 @@
 
 void runDeviceCacheUnitTests();
 void runUnitTests();
+void runOtaUnitTests();
 void runAutomationUnitTests();
 void runMatterWebSocketUnitTests();
 void runMatterProtocolUnitTests();
@@ -33,6 +34,7 @@ int main() {
     runMatterClientUnitTests();
     runNetworkBackupUnitTests();
     runUnitTests();
+    runOtaUnitTests();
     runFcmUnitTests();
     runWebPushUnitTests();
     runGatewayConfigUnitTests();

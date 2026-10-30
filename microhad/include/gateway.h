@@ -255,6 +255,7 @@ public:
     bool serialNeedsWrite() const;
     bool hasImmediateWork() const;
     long deviceCacheWaitMilliseconds() const;
+    long otaWaitMilliseconds() const;
     /* Coordinator-only: clears inactive timers before choosing a deadline. */
     long nextPollDeadline(std::string* source = 0);
     bool setJoining(unsigned int seconds, std::string* error);
@@ -276,6 +277,7 @@ public:
     bool reconcileMatterNodes(const std::vector<std::string>& nodes, std::string* error);
     bool refreshDevice(const std::string& ieeeAddress, std::string* error);
     bool reconfigureDevice(const std::string& ieeeAddress, std::string* error);
+    bool startOta(const std::string& address, const std::string& image, std::string* error);
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
     bool setThermostat(const std::string& address, const std::string& field,
@@ -323,6 +325,16 @@ public:
     std::string logsJson() const;
 
 private:
+    struct OtaPage {
+        std::string address;
+        std::vector<unsigned char> args;
+        unsigned short node, profile;
+        unsigned char source, destination, sequence;
+        unsigned long offset, remaining, spacing;
+        uint64_t next;
+        OtaPage():node(0xffff),profile(0x0104),source(1),destination(1),sequence(0),offset(0),remaining(0),spacing(0),next(0){}
+    } otaPage_;
+    void pollOtaPage();
     std::vector<AutomationReport> automationReports_;
     void automationReport(const Device& device, const std::string& field);
     void automationRemoteAction(const Device& device, const std::string& action,

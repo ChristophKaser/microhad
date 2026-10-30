@@ -34,7 +34,7 @@ const size_t MaxDeferredMatterReadings = 128;
 }
 
 MatterWorker::MatterWorker(GatewayRunner* gateway, const std::string& socketPath) :
-    gateway_(gateway), phonePendingFd_(-1), phoneActive_(false), phoneFd_(-1), phoneReady_(false), phoneOffset_(0),
+    otaSocket_(socketPath + ".ota"), gateway_(gateway), phonePendingFd_(-1), phoneActive_(false), phoneFd_(-1), phoneReady_(false), phoneOffset_(0),
     phoneReceived_(0), phonePingAt_(0), phoneWriteSince_(0), phoneLastId_(0), phoneGeneration_(0), phoneSession_(0), abandonedSession_(0), client_(socketPath),
     nextJob_(1), running_(false), started_(false), refreshed_(0) {
     pthread_mutex_init(&mutex_, 0);

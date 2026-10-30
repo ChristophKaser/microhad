@@ -527,6 +527,11 @@ fn run(
     let receive = send.clone();
     let transport = matter.run(&crypto, send, receive, NoNetwork);
     let mut transport = pin!(transport);
+    let ota_provider = micro_thread_matter_daemon::ota::Provider::new(controller_fabric);
+    let mut ota_control = micro_thread_matter_daemon::ota::Control::bind(PathBuf::from(format!("{}.ota", socket.display())))?;
+    let ota_catalog = controller.catalog();
+    let mut ota_responder = pin!(micro_thread_matter_daemon::ota::run(matter, &crypto, &ota_provider));
+    let mut ota_announce = pin!(ota_provider.announce(matter, &crypto));
     let responder = IcdCheckInResponder::new(matter);
     let mut responder = pin!(responder.run());
     let waker = std::task::Waker::from(std::sync::Arc::new(Wake));
@@ -539,6 +544,10 @@ fn run(
     let mut turns = 0u32;
     while !STOP.load(Ordering::Relaxed) {
         let turn_start = Instant::now();
+        ota_control.poll(&ota_provider, &crypto, &ota_catalog);
+        if let std::task::Poll::Ready(result) = ota_responder.as_mut().poll(&mut context) { result?; return Err("OTA responder ended".into()); }
+        let _ = ota_announce.as_mut().poll(&mut context);
+
         max_gap_us = max_gap_us.max(turn_start.duration_since(last_turn_end).as_micros());
         if let std::task::Poll::Ready(result) =
             measured("transport", || transport.as_mut().poll(&mut context))

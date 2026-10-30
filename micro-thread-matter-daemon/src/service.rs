@@ -48,7 +48,7 @@ impl IcdCheckInResponder<'_> {
     }
 }
 
-fn stale_socket(path: &Path) -> io::Result<bool> {
+pub(crate) fn stale_socket(path: &Path) -> io::Result<bool> {
     // A blocking connect can hang on a live listener with a full backlog.
     let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
     if fd < 0 {
