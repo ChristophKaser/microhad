@@ -73,6 +73,19 @@ Update both Ziggurat and MicroHAD to enable automatic fresh-join recovery. This
 change does not retroactively repair a reset device whose fresh join happened
 before the update, and does not change the network keys or identity.
 
+## Router child lifetime
+
+A router can appear in the child table because it associated through the
+coordinator. It must not expire for missing end-device keepalives. Restored
+routers use the same long timeout as newly associated routers, and both the
+expiry sweep and its next-deadline calculation explicitly exclude routers,
+including entries restored with an old finite deadline. End-device children
+retain their existing keepalive and expiry behavior.
+
+This prevents the 24-hour post-restart eviction that removed Spüle's controller
+address while its encrypted router traffic continued. It does not retroactively
+restore an address already cleared by an older running controller.
+
 ## Licenses and attribution
 
 Original project code is MIT licensed; upstream components retain their own terms.

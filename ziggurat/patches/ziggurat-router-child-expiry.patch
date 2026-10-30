@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Fri, 30 Oct 2026 23:00:00 +0100
+Subject: [PATCH] Keep router children out of end-device expiry
+
+A restored router inherited a 24-hour child deadline and was evicted despite
+valid router traffic. Only end-device children use keepalive expiry.
+
+diff --git a/crates/ziggurat-protocol/src/bridge.rs b/crates/ziggurat-protocol/src/bridge.rs
+index 7834e9d..8e28752 100644
+--- a/crates/ziggurat-protocol/src/bridge.rs
++++ b/crates/ziggurat-protocol/src/bridge.rs
+@@ -199,7 +199,11 @@ pub fn apply_children<P: RadioPhy, R: Runtime>(
+                 network_address: entry.nwk,
+                 device_type,
+                 rx_on_when_idle: entry.flags.rx_on_when_idle,
+-                device_timeout: RESTORED_CHILD_TIMEOUT,
++                device_timeout: if device_type == NwkDeviceType::Router {
++                    Duration::from_secs(u64::from(u32::MAX))
++                } else {
++                    RESTORED_CHILD_TIMEOUT
++                },
+                 relationship: Relationship::Child,
+             },
+             now,
+diff --git a/crates/ziggurat-zigbee/src/nwk/neighbors.rs b/crates/ziggurat-zigbee/src/nwk/neighbors.rs
+index af1b208..b07872c 100644
+--- a/crates/ziggurat-zigbee/src/nwk/neighbors.rs
++++ b/crates/ziggurat-zigbee/src/nwk/neighbors.rs
+@@ -454,7 +454,7 @@ impl Neighbors {
+         (claimed, removed)
+     }
+ 
+-    /// Remove children whose keepalive deadline has passed (spec 3.6.10.1), returning
++    /// Remove end-device children whose keepalive deadline has passed, returning
+     /// their addresses for cleanup.
+     #[must_use = "evicted children must be cleaned up and announced; dropping them \
+         leaves stale entries and silent losses"]
+@@ -462,7 +462,11 @@ impl Neighbors {
+         let evicted: Vec<(Eui64, Nwk)> = self
+             .table
+             .values()
+-            .filter(|entry| entry.is_child() && entry.timeout_at <= now)
++            .filter(|entry| {
++                entry.is_child()
++                    && entry.device_type == NwkDeviceType::EndDevice
++                    && entry.timeout_at <= now
++            })
+             .map(|entry| (entry.extended_address, entry.network_address))
+             .collect();
+ 
+@@ -529,7 +533,7 @@ impl Neighbors {
+     pub fn next_child_timeout(&self) -> Option<Instant> {
+         self.table
+             .values()
+-            .filter(|entry| entry.is_child())
++            .filter(|entry| entry.is_child() && entry.device_type == NwkDeviceType::EndDevice)
+             .map(|entry| entry.timeout_at)
+             .min()
+     }
+@@ -760,6 +764,38 @@ mod test {
+         neighbors
+     }
+ 
++    #[test]
++    fn restored_router_never_expires_as_an_end_device() {
++        let mut neighbors = neighbors_with(NwkDeviceType::Router);
++        assert!(neighbors.next_child_timeout().is_none());
++        // Restore used to assign every child a 24-hour deadline. Even an old,
++        // finite router deadline must never evict a live router or emit Left.
++        let day = Duration::from_secs(24 * 60 * 60);
++        let router = Eui64::from_hex("00:11:22:33:44:55:66:77");
++        neighbors.table.get_mut(&router).unwrap().timeout_at = Instant::from_micros(0) + day;
++        assert!(neighbors.evict_timed_out_children(Instant::from_micros(0) + day).is_empty());
++        assert!(neighbors.contains(router));
++        assert!(neighbors.next_child_timeout().is_none());
++    }
++
++    #[test]
++    fn end_device_deadlines_still_expire_without_evicting_routers() {
++        let mut neighbors = neighbors_with(NwkDeviceType::Router);
++        let child = Eui64::from_hex("00:11:22:33:44:55:66:88");
++        let start = Instant::from_micros(0);
++        let timeout = Duration::from_secs(60);
++        neighbors.upsert_child(ChildDescriptor {
++            eui64: child, network_address: Nwk(0x5678),
++            device_type: NwkDeviceType::EndDevice, rx_on_when_idle: false,
++            device_timeout: timeout, relationship: Relationship::Child,
++        }, start);
++        assert_eq!(neighbors.next_child_timeout(), Some(start + timeout));
++        assert!(neighbors.evict_timed_out_children(start).is_empty());
++        assert_eq!(neighbors.evict_timed_out_children(start + timeout), [(child, Nwk(0x5678))]);
++        assert!(neighbors.contains(Eui64::from_hex("00:11:22:33:44:55:66:77")));
++        assert!(neighbors.next_child_timeout().is_none());
++    }
++
+     /// A group command broadcast to 0xFFFD by end device 0x1234: data frame, route
+     /// discovery enabled, secured, End Device Initiator set (frame control 0x2248).
+     fn end_device_broadcast_header() -> NwkHeader {

@@ -93,6 +93,7 @@ def main() -> int:
             names.append("ziggurat-fresh-join-notification.patch")
             names.append("ziggurat-neighbor-recovery.patch")
             names.append("ziggurat-route-diagnostics.patch")
+            names.append("ziggurat-router-child-expiry.patch")
             for name in names:
                 run(["git", "-C", str(expected), "am", str(root / "ziggurat/patches" / name)])
 
