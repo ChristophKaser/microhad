@@ -160,6 +160,26 @@ public:
         e.inputClusters.push_back(0xfc11); e.inputClusters.push_back(6); valve.zigbee.ensure().endpoints.push_back(e);
         g.classifyDevice(&valve); assert(!valve.light.present() && valve.temperature.present() && valve.kind=="thermostat");
         g.devices_[valve.ieeeAddress]=valve;
+        // Reports and readbacks retain rapid heating transitions, including stage 2.
+        unsigned char stateBytes[]={0x29,0,0x19,0,0};
+        std::vector<unsigned char> stateReport(stateBytes,stateBytes+5);
+        const unsigned char states[]={0,1,1,8,2,1};
+        for(unsigned i=0;i<sizeof(states);++i) {
+            stateReport[3]=states[i];
+            g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0,1,0x0a,stateReport);
+        }
+        stateReport[3]=0;
+        stateReport.insert(stateReport.begin()+2,0); // successful read-attribute response
+        g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0,1,1,stateReport);
+        std::string heatingJson;
+        assert(g.history_.readForDevice("zigbee:"+valve.ieeeAddress,0,&heatingJson,&error));
+        assert(heatingJson.find(",20,1,")!=std::string::npos);
+        assert(heatingJson.find(",20,0,")!=std::string::npos);
+        SensorHistory::Query* heating=g.history_.beginQuery(std::vector<std::string>(1,"zigbee:"+valve.ieeeAddress),SensorHistory::Heating,0,0,20,false,0,&error);
+        assert(heating);
+        while(!heating->done)assert(g.history_.stepQuery(heating,&error));
+        assert(heating->samples.size()==5);
+        delete heating;
         std::vector<unsigned char> reportingOk(1,0);
         assert(!g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0,1,7,reportingOk));
         Device sensor; sensor.ieeeAddress="shelly:room:temperature:0"; sensor.source="shelly";

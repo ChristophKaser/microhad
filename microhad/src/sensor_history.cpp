@@ -32,7 +32,7 @@ void* sensorHistoryQueryPageHookData = 0;
 
 namespace {
 enum { fileHeaderBytes = 16, pageHeaderBytes = 86, recordBytes = 9, recordsPerPage = 218,
-       pageBytes = 2048, pageLimit = 1023, apiPageLimit = 2000, maximumMetric = 19,
+       pageBytes = 2048, pageLimit = 1023, apiPageLimit = 2000, maximumMetric = 20,
        maximumFileBytes = fileHeaderBytes + pageLimit * pageBytes };
 const unsigned char fileTemplate[fileHeaderBytes] = {
     'T', 'Z', 'H', '3', 3, fileHeaderBytes, pageHeaderBytes, recordBytes,
@@ -138,11 +138,11 @@ const char* unitForMetric(unsigned char metric) {
 }
 bool metricDiscrete(unsigned char metric) {
     return metric == SensorHistory::Contact || metric == SensorHistory::Occupancy ||
-           metric == SensorHistory::AirQuality || metric == SensorHistory::Light;
+           metric == SensorHistory::Heating || metric == SensorHistory::AirQuality || metric == SensorHistory::Light;
 }
 bool normalizeNumeric(unsigned char inputMetric,double v,const std::string& unit,unsigned char* metric,float* number) {
     if(!std::isfinite(v)||!plainText(unit,16,true))return false;
-    if(inputMetric==SensorHistory::Contact||inputMetric==SensorHistory::Occupancy||inputMetric==SensorHistory::Light){
+    if(inputMetric==SensorHistory::Heating||inputMetric==SensorHistory::Contact||inputMetric==SensorHistory::Occupancy||inputMetric==SensorHistory::Light){
         if(!unit.empty()||(v!=0&&v!=1))return false;
         *metric=inputMetric;*number=static_cast<float>(v);return true;
     }
@@ -185,7 +185,7 @@ bool normalizeValue(unsigned char inputMetric, const std::string& value, const s
         for (int i = 0; i < 6; ++i) if (value == qualities[i]) { *metric = inputMetric; *number = static_cast<float>(i); *text = value; return true; }
         return false;
     }
-    if (inputMetric == SensorHistory::Contact || inputMetric == SensorHistory::Occupancy || inputMetric == SensorHistory::Light) {
+    if (inputMetric == SensorHistory::Heating || inputMetric == SensorHistory::Contact || inputMetric == SensorHistory::Occupancy || inputMetric == SensorHistory::Light) {
         if (!unit.empty() || (value != "0" && value != "1")) return false;
         *metric = inputMetric; *number = value == "1" ? 1.0f : 0.0f; text->clear(); return true;
     }

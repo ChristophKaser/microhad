@@ -5,12 +5,12 @@ const names: Record<HistoryMetric, string> = {
   7: 'CO₂', 8: 'PM2.5', 9: 'Air quality', 10: 'Light', 11: 'Brightness',
   12: 'CO₂ mass concentration', 13: 'CO₂ particle concentration', 14: 'CO₂ activity concentration',
   15: 'CO₂ attenuation', 16: 'PM2.5', 17: 'PM2.5 particle concentration',
-  18: 'PM2.5 activity concentration', 19: 'PM2.5 attenuation',
+  18: 'PM2.5 activity concentration', 19: 'PM2.5 attenuation', 20: 'Heating',
 }
 const defaultUnits: Record<HistoryMetric, string> = {
   1: '°C', 2: '%', 3: '', 4: 'W', 5: '', 6: '%', 7: 'ppm', 8: 'ug/m3', 9: '', 10: '', 11: '%',
   12: 'ug/m3', 13: 'particles/m3', 14: 'Bq/m3', 15: 'dB/m', 16: 'ppm', 17: 'particles/m3',
-  18: 'Bq/m3', 19: 'dB/m',
+  18: 'Bq/m3', 19: 'dB/m', 20: '',
 }
 const quality = ['good', 'fair', 'moderate', 'poor', 'very_poor', 'extremely_poor']
 
@@ -21,7 +21,7 @@ export const historyDeviceId = (device: Device): string => device.source === 'sh
       : `zigbee:${device.ieee_address}`
 
 export const historyName = (metric: HistoryMetric): string => names[metric]
-export const historyDiscrete = (metric: HistoryMetric): boolean => [3, 5, 9, 10].includes(metric)
+export const historyDiscrete = (metric: HistoryMetric): boolean => [3, 5, 9, 10, 20].includes(metric)
 export const historyUnit = (metric: HistoryMetric, sample?: HistorySample): string => {
   const unit = sample?.[4]
   if (!unit) return defaultUnits[metric]
@@ -42,6 +42,7 @@ export const historyLabel = (metric: HistoryMetric, sample: HistorySample): stri
   if (metric === 3) return Number(sample[3]) ? 'Open' : 'Closed'
   if (metric === 5) return Number(sample[3]) ? 'Occupied' : 'Clear'
   if (metric === 9) return String(sample[3]).replace('_', ' ')
+  if (metric === 20) return Number(sample[3]) ? 'Heating' : 'Idle'
   if (metric === 10) return Number(sample[3]) ? 'On' : 'Off'
   const precision = metric === 4 ? 1 : metric === 6 || metric === 11 ? 0 : 2
   return `${historyY(metric, sample).toFixed(precision)}${historyUnit(metric, sample) ? ` ${historyUnit(metric, sample)}` : ''}`
@@ -50,6 +51,7 @@ export const historyTick = (metric: HistoryMetric, value: number): string => {
   if (metric === 3) return value ? 'Open' : 'Closed'
   if (metric === 5) return value ? 'Occupied' : 'Clear'
   if (metric === 9) return quality[Math.round(value)]?.replace('_', ' ') ?? ''
+  if (metric === 20) return value ? 'Heating' : 'Idle'
   if (metric === 10) return value ? 'On' : 'Off'
   return String(value)
 }

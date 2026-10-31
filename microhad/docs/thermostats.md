@@ -36,6 +36,12 @@ and battery when reported. Expand
 weekly schedules, and diagnostics. Unsupported settings are disabled and
 unknown readings are shown explicitly.
 
+History records reported heating/idle transitions and displays them as a stepped
+Heating chart. Heating means either heating stage is active in the reported
+running-state bitmap; other states are shown as idle for heating. This is an
+operating-state history, not a measurement of valve opening percentage. Recording
+starts when the gateway receives a running-state report or readback.
+
 Zigbee commands run through the coordinator queue; Matter commands use the
 existing asynchronous worker and operation jobs. A successful request means
 that work was queued; reported settings change after device confirmation or

@@ -42,6 +42,7 @@ export const sensorMetrics: SensorMetric[] = [
   { id: 16, name: 'PM2.5 (ppm)', unit: 'ppm', scale: 1, color: '#8295a6', available: d => d.has_pm25 },
   { id: 17, name: 'PM2.5 particle concentration', unit: 'particles/m3', scale: 1, color: '#667b91', available: d => d.has_pm25 },
   { id: 18, name: 'PM2.5 activity concentration', unit: 'Bq/m3', scale: 1, color: '#536981', available: d => d.has_pm25 },
+  { id: 20, name: 'Heating', unit: '', scale: 1, color: '#d97543', available: d => !!d.has_thermostat },
   { id: 19, name: 'PM2.5 attenuation', unit: 'dB/m', scale: 1, color: '#445a72', available: d => d.has_pm25 },
 ]
 ChartJS.register(LineController, LineElement, LinearScale, PointElement, Tooltip)

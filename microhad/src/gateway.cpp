@@ -772,6 +772,10 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     Device before = device;
     if (reading.cluster == 513 && isThermostat(device)) {
         if (!(reading.thermostatValue.present?applyMatterThermostat(&device,reading.attribute,reading.thermostatValue.value,time(0)):applyMatterThermostat(&device,reading.attribute,reading.unit,reading.textValue,time(0)))) { *error="invalid thermostat report"; return false; }
+        if (reading.attribute==0x29 && device.thermostat.read().values.count(ThermostatField::running_state)) {
+            const unsigned state=static_cast<unsigned>(device.thermostat.read().values[ThermostatField::running_state]);
+            history_.appendNumeric(device.external.read().externalId,SensorHistory::Heating,(state & 0x09)?1:0,"",time(0));
+        }
     } else if (reading.cluster == 6 && (device.light.present() || device.actor.present())) {
         if (device.light.present()) { device.light.ensure().on = reading.booleanValue; device.light.ensure().known = true; }
         if (device.actor.present()) { device.actor.ensure().on = reading.booleanValue; device.actor.ensure().known = true; }
@@ -5281,6 +5285,7 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
             queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0201);
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0201, 0, 0x29, 10, 0, 3600);
             if (isTrvzb(device)) queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0201, 0x12, 0x29, 10, 0, 3600);
+            queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0201, 0x29, 0x19, 0, 0, 3600);
             queueInterviewOperation(destination, InterviewConfigureReporting, endpoint.endpoint, 0x0201, 0x1c, 0x30, 0, 10, 3600);
         }
         if (endpointSupports(endpoint, 0x0402)) queueInterviewOperation(destination, InterviewBind, endpoint.endpoint, 0x0402);

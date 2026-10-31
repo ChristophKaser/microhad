@@ -565,7 +565,7 @@ function DeviceCard({
             ⓘ
           </button>
           <button title="Settings" aria-label={`Settings for ${device.name}`} onClick={onSettings}>⚙</button>
-          {(device.has_temperature || device.has_humidity || device.has_contact || device.has_power || device.has_occupancy ||
+          {(device.has_thermostat || device.has_temperature || device.has_humidity || device.has_contact || device.has_power || device.has_occupancy ||
             device.has_battery || device.has_co2 || device.has_pm25 || device.has_air_quality || device.has_light ||
             device.has_actor || device.has_brightness) && (
             <button title="History" aria-label={`History for ${device.name}`} onClick={onHistory}>

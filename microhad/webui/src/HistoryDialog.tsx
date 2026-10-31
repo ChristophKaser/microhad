@@ -10,7 +10,7 @@ const metricColor: Record<HistoryMetric, string> = {
   1: '#d97543', 2: '#3384aa', 3: '#7554a4', 4: '#b77928', 5: '#4b956a', 6: '#71859a',
   7: '#9a5b99', 8: '#6d8293', 9: '#368578', 10: '#d2a635', 11: '#427fb0',
   12: '#ad74a8', 13: '#865c91', 14: '#774c81', 15: '#674170', 16: '#8295a6',
-  17: '#667b91', 18: '#536981', 19: '#445a72',
+  17: '#667b91', 18: '#536981', 19: '#445a72', 20: '#d97543',
 }
 
 ChartJS.register(LineController, LineElement, LinearScale, PointElement, Tooltip)
@@ -89,6 +89,7 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
   const [range, setRange] = useState<HistoryRange>('day')
   const { samples, now, loading, error } = useHistory(historyDeviceId(device), range)
   const metrics = useMemo<HistoryMetric[]>(() => [
+    ...(device.has_thermostat && !samples.some((sample) => sample[2] === 20) ? [20 as const] : []),
     ...(device.has_temperature ? [1 as const] : []),
     ...(device.has_humidity ? [2 as const] : []),
     ...(device.has_contact && !device.has_water_leak ? [3 as const] : []),

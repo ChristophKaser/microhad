@@ -62,6 +62,24 @@ std::vector<SensorHistory::ValueRecord> samplesIn(const std::string& json) {
 
 void runSensorHistoryUnitTests() {
     fprintf(stderr, "unit: paged sensor history v3\n");
+    const std::string heatingPath=historyPath();
+    {
+        SensorHistory history(heatingPath);
+        assert(history.appendNumeric("zigbee:thermostat",SensorHistory::Heating,0,"",1708000000L));
+        assert(history.appendNumeric("zigbee:thermostat",SensorHistory::Heating,1,"",1708000001L));
+        assert(history.appendNumeric("zigbee:thermostat",SensorHistory::Heating,1,"",1708000002L));
+        assert(history.appendValue("zigbee:thermostat",SensorHistory::Heating,"0","",1708000003L));
+        assert(!history.appendNumeric("zigbee:thermostat",SensorHistory::Heating,2,"",1708000004L));
+        assert(!history.appendNumeric("zigbee:thermostat",SensorHistory::Heating,1,"percent",1708000004L));
+    }
+    {
+        SensorHistory history(heatingPath);
+        std::string json,error;
+        assert(history.readForDevice("zigbee:thermostat",0,&json,&error));
+        assert(samplesIn(json).size()==3);
+        assert(json.find(",20,1,")!=std::string::npos);
+    }
+    removeHistoryFiles(heatingPath);
     const std::string queryPath=historyPath();
     {
         SensorHistory history(queryPath);std::string error;

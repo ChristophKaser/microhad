@@ -17,7 +17,7 @@ public:
            CarbonDioxide = 7, Pm25 = 8, AirQuality = 9, Light = 10, Brightness = 11,
            CarbonDioxideMass = 12, CarbonDioxideParticles = 13, CarbonDioxideBecquerels = 14,
            CarbonDioxideDecibels = 15, Pm25Ppm = 16, Pm25Particles = 17,
-           Pm25Becquerels = 18, Pm25Decibels = 19 };
+           Pm25Becquerels = 18, Pm25Decibels = 19, Heating = 20 };
     struct ReadStats {
         unsigned long pagesRead;
         unsigned long recordsChecked;

@@ -324,6 +324,10 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
             std::vector<unsigned char> value(payload.begin()+at,payload.begin()+at+size); at+=size;
             Device before=device;
             bool applied=applyThermostatAttribute(&device,cluster,attribute,type,value,time(0));
+            if (applied && cluster==0x0201 && attribute==0x29) {
+                const unsigned state=static_cast<unsigned>(device.thermostat.read().values[ThermostatField::running_state]);
+                history_.appendNumeric("zigbee:"+device.ieeeAddress,SensorHistory::Heating,(state & 0x09)?1:0,"",time(0));
+            }
             if (applied && cluster==0x0201 && attribute==0) {
                 recordHistory(before,device,ZclObservedTemperature,time(0));
                 updateTemperatureAlert(device,before.temperature.read().known,before.temperature.read().celsius);
