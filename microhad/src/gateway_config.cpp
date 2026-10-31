@@ -1,6 +1,7 @@
 #include "gateway_config.h"
 
 #include "json_util.h"
+#include "gateway_timezone.h"
 
 #include <cerrno>
 #include <cstdio>
@@ -120,7 +121,7 @@ bool numberSetting(const std::map<std::string, std::string>& strings,
 }
 }
 
-GatewayConfig::GatewayConfig() : zigguratSocket("/tmp/ziggurat/native.sock"), serialDevice("/dev/ttyS1"), serialBaud(115200), broadcastPassiveAckQuorum(8), matterCountryCode("DE"), matterRegulatoryLocation("indoor"), runtimeDirectory("/tuya/native"),
+GatewayConfig::GatewayConfig() : zigguratSocket("/tmp/ziggurat/native.sock"), serialDevice("/dev/ttyS1"), serialBaud(115200), broadcastPassiveAckQuorum(8), matterCountryCode("DE"), matterRegulatoryLocation("indoor"), runtimeDirectory("/tuya/native"), timeZone("UTC"),
     httpPort(80), httpsPort(443), firebaseTopic("zigbee_alerts"), gatewayName("MicroHAD"), companionDiscovery(1) {}
 
 bool selectGatewayConfigPath(int argc, const char* const argv[], std::string* path, std::string* error) {
@@ -146,6 +147,7 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
         !stringSetting(strings, numbers, "matter_country_code", &config->matterCountryCode, error) ||
         !stringSetting(strings, numbers, "matter_regulatory_location", &config->matterRegulatoryLocation, error) ||
         !stringSetting(strings, numbers, "runtime_dir", &config->runtimeDirectory, error) ||
+        !stringSetting(strings, numbers, "time_zone", &config->timeZone, error) ||
         !stringSetting(strings, numbers, "syslog_remote", &config->syslogRemote, error) ||
         !numberSetting(strings, numbers, "http_port", &config->httpPort, error) ||
         !numberSetting(strings, numbers, "https_port", &config->httpsPort, error) ||
@@ -160,6 +162,7 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
         !stringSetting(strings, numbers, "ca_bundle", &config->caBundle, error) ||
         !stringSetting(strings, numbers, "tls_certificate", &config->tlsCertificate, error) ||
         !stringSetting(strings, numbers, "tls_private_key", &config->tlsPrivateKey, error)) return false;
+    if (!gatewayTimeZoneValid(config->timeZone)) { *error="unsupported time_zone"; return false; }
     if (!config->syslogRemote.empty()) {
         const std::string& remote = config->syslogRemote;
         std::string::size_type colon = remote.find(':');

@@ -13,6 +13,7 @@ struct GatewayConfig {
     std::string matterRegulatoryLocation;
     std::string runtimeDirectory;
     std::string syslogRemote;
+    std::string timeZone;
     long httpPort;
     long httpsPort;
     std::string firebaseServiceAccount;

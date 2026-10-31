@@ -187,7 +187,8 @@ Each day accepts one to six ordered `HH:mm/temperature` transitions, starting at
 `00:00`. Temperatures must be 4–35 °C in half-degree increments. For example,
 `00:00/18 07:00/21.5 22:00/17` sets three heating periods. Select **Auto** mode
 to use the schedule. The gateway answers the valve's time requests using the
-TRVZB's Unix UTC epoch.
+TRVZB's Unix UTC epoch. Local and standard time values use the zone selected
+under **Gateway settings → Time zone**, including daylight-saving offsets.
 
 ### Device API fields
 

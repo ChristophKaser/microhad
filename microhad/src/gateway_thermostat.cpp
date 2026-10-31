@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <ctime>
+#include "gateway_timezone.h"
 #include <sstream>
 
 namespace {
@@ -239,13 +240,14 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
         /* TRVZB requests Unix UTC seconds (not the ZCL-2000 epoch). */
         if (payload.empty() || payload.size()%2) return true;
         std::vector<unsigned char> reply; reply.push_back(0x18); reply.push_back(sequence); reply.push_back(1);
-        time_t now=time(0); struct tm local; localtime_r(&now,&local);
+        time_t now=time(0); long offset=0,standardOffset=0;
+        if(!gatewayTimeZoneOffset(timeZone_,now,&offset,&standardOffset))return true;
         for (unsigned long i=0;i<payload.size();i+=2) {
             unsigned short a=get16(payload,i); put16(&reply,a);
-            if (a==0 || a==2 || a==7) {
-                reply.push_back(0); reply.push_back(a==2 ? 0x2b : 0x23);
+            if (a==0 || a==2 || a==5 || a==6 || a==7) {
+                reply.push_back(0); reply.push_back(a==2 || a==5 ? 0x2b : 0x23);
                 unsigned long epoch=isTrvzb(device) ? 0 : 946684800UL;
-                put32(&reply,static_cast<unsigned long>(a==0 ? now-epoch : a==2 ? local.tm_gmtoff : now-epoch+local.tm_gmtoff));
+                put32(&reply,static_cast<unsigned long>(a==0 ? now-epoch : a==2 ? standardOffset : a==5 ? offset-standardOffset : now-epoch+(a==6 ? standardOffset : offset)));
             } else if (a==1) { reply.push_back(0); reply.push_back(0x18); reply.push_back(3); }
             else reply.push_back(0x86);
         }

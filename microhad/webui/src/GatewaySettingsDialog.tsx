@@ -4,6 +4,8 @@ import { matterCall, threadResult } from './matter'
 import { AccessControls } from './AccessControls'
 
 interface GatewaySettings {
+  time_zone: string
+  time_zones: string[]
   broadcast_passive_ack_quorum: number
   matter_country_code: string
   matter_regulatory_location: 'indoor' | 'outdoor'
@@ -21,6 +23,7 @@ const countries = completeCountryCodes.split(' ').concat('MP MR MS MQ MU MW MY R
 export function GatewaySettingsDialog({ onClose, onReplaceZigbeeNetwork, matterNetworkConfigured }: { onClose: () => void; onReplaceZigbeeNetwork?: () => void; matterNetworkConfigured?: boolean }) {
   const [settings, setSettings] = useState<GatewaySettings | null>(null)
   const [value, setValue] = useState('')
+  const [timeZone, setTimeZone] = useState('UTC')
   const [country, setCountry] = useState('DE')
   const [location, setLocation] = useState<'indoor' | 'outdoor'>('indoor')
   const [saving, setSaving] = useState(false)
@@ -56,6 +59,7 @@ export function GatewaySettingsDialog({ onClose, onReplaceZigbeeNetwork, matterN
         setSettings(data)
         if (!initialized.current) {
           setValue(String(data.broadcast_passive_ack_quorum))
+          setTimeZone(data.time_zone)
           setCountry(data.matter_country_code)
           setLocation(data.matter_regulatory_location)
           initialized.current = true
@@ -80,6 +84,7 @@ export function GatewaySettingsDialog({ onClose, onReplaceZigbeeNetwork, matterN
     setError('')
     try {
       const fields: Record<string, string | number> = {
+        time_zone: timeZone,
         matter_country_code: country,
         matter_regulatory_location: location,
       }
@@ -100,6 +105,13 @@ export function GatewaySettingsDialog({ onClose, onReplaceZigbeeNetwork, matterN
         <button type="button" className="icon-button" onClick={onClose} aria-label="Close">✕</button>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
+      <label className="field">
+        <span>Time zone</span>
+        <select value={timeZone} disabled={!settings || saving} onChange={event => setTimeZone(event.target.value)}>
+          {(settings?.time_zones ?? ['UTC']).map(zone => <option key={zone} value={zone}>{zone}</option>)}
+        </select>
+      </label>
+      <p className="muted">Used for thermostat clocks and Matter clock synchronization, including daylight-saving changes. Default: UTC.</p>
       <label className="field">
         <span>Broadcast confirmation threshold</span>
         <input type="number" min="1" max="255" step="1" required value={value}

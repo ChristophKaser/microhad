@@ -515,6 +515,9 @@ bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* 
     if(fields["command"]=="\"thermostat\"") { *body=input; return requestValid(11,*body); }
     const bool level = fields["command"] == "\"move_to_level\"";
     const bool syncTime = fields["command"] == "\"sync_time\"";
+    if(syncTime && fields.size()==4) {
+        fields["time_zone"]="\"UTC\"";fields["offset_seconds"]="0";
+    }
     if ((level && (fields.size() != 6 || !number(fields["level"], 0, 254) ||
                    !number(fields["transition_deciseconds"], 0, 65535))) ||
         (syncTime && (fields.size() != 6 || !signedNumber(fields["offset_seconds"], -50400, 50400) || fields["time_zone"].size() < 3)) ||

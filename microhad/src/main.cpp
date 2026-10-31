@@ -102,6 +102,7 @@ int main(int argc, char** argv) {
 #if MICROHAD_ZIGGURAT_ENABLED
     gateway->useZiggurat(config.zigguratSocket);
 #endif
+    gateway->configureTimeZone(config.timeZone);
     gateway->configureBroadcastQuorum(static_cast<unsigned int>(config.broadcastPassiveAckQuorum));
     gateway->configureMatterCommissioningRegion(config.matterCountryCode, config.matterRegulatoryLocation);
     gatewayRunner = new GatewayRunner(gateway);

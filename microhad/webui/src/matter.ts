@@ -122,9 +122,7 @@ export async function matterCall(route: string, fields: Record<string, unknown>,
   if (route.endsWith('/devices/command')) {
     const identityValid = typeof fields.node === 'string' && validSession(fields.node) && integer(fields.endpoint, 0, 65534)
     const onOff = keys.length === 3 && ['on', 'off', 'toggle', 'identify'].includes(String(fields.command))
-    const syncTime = keys.length === 5 && fields.command === 'sync_time' && typeof fields.time_zone === 'string' &&
-      fields.time_zone.length > 0 && fields.time_zone.length <= 64 && /^[-+/_A-Za-z0-9]+$/.test(fields.time_zone) &&
-      integer(fields.offset_seconds, -50400, 50400)
+    const syncTime = keys.length === 3 && fields.command === 'sync_time'
     const level = keys.length === 5 && fields.command === 'move_to_level' && integer(fields.level, 0, 254) &&
       integer(fields.transition_deciseconds, 0, 65535)
     if (!identityValid || (!onOff && !level && !syncTime)) throw new MatterError('malformed')
@@ -256,21 +254,8 @@ export async function matterOnOff(node: string, endpoint: number, action: 'read'
   return value.value
 }
 
-function timeZoneOffsetSeconds(timeZone: string, now: Date): number {
-  const values: Record<string, number> = {}
-  for (const part of new Intl.DateTimeFormat('en-CA', {
-    timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-  }).formatToParts(now)) {
-    if (part.type !== 'literal') values[part.type] = Number(part.value)
-  }
-  return Math.round((Date.UTC(values.year, values.month - 1, values.day,
-    values.hour, values.minute, values.second) - now.getTime()) / 1000)
-}
-
-export async function matterSyncTime(node: string, endpoint: number, timeZone: string, signal: AbortSignal): Promise<void> {
-  const offsetSeconds = timeZoneOffsetSeconds(timeZone, new Date())
-  const data = object(await matterCall('/api/matter/devices/command', { node, endpoint, command: 'sync_time', time_zone: timeZone, offset_seconds: offsetSeconds }, signal))
+export async function matterSyncTime(node: string, endpoint: number, signal: AbortSignal): Promise<void> {
+  const data = object(await matterCall('/api/matter/devices/command', { node, endpoint, command: 'sync_time' }, signal))
   if (Object.keys(data).length !== 3 || data.state !== 'complete' || typeof data.job !== 'string' || !/^[0-9a-f]{16}$/.test(data.job)) {
     throw new MatterError('protocol')
   }

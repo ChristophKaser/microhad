@@ -4,6 +4,7 @@ extern "C" int microhad_crypto_init(void);
 #include "gateway_config.h"
 #include "http_server.h"
 #include "gateway_runner.h"
+#include "gateway_timezone.h"
 #include "storage.h"
 #include "json_util.h"
 #include "json_writer.h"
@@ -874,6 +875,19 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         }
         MatterProto::MessageBody ipcRequest;
         if(!valid||!MatterChannel::requestFromJson(opcode,body,&ipcRequest))error="malformed";
+        else if (ipcRequest.device_command_request.present && ipcRequest.device_command_request.value.command.value=="sync_time") {
+            GatewayRunner::ViewLease* view=gateway_->acquireView();
+            long offset=0;
+            const std::string zone=view ? view->timeZone() : "";
+            delete view;
+            if(!gatewayTimeZoneOffset(zone,time(0),&offset))error="not_ready";
+            else {
+                ipcRequest.device_command_request.value.time_zone=zone;
+                ipcRequest.device_command_request.value.offset_seconds=offset;
+                if(!matterWorker_)error="not_ready";
+                else matterWorker_->submit(opcode,ipcRequest,&id,&error);
+            }
+        }
         else if (!matterWorker_) error = "not_ready";
         else matterWorker_->submit(opcode,ipcRequest,&id,&error);
         if (id != 0) {
@@ -1061,12 +1075,13 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         else { std::string body=view->settingsJson(); delete view; writeResponse(clientFd,200,"application/json",body); }
     } else if (request.find("POST /api/settings ") == 0) {
         std::string::size_type bodyAt=request.find("\r\n\r\n");
-        std::string value,error,country,location;
+        std::string value,error,country,location,zone;
         const std::string form=bodyAt==std::string::npos ? "" : request.substr(bodyAt+4);
+        const bool hasZone=formValue(form,"time_zone",&zone);
         const bool hasQuorum=formValue(form,"broadcast_passive_ack_quorum",&value);
         const bool hasCountry=formValue(form,"matter_country_code",&country);
         const bool hasLocation=formValue(form,"matter_regulatory_location",&location);
-        bool valid=bodyAt!=std::string::npos && (hasQuorum || (hasCountry && hasLocation));
+        bool valid=bodyAt!=std::string::npos && (hasZone || hasQuorum || (hasCountry && hasLocation));
         if (hasCountry != hasLocation) valid=false;
         unsigned int number=0;
         for (unsigned long i=0; valid && hasQuorum && i<value.size(); ++i) {
@@ -1076,8 +1091,11 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         if (valid && hasQuorum && (value.empty() || value.size()>3 || number<1 || number>255)) valid=false;
         if (valid && hasCountry && (country.size()!=2 || country[0]<'A' || country[0]>'Z' ||
             country[1]<'A' || country[1]>'Z' || (location!="indoor" && location!="outdoor"))) valid=false;
+        if(hasZone && !gatewayTimeZoneValid(zone))valid=false;
         if (!valid)
             writeResponse(clientFd,400,"application/json","{\"ok\":false,\"error\":\"invalid gateway settings\"}");
+        else if (hasZone && !gateway_->setTimeZone(zone,&error))
+            writeResponse(clientFd,400,"application/json","{\"ok\":false,\"error\":\""+jsonEscape(error)+"\"}");
         else if (hasCountry && !gateway_->setMatterCommissioningRegion(country,location,&error))
             writeResponse(clientFd,400,"application/json","{\"ok\":false,\"error\":\""+jsonEscape(error)+"\"}");
         else if (hasQuorum && !gateway_->setBroadcastQuorum(number,&error))

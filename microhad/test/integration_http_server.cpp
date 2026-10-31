@@ -366,6 +366,18 @@ void testServers() {
     expectStatus("delete rejects missing mode", plainRequest(http.boundPort(), "POST /api/devices/unknown/delete HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"), 400);
     expectStatus("delete rejects unknown device", plainRequest(http.boundPort(), "POST /api/devices/unknown/delete HTTP/1.1\r\nHost: localhost\r\nContent-Length: 10\r\n\r\nmode=local"), 400);
     expectStatus("delete status rejects unknown operation", plainRequest(http.boundPort(), "GET /api/devices/unknown/delete HTTP/1.1\r\nHost: localhost\r\n\r\n"), 404);
+    {
+        const std::string body="time_zone=Europe%2FBerlin";
+        std::ostringstream req;
+        req << "POST /api/settings HTTP/1.1\r\nHost: localhost\r\nContent-Length: " << body.size() << "\r\n\r\n" << body;
+        response=plainRequest(http.boundPort(),req.str());
+        expectStatus("save gateway timezone",response,200);
+        assert(response.find("\"time_zone\":\"Europe/Berlin\"")!=std::string::npos);
+        const std::string invalid="time_zone=Invalid%2FZone";
+        std::ostringstream bad;
+        bad << "POST /api/settings HTTP/1.1\r\nHost: localhost\r\nContent-Length: " << invalid.size() << "\r\n\r\n" << invalid;
+        expectStatus("reject invalid gateway timezone",plainRequest(http.boundPort(),bad.str()),400);
+    }
     response = plainRequest(http.boundPort(), "GET /api/settings HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("gateway settings snapshot",response,200);
     assert(response.find("\"broadcast_passive_ack_quorum\":8")!=std::string::npos);
@@ -469,6 +481,16 @@ void testServers() {
 #else
     expectStatus("http Matter binding disabled", response, 404);
 #endif
+    {
+        const std::string clockBody="{\"schema\":1,\"command\":\"sync_time\",\"node\":\"0000000000000002\",\"endpoint\":0}";
+        std::ostringstream req;
+        req << "POST /api/matter/devices/command HTTP/1.1\r\nHost: localhost\r\nContent-Length: " << clockBody.size() << "\r\n\r\n" << clockBody;
+#if MICROHAD_MATTER_ENABLED
+        expectStatus("gateway-zone clock sync awaits service",plainRequest(http.boundPort(),req.str()),503);
+#else
+        expectStatus("gateway-zone clock sync disabled",plainRequest(http.boundPort(),req.str()),404);
+#endif
+    }
     const std::string levelCommandBody = "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":20}";
     std::ostringstream levelCommandRequest;
     levelCommandRequest << "POST /api/matter/devices/command HTTP/1.1\r\nHost: localhost\r\nContent-Length: "

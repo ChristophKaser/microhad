@@ -2,6 +2,7 @@
 #include "gateway.h"
 #include "automation_profile.h"
 #include "gateway_config.h"
+#include "gateway_timezone.h"
 #if MICROHAD_ZIGGURAT_ENABLED
 #include "ziggurat_client.h"
 #endif
@@ -339,7 +340,7 @@ Gateway::Gateway(const std::string& serialDevice, int serialBaud, const std::str
                  const std::string& firebaseServiceAccount, const std::string& firebaseTopic, const std::string& caBundle,
                  NotificationWorker* notificationWorker, const std::string& historyPath, const std::string& historyFlashPath) :
     serialDevice_(serialDevice), serialBaud_(serialBaud), runtimeDirectory_(runtimeDirectory),
-    matterCountryCode_("DE"), matterRegulatoryLocation_("indoor"), networkRandomSource_("/dev/urandom"), networkRandomReadinessSource_("/dev/random"),
+    timeZone_("UTC"), matterCountryCode_("DE"), matterRegulatoryLocation_("indoor"), networkRandomSource_("/dev/urandom"), networkRandomReadinessSource_("/dev/random"),
     firebaseServiceAccount_(firebaseServiceAccount), firebaseTopic_(firebaseTopic), caBundle_(caBundle), history_(historyPath, historyFlashPath), shellyTransport_(0), notificationWorker_(notificationWorker), serialFd_(-1), serialOpenedAt_(0),
     online_(false), joinUntil_(0), joinPermitRenewAt_(0), joinPermitClosePending_(false), joinPermitCloseDeadline_(0), pendingJoinSeconds_(0), joinPreparationStep_(0), joinPreparationDeadline_(0), ashSendSequence_(0), ashReceiveSequence_(0), ezspSequence_(0),
     ashAckDeadline_(0), ashRetries_(0), ashPendingSensitive_(false), networkBackupQuery_(0, std::vector<unsigned char>()), networkBackupSequence_(0), networkBackupDeadline_(0), networkBackupStarted_(0), ezspVersion_(4), zdoSequence_(0), zclTransactionSequence_(0), ezspVersionNegotiated_(false), stackTokenWritingRequested_(false), networkInitRequested_(false), tradfriBindGroupConfigured_(false), coordinatorInitializationStep_(0), coordinatorInitializationDeadline_(0), resetDeadline_(0), serialReconnectFailures_(0), zigbeeDownAlertQueued_(false), nextHeartbeatAt_(0), serialRxBytes_(0), ashRxFrames_(0), networkForming_(false), networkFormationStep_(0), networkFormationDeadline_(0), networkFormed_(false), networkPanId_(0),
@@ -1070,10 +1071,12 @@ bool Gateway::loadGatewaySettings(std::string* error) {
     }
     GatewayConfig settings;
     settings.broadcastPassiveAckQuorum = broadcastQuorum_;
+    settings.timeZone = timeZone_;
     settings.matterCountryCode = matterCountryCode_;
     settings.matterRegulatoryLocation = matterRegulatoryLocation_;
     if (!loadGatewayConfig(path, &settings, error)) return false;
     broadcastQuorum_=static_cast<unsigned int>(settings.broadcastPassiveAckQuorum);
+    timeZone_=settings.timeZone;
     matterCountryCode_=settings.matterCountryCode;
     matterRegulatoryLocation_=settings.matterRegulatoryLocation;
     return true;
@@ -1091,7 +1094,8 @@ std::string Gateway::gatewaySettingsJson() const {
     if (ziggurat_!=0) state=broadcastQuorumState_;
 #endif
     std::ostringstream json;
-    json << "{\"broadcast_passive_ack_quorum\":" << broadcastQuorum_
+    json << "{\"time_zone\":\"" << timeZone_ << "\",\"time_zones\":" << gatewayTimeZonesJson()
+         << ",\"broadcast_passive_ack_quorum\":" << broadcastQuorum_
          << ",\"matter_country_code\":\"" << matterCountryCode_
          << "\",\"matter_regulatory_location\":\"" << matterRegulatoryLocation_
          << "\",\"applied_value\":";
@@ -1117,72 +1121,67 @@ void Gateway::applyBroadcastQuorum() {
 #endif
 }
 
+void Gateway::configureTimeZone(const std::string& name) { timeZone_=name; }
+
+bool Gateway::saveGatewaySettings(unsigned quorum, const std::string& country, const std::string& location,
+                                  const std::string& zone, std::string* error) {
+    std::ostringstream json;
+    json << "{\"broadcast_passive_ack_quorum\":" << quorum
+         << ",\"matter_country_code\":\"" << country
+         << "\",\"matter_regulatory_location\":\"" << location
+         << "\",\"time_zone\":\"" << zone << "\"}\n";
+    std::string temporary=runtimeDirectory_+"/gateway-settings.json.XXXXXX";
+    std::vector<char> filename(temporary.begin(),temporary.end());filename.push_back(0);
+    int fd=mkstemp(&filename[0]);
+    if(fd<0){*error="cannot save gateway settings";return false;}
+    const std::string text=json.str();unsigned long at=0;
+    while(at<text.size()) {
+        ssize_t n=write(fd,text.data()+at,text.size()-at);
+        if(n<0 && errno==EINTR)continue;
+        if(n<=0)break;
+        at+=static_cast<unsigned long>(n);
+    }
+    bool saved=at==text.size() && fsync(fd)==0;
+    if(close(fd)!=0)saved=false;
+    if(!saved || rename(&filename[0],(runtimeDirectory_+"/gateway-settings.json").c_str())!=0) {
+        unlink(&filename[0]);*error="cannot atomically save gateway settings";return false;
+    }
+    return true;
+}
+
+bool Gateway::setTimeZone(const std::string& name, std::string* error) {
+    if(!gatewayTimeZoneValid(name)){*error="unsupported time zone";return false;}
+    if(name!=timeZone_) {
+        if(!saveGatewaySettings(broadcastQuorum_,matterCountryCode_,matterRegulatoryLocation_,name,error))return false;
+        timeZone_=name;markViewDirty();
+    }
+    return true;
+}
+
 bool Gateway::setBroadcastQuorum(unsigned int value, std::string* error) {
-    if (value<1 || value>255) { *error="threshold must be an integer between 1 and 255"; return false; }
+    if(value<1 || value>255){*error="threshold must be an integer between 1 and 255";return false;}
 #if MICROHAD_ZIGGURAT_ENABLED
-    if (ziggurat_==0) { *error="broadcast threshold requires Ziggurat"; return false; }
+    if(ziggurat_==0){*error="broadcast threshold requires Ziggurat";return false;}
 #else
-    *error="broadcast threshold requires Ziggurat"; return false;
+    *error="broadcast threshold requires Ziggurat";return false;
 #endif
-    if (value!=broadcastQuorum_) {
-        std::ostringstream json;
-        json << "{\"broadcast_passive_ack_quorum\":" << value
-             << ",\"matter_country_code\":\"" << matterCountryCode_
-             << "\",\"matter_regulatory_location\":\"" << matterRegulatoryLocation_ << "\"}\n";
-        std::string temporary=runtimeDirectory_+"/gateway-settings.json.XXXXXX";
-        std::vector<char> filename(temporary.begin(), temporary.end()); filename.push_back(0);
-        int fd=mkstemp(&filename[0]);
-        if (fd<0) { *error="cannot save gateway settings"; return false; }
-        const std::string text=json.str(); unsigned long at=0;
-        while (at<text.size()) {
-            ssize_t n=write(fd,text.data()+at,text.size()-at);
-            if (n<0 && errno==EINTR) continue;
-            if (n<=0) break;
-            at+=static_cast<unsigned long>(n);
-        }
-        bool saved=at==text.size() && fsync(fd)==0;
-        if (close(fd)!=0) saved=false;
-        if (!saved || rename(&filename[0],(runtimeDirectory_+"/gateway-settings.json").c_str())!=0) {
-            unlink(&filename[0]); *error="cannot atomically save gateway settings"; return false;
-        }
+    if(value!=broadcastQuorum_) {
+        if(!saveGatewaySettings(value,matterCountryCode_,matterRegulatoryLocation_,timeZone_,error))return false;
         broadcastQuorum_=value;
     }
-    broadcastQuorumState_="pending"; broadcastQuorumError_.clear();
-    applyBroadcastQuorum(); markViewDirty(); return true;
+    broadcastQuorumState_="pending";broadcastQuorumError_.clear();
+    applyBroadcastQuorum();markViewDirty();return true;
 }
 
 bool Gateway::setMatterCommissioningRegion(const std::string& countryCode, const std::string& location,
                                            std::string* error) {
-    if (countryCode.size() != 2 || countryCode[0] < 'A' || countryCode[0] > 'Z' ||
-        countryCode[1] < 'A' || countryCode[1] > 'Z' ||
-        (location != "indoor" && location != "outdoor")) {
-        *error = "country must be two uppercase letters and location must be indoor or outdoor";
-        return false;
+    if(countryCode.size()!=2 || countryCode[0]<'A' || countryCode[0]>'Z' ||
+       countryCode[1]<'A' || countryCode[1]>'Z' || (location!="indoor" && location!="outdoor")) {
+        *error="country must be two uppercase letters and location must be indoor or outdoor";return false;
     }
-    if (countryCode != matterCountryCode_ || location != matterRegulatoryLocation_) {
-        std::ostringstream json;
-        json << "{\"broadcast_passive_ack_quorum\":" << broadcastQuorum_
-             << ",\"matter_country_code\":\"" << countryCode
-             << "\",\"matter_regulatory_location\":\"" << location << "\"}\n";
-        std::string temporary=runtimeDirectory_+"/gateway-settings.json.XXXXXX";
-        std::vector<char> filename(temporary.begin(), temporary.end()); filename.push_back(0);
-        int fd=mkstemp(&filename[0]);
-        if (fd<0) { *error="cannot save gateway settings"; return false; }
-        const std::string text=json.str(); unsigned long at=0;
-        while (at<text.size()) {
-            ssize_t n=write(fd,text.data()+at,text.size()-at);
-            if (n<0 && errno==EINTR) continue;
-            if (n<=0) break;
-            at+=static_cast<unsigned long>(n);
-        }
-        bool saved=at==text.size() && fsync(fd)==0;
-        if (close(fd)!=0) saved=false;
-        if (!saved || rename(&filename[0],(runtimeDirectory_+"/gateway-settings.json").c_str())!=0) {
-            unlink(&filename[0]); *error="cannot atomically save gateway settings"; return false;
-        }
-        matterCountryCode_=countryCode;
-        matterRegulatoryLocation_=location;
-        markViewDirty();
+    if(countryCode!=matterCountryCode_ || location!=matterRegulatoryLocation_) {
+        if(!saveGatewaySettings(broadcastQuorum_,countryCode,location,timeZone_,error))return false;
+        matterCountryCode_=countryCode;matterRegulatoryLocation_=location;markViewDirty();
     }
     return true;
 }
@@ -3594,6 +3593,7 @@ GatewayView Gateway::captureView(bool includeLogs,const Automation::CatalogPtr& 
     view.serialOpenedAt = serialOpenedAt_;
     view.joiningPreparing = joinPreparationStep_ != 0; view.notificationsEnabled = notificationsEnabled();
     view.settingsJson = gatewaySettingsJson();
+    view.timeZone = timeZone_;
     view.matterCountryCode = matterCountryCode_;
     view.matterRegulatoryLocation = matterRegulatoryLocation_;
     if(catalog)view.devices.share(catalog->ordered);

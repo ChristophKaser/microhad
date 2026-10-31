@@ -182,6 +182,7 @@ class GatewayView {
 public:
     std::string coordinatorBackend;
     std::string settingsJson;
+    std::string timeZone;
     std::string matterCountryCode;
     std::string matterRegulatoryLocation;
     bool online;
@@ -222,6 +223,8 @@ public:
 #if MICROHAD_ZIGGURAT_ENABLED
     void useZiggurat(const std::string& socketPath);
 #endif
+    void configureTimeZone(const std::string& name);
+    bool setTimeZone(const std::string& name, std::string* error);
     void configureBroadcastQuorum(unsigned int value);
     void configureMatterCommissioningRegion(const std::string& countryCode, const std::string& location);
     bool setBroadcastQuorum(unsigned int value, std::string* error);
@@ -358,6 +361,7 @@ private:
     int serialBaud_;
     std::string runtimeDirectory_;
     unsigned int broadcastQuorum_;
+    std::string timeZone_;
     std::string matterCountryCode_;
     std::string matterRegulatoryLocation_;
     unsigned int appliedBroadcastQuorum_;
@@ -365,6 +369,7 @@ private:
     unsigned int sentBroadcastQuorum_;
     std::string broadcastQuorumState_;
     std::string broadcastQuorumError_;
+    bool saveGatewaySettings(unsigned quorum, const std::string& country, const std::string& location, const std::string& zone, std::string* error);
     bool loadGatewaySettings(std::string* error);
     void applyBroadcastQuorum();
     std::string gatewaySettingsJson() const;

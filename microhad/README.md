@@ -43,6 +43,20 @@ socket failure stays offline rather than falling back to UART access.
 | `history.values` | Committed sensor history pages |
 | `matter/` | State owned by the Rust Matter service |
 
+Choose **Gateway settings → Time zone** for accessory clocks. The saved IANA
+zone applies to Zigbee Time replies and the Matter **Synchronize clock now**
+button, including ALPSTUGA. Offsets follow daylight-saving rules from the shared
+AceTime subset; the gateway system clock and history timestamps stay in UTC.
+The default is `UTC`, or `time_zone` from the main configuration until overridden
+in Gateway settings. A timezone change takes effect on the next Zigbee time
+request or Matter clock synchronization. Matter remembers the selected zone for
+its existing automatic accessory resynchronization.
+
+`GET /api/settings` returns `time_zone` and the supported `time_zones` list.
+Save a zone with URL-encoded `time_zone=Europe%2FBerlin` at
+`POST /api/settings`. Unsupported names are rejected. Matter clock commands
+use the gateway setting; client-supplied timezone/offset fields are overridden.
+
 With Ziggurat, a missing `ziggurat-state.json` leaves the coordinator online
 without a Zigbee network until **Create Zigbee network** is confirmed in the
 Gateway tab. A malformed or unsafe existing state file still fails closed;

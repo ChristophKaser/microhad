@@ -1,4 +1,5 @@
 #include "gateway_config.h"
+#include "gateway_timezone.h"
 
 #include <cassert>
 #include <cstdio>
@@ -61,6 +62,17 @@ void runGatewayConfigUnitTests() {
     assert(defaults.runtimeDirectory == "/tuya/native" && defaults.httpPort == 80 && defaults.httpsPort == 443);
     assert(defaults.broadcastPassiveAckQuorum == 8);
     assert(defaults.syslogRemote.empty());
+    assert(defaults.timeZone=="UTC");
+    long offset=0;
+    assert(gatewayTimeZoneOffset("Europe/Berlin",1767225600,&offset) && offset==3600);
+    assert(gatewayTimeZoneOffset("Europe/Berlin",1782864000,&offset) && offset==7200);
+    long standard=0;
+    assert(gatewayTimeZoneOffset("Europe/Berlin",1774745999,&offset,&standard) && offset==3600 && standard==3600);
+    assert(gatewayTimeZoneOffset("Europe/Berlin",1774746000,&offset,&standard) && offset==7200 && standard==3600);
+    assert(gatewayTimeZoneOffset("Asia/Kolkata",1782864000,&offset) && offset==19800);
+    assert(gatewayTimeZoneOffset("America/New_York",1782864000,&offset) && offset==-14400);
+    assert(!gatewayTimeZoneValid("Europe/Invalid"));
+    assert(!gatewayTimeZoneOffset("UTC",0,&offset));
     assert(defaults.matterCountryCode == "DE" && defaults.matterRegulatoryLocation == "indoor");
     assert(defaults.firebaseTopic == "zigbee_alerts" && defaults.firebaseServiceAccount.empty());
 

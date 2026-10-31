@@ -152,7 +152,7 @@ public:
         puts("unit: TRVZB confirmation, sensor freshness, fallback, restart and persistence");
         char directory[]="/tmp/microhad-trvzb-XXXXXX"; assert(mkdtemp(directory));
         std::string base(directory), error;
-        Gateway g("/dev/null",115200,base,"","","");
+        Gateway g("/dev/null",115200,base,"","","",0,base+"/history.bin");
         g.online_=true; g.networkFormed_=true; g.coordinatorInitializationStep_=0;
         Device valve; valve.ieeeAddress="0x00124b0000000042"; valve.modelId="TRVZB";
         valve.softwareBuildId="1.3.0"; valve.zigbee.ensure().networkAddress=0x1234;
@@ -641,6 +641,13 @@ public:
         gateway.configureMatterCommissioningRegion("GB", "outdoor");
         std::string error;
         assert(gateway.loadGatewaySettings(&error) && gateway.broadcastQuorum_==6);
+        assert(gateway.setTimeZone("Europe/Berlin",&error));
+        assert(!gateway.setTimeZone("Europe/Invalid",&error));
+        assert(gateway.setMatterCommissioningRegion("FR","outdoor",&error));
+        gateway.configureTimeZone("UTC");
+        assert(gateway.loadGatewaySettings(&error) && gateway.timeZone_=="Europe/Berlin");
+        assert(gateway.matterCountryCode_=="FR" && gateway.matterRegulatoryLocation_=="outdoor");
+        assert(gateway.setMatterCommissioningRegion("GB","outdoor",&error));
         assert(gateway.captureView().matterCountryCode == "GB");
         assert(gateway.captureView().matterRegulatoryLocation == "outdoor");
         const std::string legacyPath = std::string(directory) + "/gateway-settings.json";

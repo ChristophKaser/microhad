@@ -197,16 +197,6 @@ const matterClusterNames: Record<number, string> = {
   0xFFF1FC06: 'Fault Injection',
   0xFFF1FC20: 'Sample MEI',
 }
-const timeZones = [
-  'UTC', 'Europe/Berlin', 'Europe/London', 'Europe/Paris', 'Europe/Madrid', 'Europe/Rome',
-  'Europe/Stockholm', 'Europe/Helsinki', 'Europe/Warsaw', 'Europe/Istanbul',
-  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
-  'America/Toronto', 'America/Vancouver', 'America/Sao_Paulo',
-  'Asia/Dubai', 'Asia/Kolkata', 'Asia/Bangkok', 'Asia/Singapore', 'Asia/Shanghai',
-  'Asia/Tokyo', 'Asia/Seoul', 'Australia/Sydney', 'Pacific/Auckland',
-]
-const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
-const defaultTimeZone = timeZones.includes(browserTimeZone) ? browserTimeZone : 'Europe/Berlin'
 const namedId = (id: number, names: Record<number, string>) =>
   `0x${id.toString(16).padStart(4, '0').toUpperCase()}${names[id] ? ` — ${names[id]}` : ''}`
 function LightBulbIcon({ on, level = on ? 1 : 0 }: { on: boolean; level?: number }) {
@@ -728,7 +718,6 @@ export function DeviceSettings({
   const [saving, setSaving] = useState(false)
   const [syncingClock, setSyncingClock] = useState(false)
   const [clockResult, setClockResult] = useState('')
-  const [timeZone, setTimeZone] = useState(defaultTimeZone)
   const [subscriptions, setSubscriptions] = useState<MatterSubscriptionHealth>()
   const [subscriptionBusy, setSubscriptionBusy] = useState(false)
   const [subscriptionResult, setSubscriptionResult] = useState('')
@@ -753,7 +742,7 @@ export function DeviceSettings({
     setSyncingClock(true)
     setClockResult('')
     try {
-      await matterSyncTime(device.matter_node, clockEndpoint, timeZone, new AbortController().signal)
+      await matterSyncTime(device.matter_node, clockEndpoint, new AbortController().signal)
       setClockResult('Clock synchronized.')
     } catch (cause) {
       setClockResult(errorMessage(cause))
@@ -898,12 +887,7 @@ export function DeviceSettings({
         {clockEndpoint !== undefined && (
           <fieldset>
             <legend>Clock</legend>
-            <p className="muted">Set the accessory clock from the gateway’s UTC time.</p>
-            <label className="field">Time zone
-              <select value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>
-                {timeZones.map(zone => <option key={zone} value={zone}>{zone}</option>)}
-              </select>
-            </label>
+            <p className="muted">Set the accessory clock using the gateway’s current time and saved time zone. Change the time zone in Gateway settings.</p>
             {clockResult && <p className={clockResult === 'Clock synchronized.' ? 'success' : 'error'} role="status">{clockResult}</p>}
             <button type="button" className="button" disabled={syncingClock || !device.online} onClick={() => void syncClock()}>
               {syncingClock ? 'Synchronizing…' : 'Synchronize clock now'}
