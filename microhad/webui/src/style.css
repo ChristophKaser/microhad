@@ -1209,3 +1209,33 @@ button.automation-log-message:hover { color: #fff; text-decoration: underline; }
 
 .automation-codemirror { width: 100%; height: 55vh; min-height: 320px; border: 1px solid #cad7e3; border-radius: 6px; }
 .automation-codemirror[hidden], .automation-source[hidden] { display: none; }
+
+/* Thermostat dialog is portalled above device cards; native modal focus handling. */
+.thermostat-dialog { border: 0; color: #172b41; box-sizing: border-box; }
+.thermostat-dialog::backdrop { background: #0e233ab0; }
+.thermostat-dialog .dialog-heading p { margin: .4rem 0 1rem; overflow-wrap: anywhere; }
+.thermostat-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0; }
+.thermostat-dialog [aria-pressed="true"], .thermostat-dialog [aria-selected="true"] { border-color: #3577ab; background: #e6f2fc; color: #174e78; }
+.thermostat-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem 1rem; }
+.thermostat-dialog-field, .thermostat-transition label { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+.thermostat-dialog-field { margin-bottom: .5rem; }
+.thermostat-dialog-field small:empty { display: none; }
+.thermostat-dialog input:not([type="checkbox"]), .thermostat-dialog select { width: 100%; min-width: 0; box-sizing: border-box; }
+.thermostat-week { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; }
+.thermostat-week-day { text-align: left; display: flex; flex-direction: column; gap: .4rem; white-space: normal; }
+.thermostat-week-day small { font-weight: normal; }
+.thermostat-day-editor { border: 1px solid #cad7e3; border-radius: .5rem; padding: 1rem; margin: .75rem 0; min-width: 0; }
+.thermostat-transition { display: flex; align-items: end; gap: .5rem; margin-bottom: .75rem; }
+.thermostat-transition label { flex: 1; }
+.thermostat-transition button { flex-shrink: 0; }
+.thermostat-copy-days { display: flex; flex-wrap: wrap; gap: .75rem; margin: .75rem 0; }
+.thermostat-copy-days label { display: flex; align-items: center; gap: .35rem; }
+.thermostat-discard { border: 1px solid #b42318; border-radius: .5rem; padding: 1rem; margin-top: 1rem; }
+.thermostat-dialog summary { cursor: pointer; font-weight: 600; }
+@media (max-width: 540px) {
+  .thermostat-fields { grid-template-columns: minmax(0, 1fr); }
+  .thermostat-transition { flex-wrap: wrap; }
+  .thermostat-transition label { flex: 1 1 5rem; }
+  .thermostat-transition button { margin-left: auto; }
+  .thermostat-dialog { padding: 17px; }
+}
