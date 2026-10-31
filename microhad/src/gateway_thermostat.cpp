@@ -227,9 +227,7 @@ void Gateway::pollThermostats() {
     frame.push_back(op.command>=0x80 ? 0x01 : 0x00);
     frame.push_back(op.sequence); frame.push_back(op.command&0x7f);
     if (op.readback && op.command==2) { frame[2]=0; frame.insert(frame.end(),op.payload.begin(),op.payload.begin()+2); }
-    else if (op.readback && op.command==0x81) {
-        frame[2]=2; frame.push_back(op.payload[1]); frame.push_back(op.payload[2]);
-    } else frame.insert(frame.end(),op.payload.begin(),op.payload.end());
+    else frame.insert(frame.end(),op.payload.begin(),op.payload.end());
     ++op.attempts; op.deadline=now+20;
     sendApsUnicast(device->second.zigbee.read().networkAddress,0x0104,op.cluster,1,op.endpoint,frame);
 }
@@ -290,17 +288,17 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
     } else if ((control&3)==0 && command==0x0b && matched && payload.size()==2) {
         ThermostatOperation& op=thermostatOperations_.front();
         if (payload[0]==(op.command&0x7f) && payload[1]!=0) { completed=true; if(op.command>=0x80)device.thermostat.ensure().scheduleSupported=false; }
-        else if (payload[0]==1 && op.command==0x81 && !op.readback && payload[1]==0) {
-            op.readback=true; op.attempts=0; op.deadline=0;
+        else if (payload[0]==1 && op.command==0x81 && payload[1]==0) {
+            // A successful write acknowledgement is sufficient. TRVZB rejects
+            // schedule reads and publishes schedules with its own sequence.
+            success=applyThermostatSchedule(&device,op.payload);
+            completed=true;
         }
     } else if ((control&3)==1 && cluster==0x0201 && command==0) {
         success=applyThermostatSchedule(&device,payload);
         if (matched && success) {
             ThermostatOperation& op=thermostatOperations_.front();
             if (op.command==0x82) completed=payload[1]==op.payload[0];
-            else if (op.command==0x81) {
-                completed=payload[1]==op.payload[1]; success=payload==op.payload;
-            }
         }
         markViewDirty();
     } else if ((control&3)==0 && (command==1 || command==0x0a)) {

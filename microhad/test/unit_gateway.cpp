@@ -281,11 +281,22 @@ public:
         Gateway::ThermostatOperation schedule=g.thermostatOperations_.front();
         std::vector<unsigned char> ack; ack.push_back(1); ack.push_back(0);
         g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0,schedule.sequence,0x0b,ack);
-        assert(g.thermostatOperations_.front().readback);
-        g.pollThermostats(); schedule=g.thermostatOperations_.front();
-        g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,9,0,schedule.sequence,0,schedule.payload);
+        assert(g.thermostatOperations_.empty() && t.thermostat.read().pending.empty());
+        assert(t.thermostat.read().error.empty());
         assert(g.thermostatOperations_.empty() && t.thermostat.read().schedules.find(1)->second=="00:00/18 07:00/21");
+        // The valve publishes later changes using its own transaction sequence.
+        std::vector<unsigned char> published;
+        assert(thermostatScheduleForDevice(t,"00:00/17 07:00/22",1,&published));
+        g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,9,0,schedule.sequence+1,0,published);
+        assert(t.thermostat.read().schedules.find(1)->second=="00:00/17 07:00/22");
         assert(t.thermostat.read().schedules.size()==1);
+        assert(g.setThermostat(valve.ieeeAddress,"schedule_1","00:00/18",&error));
+        g.pollThermostats(); schedule=g.thermostatOperations_.front();
+        ack[1]=0x81;
+        g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0,schedule.sequence,0x0b,ack);
+        assert(g.thermostatOperations_.empty() && t.thermostat.read().pending.empty());
+        assert(!t.thermostat.read().error.empty());
+        assert(t.thermostat.read().schedules.find(1)->second=="00:00/17 07:00/22");
         assert(g.setThermostat(valve.ieeeAddress,"child_lock","1",&error)); g.pollThermostats();
         Gateway::ThermostatOperation rejected=g.thermostatOperations_.front();
         std::vector<unsigned char> rejection; rejection.push_back(0x86); rejection.push_back(0); rejection.push_back(0);

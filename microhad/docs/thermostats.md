@@ -50,12 +50,16 @@ Sleepy battery devices may respond when they next wake. Refresh or reconfigure
 an existing paired thermostat without removing its network state.
 
 Weekly schedules execute on the thermostat itself. Saving a day updates that
-day without rewriting the rest of the week. Supported modes, schedule limits,
+day without rewriting the rest of the week. Zigbee schedule writes complete on
+a successful device acknowledgement and update the displayed schedule without
+an automatic readback. Later schedule reports update the displayed day independently
+of their transaction number. Supported modes, schedule limits,
 and temperature ranges follow the reported capabilities. Standard setpoint
 limits are read from the device, with protocol defaults when optional limits
 are absent. Heating/cooling deadband constraints are checked before writes.
 Generic schedules may start after midnight; the TRVZB restrictions below apply
-only to that model. Use **Read day** to retrieve an existing device schedule.
+only to that model. Use **Read day** to retrieve an existing device schedule
+when the device supports reads; TRVZB firmware may reject these requests.
 
 ## External temperature sensors
 
