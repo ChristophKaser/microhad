@@ -126,7 +126,29 @@ public:
         assert(thermostatEncode(d,"system_mode","3",&encoded,&error));
         d.thermostat.ensure().values[ThermostatField::control_sequence_of_operation]=2;
         assert(!thermostatSupported(d,*thermostatAttribute(ThermostatField::occupied_cooling_setpoint)));
-        assert(!thermostatModeSupported(d,3));d.thermostat.ensure().values[ThermostatField::control_sequence_of_operation]=4;
+        assert(!thermostatModeSupported(d,3));
+        Device coolingOnly=d;
+        coolingOnly.thermostat.ensure().values[ThermostatField::control_sequence_of_operation]=0;
+        const ThermostatField::Id heatingFields[]={ThermostatField::occupied_heating_setpoint,
+            ThermostatField::unoccupied_heating_setpoint,ThermostatField::abs_min_heat_setpoint_limit,
+            ThermostatField::abs_max_heat_setpoint_limit,ThermostatField::min_heat_setpoint_limit,
+            ThermostatField::max_heat_setpoint_limit,ThermostatField::pi_heating_demand,
+            ThermostatField::min_setpoint_dead_band};
+        for(unsigned i=0;i<sizeof(heatingFields)/sizeof(heatingFields[0]);++i) {
+            coolingOnly.thermostat.ensure().values[heatingFields[i]]=20;
+            assert(!thermostatSupported(coolingOnly,*thermostatAttribute(heatingFields[i])));
+        }
+        assert(!thermostatModeSupported(coolingOnly,4));
+        assert(thermostatModeSupported(coolingOnly,3));
+        assert(!thermostatEncode(coolingOnly,"occupied_heating_setpoint","20",&encoded,&error));
+        assert(thermostatEncode(coolingOnly,"occupied_cooling_setpoint","25",&encoded,&error));
+        coolingOnly.source="matter";
+        coolingOnly.thermostat.ensure().values[ThermostatField::feature_map]=2;
+        coolingOnly.thermostat.ensure().values[ThermostatField::control_sequence_of_operation]=4;
+        for(unsigned i=0;i<sizeof(heatingFields)/sizeof(heatingFields[0]);++i)
+            assert(!thermostatSupported(coolingOnly,*thermostatAttribute(heatingFields[i])));
+        assert(thermostatSupported(coolingOnly,*thermostatAttribute(ThermostatField::occupied_cooling_setpoint)));
+        d.thermostat.ensure().values[ThermostatField::control_sequence_of_operation]=4;
         d.thermostat.ensure().scheduleSupported=true;
         assert(thermostatScheduleForDevice(d,"{\"mode\":3,\"transitions\":[{\"time\":60,\"heat\":20,\"cool\":25}]}",1,&encoded));
         assert(applyThermostatSchedule(&d,encoded));assert(d.thermostat.read().scheduleDetails.count(1));
@@ -159,6 +181,20 @@ public:
         EndpointDescriptor e; e.endpoint=1; e.profileId=0x0104; e.inputClusters.push_back(0x0201);
         e.inputClusters.push_back(0xfc11); e.inputClusters.push_back(6); valve.zigbee.ensure().endpoints.push_back(e);
         g.classifyDevice(&valve); assert(!valve.light.present() && valve.temperature.present() && valve.kind=="thermostat");
+        // Unused cooling attributes may be readable on this heating-only model.
+        const ThermostatField::Id coolingFields[]={ThermostatField::occupied_cooling_setpoint,
+            ThermostatField::unoccupied_cooling_setpoint,ThermostatField::abs_min_cool_setpoint_limit,
+            ThermostatField::abs_max_cool_setpoint_limit,ThermostatField::min_cool_setpoint_limit,
+            ThermostatField::max_cool_setpoint_limit,ThermostatField::pi_cooling_demand,
+            ThermostatField::min_setpoint_dead_band};
+        for(unsigned i=0;i<sizeof(coolingFields)/sizeof(coolingFields[0]);++i) {
+            valve.thermostat.ensure().values[coolingFields[i]]=26;
+            assert(!thermostatSupported(valve,*thermostatAttribute(coolingFields[i])));
+        }
+        std::vector<unsigned char> coolingWrite;
+        assert(!thermostatEncode(valve,"occupied_cooling_setpoint","26",&coolingWrite,&error));
+        assert(thermostatSupported(valve,*thermostatAttribute(ThermostatField::occupied_heating_setpoint)));
+        assert(!thermostatModeSupported(valve,3));
         g.devices_[valve.ieeeAddress]=valve;
         // Reports and readbacks retain rapid heating transitions, including stage 2.
         unsigned char stateBytes[]={0x29,0,0x19,0,0};

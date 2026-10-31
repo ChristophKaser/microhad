@@ -93,6 +93,11 @@ bool thermostatProfile(const Device& device) {
 bool thermostatSupported(const Device& device, const ThermostatAttribute& attribute) {
     if (!isThermostat(device) || device.thermostat.read().unsupported.count(attribute.id)) return false;
     if (attribute.cluster!=0x0201 && !isTrvzb(device)) return false;
+    // TRVZB exposes some unused standard attributes despite being heating-only.
+    if (isTrvzb(device) && coolingField(attribute.id)) return false;
+    if (attribute.id==ThermostatField::min_setpoint_dead_band &&
+        (!thermostatSupported(device,*thermostatAttribute(ThermostatField::occupied_heating_setpoint)) ||
+         !thermostatSupported(device,*thermostatAttribute(ThermostatField::occupied_cooling_setpoint)))) return false;
     if (!isTrvzb(device)) {
         const bool heat=heatingField(attribute.id), cool=coolingField(attribute.id);
         const double sequence=device.thermostat.read().values.get(ThermostatField::control_sequence_of_operation,0);

@@ -8,7 +8,7 @@ let t: ThermostatState = {
   modes: [0, 1, 4], schedule_max_transitions: 6, schedule_midnight_start: true,
   schedule_supported: true, external_input_supported: true,
   schedule_details: [null, { mode: 1, transitions: [{ time: 0, heat: 20 }] }, null, null, null, null, null],
-  pending: [], values: { occupied_heating_setpoint: 20, system_mode: 1, child_lock: 0 },
+  pending: [], values: { occupied_heating_setpoint: 20, occupied_cooling_setpoint: 26, pi_cooling_demand: 50, pi_heating_demand: 70, system_mode: 1, child_lock: 0 },
   supported: { occupied_heating_setpoint: true, system_mode: true, child_lock: true, temperature_sensor_select: true },
   schedules: [], source_id: '', stale_minutes: 30, source_observed_at: 0, status: '', error: '',
 }
@@ -51,6 +51,7 @@ function checkValidation() {
 async function run() {
   checkValidation(); render(); await until(() => !!document.querySelector('.thermostat-panel')); await open()
   assert(requests.length === 0, 'Opening caused device reads')
+  assert(!document.body.textContent!.toLowerCase().includes('cool'), 'Heating-only thermostat shows cooling settings or diagnostics')
   button('Settings').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await pause()
   assert(document.activeElement === button('Weekly schedule') && button('Weekly schedule').getAttribute('aria-selected') === 'true', 'Arrow keys did not select and focus schedule tab')
   button('Weekly schedule').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })); await pause()
@@ -108,7 +109,10 @@ async function run() {
   assert(document.activeElement === button('Thermostat settings'), 'Focus was not restored')
   // Cooling devices expose only their supported modes and honor the temperature gap.
   t = { ...t, supported: { occupied_cooling_setpoint: true }, modes: [0, 1, 3], external_input_supported: false, schedule_midnight_start: false, schedule_details: [null, null, null, null, null, null, null] }
-  render(); await open(); await schedule()
+  render(); await open()
+  assert(!document.body.textContent!.toLowerCase().includes('heat'), 'Cooling-only thermostat shows heating settings or diagnostics')
+  await schedule()
+  assert(![...field('Schedule type').querySelectorAll('option')].some(option => option.textContent!.includes('Heating')), 'Cooling-only thermostat offers a heating schedule')
   assert(field('Schedule type').value === '2', 'Cooling-only device default incorrect')
   button('Add transition').click(); await pause(); assert(!!field('Cool (°C)'), 'Cooling input absent')
   assert(!document.body.textContent!.includes('Heat (°C)'), 'Unsupported heating shown')
