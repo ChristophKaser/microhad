@@ -271,6 +271,41 @@ do
   now=now+14401;callback();assert(sent==4)
 end
 
+-- Battery warnings must mutate persistent proxies without serializing them.
+do
+  local state, sent, send_ok = {}, 0, true
+  local device={id='sensor',name='Sensor',battery_percent=14}
+  local function reload()
+    local runtime,_,failures,_,_,_,host=fixture()
+    host.read_state=function()return state end
+    host.write_state=function(_,value)state=value end
+    host.serializable=function(value)
+      assert(type(value)~='table' or getmetatable(value)==nil,'value is not serializable')
+      return value
+    end
+    host.device_list=function()return {device}end
+    runtime.env.notify.send=function()
+      if not send_ok then return nil,'disabled' end
+      sent=sent+1;return true
+    end
+    runtime.env.log=function()end
+    assert(runtime.initialize(assert(loadfile('automation/examples/low-battery.lua','t',runtime.env))))
+    assert(failures()==0)
+    return function(battery)
+      device.battery_percent=battery
+      runtime.event({type='device.value',field='battery_percent',device=device})
+      runtime.tick();assert(failures()==0)
+    end
+  end
+  local report=reload();assert(sent==1 and state.warnings.sensor==1)
+  report=reload();assert(sent==1)
+  report(9);assert(sent==2 and state.warnings.sensor==2)
+  report(8);assert(sent==2)
+  report(15);assert(state.warnings.sensor==nil)
+  send_ok=false;report(14);assert(sent==2 and state.warnings.sensor==nil)
+  send_ok=true;report(14);assert(sent==3 and state.warnings.sensor==1)
+end
+
 -- Query identities must use serial IDs, not recyclable userdata addresses.
 do
   local runtime,advance,failures,_,_,_,host=fixture()

@@ -1,15 +1,16 @@
 -- Watches all devices; enable gateway notifications before saving.
+if persistent.warnings == nil then persistent.warnings = {} end
+
 local function check_battery(device)
   local battery = device.battery_percent
   if type(battery) ~= "number" then return end
 
-  local warnings = persistent.warnings or {}
+  local warnings = persistent.warnings
   local stage = warnings[device.id] or 0
 
   if battery >= 15 then
     if stage ~= 0 then
       warnings[device.id] = nil
-      persistent.warnings = warnings
     end
     return
   end
@@ -25,7 +26,6 @@ local function check_battery(device)
 
   if ok then
     warnings[device.id] = next_stage
-    persistent.warnings = warnings
   else
     log("warn", "Battery notification failed", {
       device = device.id,
