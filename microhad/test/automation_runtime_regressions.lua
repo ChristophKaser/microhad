@@ -271,6 +271,45 @@ do
   now=now+14401;callback();assert(sent==4)
 end
 
+-- State tables can be assigned back, nested in new tables, or copied between
+-- scopes. The serializer still receives plain, independent, acyclic tables.
+do
+  local runtime,_,failures,_,_,_,host=fixture()
+  local states={persistent={},shared={}}
+  local function serialize(value,seen)
+    if type(value)~='table' then
+      assert(type(value)~='function','value is not serializable')
+      return value
+    end
+    assert(getmetatable(value)==nil and not seen[value],'value is not serializable')
+    seen[value]=true
+    local out={}
+    for k,v in pairs(value)do out[k]=serialize(v,seen)end
+    seen[value]=nil;return out
+  end
+  host.serializable=function(value)return serialize(value,{})end
+  host.read_state=function(scope)return serialize(states[scope],{})end
+  host.write_state=function(scope,value)states[scope]=serialize(value,{})end
+  local p,s=runtime.env.persistent,runtime.env.shared
+  p.warnings={sensor=1,nested={value=2}}
+  local warnings=p.warnings
+  warnings.sensor=2;p.warnings=warnings
+  assert(p.warnings.sensor==2 and p.warnings.nested.value==2)
+  p.copy={wrapped=p.warnings};s.copy=p.copy
+  p.warnings.nested.value=3
+  assert(p.copy.wrapped.nested.value==2 and s.copy.wrapped.sensor==2)
+  p.warnings=p.warnings.nested -- snapshot before replacing its ancestor
+  assert(p.warnings.value==3)
+  p.from_shared=s.copy
+  assert(p.from_shared.wrapped.sensor==2)
+  local cycle={};cycle.self=cycle
+  assert(not pcall(function()p.bad=cycle end))
+  assert(not pcall(function()p.bad={wrapped=p.warnings,fn=function()end}end))
+  local exotic=setmetatable({}, {__pairs=function()error('must not run')end})
+  assert(not pcall(function()p.bad=exotic end))
+  assert(states.persistent.bad==nil and failures()==0)
+end
+
 -- Battery warnings must mutate persistent proxies without serializing them.
 do
   local state, sent, send_ok = {}, 0, true

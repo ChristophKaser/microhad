@@ -165,12 +165,25 @@ function automation.cron(expression,fn)
   has_cron=true
   local h=handle();timers[h]={cron=fields,stars=stars,fn=fn};return h
 end
+-- Only unwrap proxies created by this runtime. Arbitrary metatables must still
+-- be rejected by the native serializer, without invoking author callbacks.
+local state_readers=setmetatable({}, {__mode='k'})
+local function state_value(value,seen,depth)
+  if type(value)~='table' then return value end
+  assert(depth<=48,'value is not serializable')
+  if seen[value] then return seen[value] end
+  local read=state_readers[value]
+  if not read and getmetatable(value)~=nil then return value end
+  local copy={};seen[value]=copy
+  for k,v in pairs(read and read() or value) do copy[k]=state_value(v,seen,depth+1) end
+  return copy
+end
 local function state_proxy(scope,path)
   local function at(root)
     for _,key in ipairs(path)do root=type(root)=='table' and root[key] or nil end
     return root
   end
-  return setmetatable({}, {
+  local proxy=setmetatable({}, {
     __index=function(_,key)
       strict(key,'string','state key');local value=at(host.read_state(scope))
       value=type(value)=='table' and value[key] or nil
@@ -178,13 +191,15 @@ local function state_proxy(scope,path)
       return value
     end,
     __newindex=function(_,key,value)
-      strict(key,'string','state key');host.serializable(value)
+      strict(key,'string','state key');value=state_value(value,{},0);host.serializable(value)
       local root=host.read_state(scope);local target=at(root)
       assert(type(target)=='table','state table no longer exists');target[key]=value;host.write_state(scope,root)
     end,
     __pairs=function()return next,at(host.read_state(scope)) or {},nil end,
     __metatable=false
   })
+  state_readers[proxy]=function()return at(host.read_state(scope)) or {} end
+  return proxy
 end
 for _,name in ipairs({'assert','error','ipairs','next','pairs','pcall','select','tonumber','tostring','type','xpcall','rawequal'}) do env[name]=_G[name] end
 env._VERSION=_VERSION;env._G=env
