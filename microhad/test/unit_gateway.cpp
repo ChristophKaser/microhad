@@ -3942,6 +3942,23 @@ static void testTrvzbProtocol() {
     assert(bytes.size()==15 && bytes[0]==3 && bytes[1]==2 && bytes[2]==1);
     assert(applyThermostatSchedule(&d,bytes));
     assert(d.thermostat.read().schedules.find(1)->second=="00:00/18 07:00/21.5 22:00/17");
+    // Captured TRVZB reports pad both interior and final slots with repeats.
+    const unsigned char paddedBytes[]={6,4,1,0,0,0x40,6,0xa4,1,0x6c,7,
+        0x58,2,0x40,6,0x58,2,0x40,6,0xfc,3,0x6c,7,0x64,5,0x40,6};
+    std::vector<unsigned char> padded(paddedBytes,paddedBytes+sizeof(paddedBytes));
+    assert(applyThermostatSchedule(&d,padded));
+    assert(d.thermostat.read().schedules.find(2)->second=="00:00/16 07:00/19 10:00/16 17:00/19 23:00/16");
+    assert(d.thermostat.read().scheduleSources.find(2)->second=="reported");
+    padded[3+5*4]=padded[3+4*4];padded[4+5*4]=padded[4+4*4];
+    padded[5+5*4]=padded[5+4*4];padded[6+5*4]=padded[6+4*4];
+    assert(applyThermostatSchedule(&d,padded));
+    assert(d.thermostat.read().schedules.find(2)->second=="00:00/16 07:00/19 10:00/16 17:00/19");
+    Device generic=d;generic.modelId="generic";
+    assert(!applyThermostatSchedule(&generic,padded));
+    const std::string previousSchedule=d.thermostat.read().schedules.find(2)->second;
+    padded[5+3*4]=0x72; // Same time with a conflicting temperature must fail.
+    assert(!applyThermostatSchedule(&d,padded));
+    assert(d.thermostat.read().schedules.find(2)->second==previousSchedule);
     assert(!thermostatSchedule("07:00/20",1,&bytes));
     assert(!thermostatSchedule("00:00/18 00:00/20",1,&bytes));
     assert(!thermostatSchedule("00:00/18 24:00/20",1,&bytes));

@@ -195,6 +195,11 @@ to use the schedule. The gateway answers the valve's time requests using the
 TRVZB's Unix UTC epoch. Local and standard time values use the zone selected
 under **Gateway settings → Time zone**, including daylight-saving offsets.
 
+TRVZB schedule reports may pad their six slots with identical repeated
+transitions. The gateway removes those repeats on receipt; conflicting
+temperatures at the same time remain invalid. New schedules still require
+unique, ordered transition times.
+
 ### Device API fields
 
 | Field | Value |

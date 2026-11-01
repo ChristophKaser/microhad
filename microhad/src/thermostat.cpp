@@ -332,7 +332,14 @@ bool applyThermostatSchedule(Device* device, const std::vector<unsigned char>& p
     int previous=-1;
     for (unsigned int i=0;i<payload[0];++i) {
         unsigned int at=get16(payload,3+i*width), offset=3+i*width+2;
-        if (at>=1440 || static_cast<int>(at)<=previous) return false;
+        if (at>=1440 || static_cast<int>(at)<previous) return false;
+        if (static_cast<int>(at)==previous) {
+            // TRVZB pads its six report slots by repeating an identical entry.
+            // Conflicting setpoints and generic-device duplicates remain invalid.
+            if (!isTrvzb(*device) || !std::equal(payload.begin()+3+i*width,
+                payload.begin()+3+(i+1)*width,payload.begin()+3+(i-1)*width)) return false;
+            continue;
+        }
         previous=at; if(i) { normalized<<','; legacy<<' '; }
         normalized<<"{\"time\":"<<at;
         legacy<<std::setfill('0')<<std::setw(2)<<at/60<<':'<<std::setw(2)<<at%60<<'/';
