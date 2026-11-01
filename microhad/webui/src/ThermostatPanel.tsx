@@ -49,12 +49,23 @@ function SettingInput({ setting, reported, disabled, send }: {
     <button className="button" disabled={disabled || value === '' || value === String(reported)}>Apply</button>
   </form>
 }
-export function ThermostatPanel({ device, sources }: { device: Device; sources: TemperatureSource[] }) {
+export function ThermostatSettingsButton({ device, sources }: { device: Device; sources: TemperatureSource[] }) {
+  const [open, setOpen] = useState(false)
+  return <>
+    <button type="button" title="Thermostat settings" aria-label={`Thermostat settings for ${device.name}`} onClick={() => setOpen(true)}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M9 14.8V5a3 3 0 0 0-6 0v9.8a5 5 0 1 0 6 0Z" />
+        <path d="M6 10v8m9-12h6m-6 6h6m-6 6h6m-4-14v4m2 2v4m-2 2v4" />
+      </svg>
+    </button>
+    {open && <ThermostatDialog device={device} sources={sources} settings={settings.slice(3)} diagnostics={diagnostics} onClose={() => setOpen(false)} />}
+  </>
+}
+export function ThermostatPanel({ device }: { device: Device }) {
   const t = device.thermostat!
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-  const [open, setOpen] = useState(false)
   const disabled = busy || device.controller_available === false
   async function send(field: string, value: string) {
     setBusy(true); setError(''); setMessage('')
@@ -78,7 +89,5 @@ export function ThermostatPanel({ device, sources }: { device: Device; sources: 
     {settings.slice(0, 3).map(control)}
     <p className="small" role="status">{t.status || 'Waiting for thermostat readings'}{message && ` · ${message}`}</p>
     {(error || t.error) && <p className="error" role="alert">{error || t.error}</p>}
-    <button type="button" className="button" onClick={() => setOpen(true)}>Thermostat settings</button>
-    {open && <ThermostatDialog device={device} sources={sources} settings={settings.slice(3)} diagnostics={diagnostics} onClose={() => setOpen(false)} />}
   </div>
 }

@@ -1,6 +1,6 @@
 import { OtaUpdate } from './OtaUpdate'
 import { useEffect, useState } from 'react'
-import { ThermostatPanel } from './ThermostatPanel'
+import { ThermostatPanel, ThermostatSettingsButton } from './ThermostatPanel'
 import type { TemperatureSource } from './api'
 import type { Device, EndpointDescriptor, Status } from './api'
 import { errorMessage, form, post } from './api'
@@ -493,7 +493,7 @@ function DeviceCard({
       )}
       {device.has_power && <div className="extra-readings"><span>Power: {device.power_known ? `${device.power_watts.toFixed(1)} W` : 'Unknown'}</span></div>}
       {device.has_actor && <div className="light-panel"><button className={`button light-toggle ${device.actor_known && device.actor_on ? 'primary' : ''}`} disabled={!controlsAvailable} onClick={() => action(`${url}/actor`, form({ state: device.actor_known && device.actor_on ? 'off' : 'on' }))}>{device.actor_known && device.actor_on ? 'Turn off' : 'Turn on'}</button></div>}
-      {device.has_thermostat && <ThermostatPanel device={device} sources={temperatureSources} />}
+      {device.has_thermostat && <ThermostatPanel device={device} />}
       {device.has_light && (
         <div className="light-panel">
           <button
@@ -555,6 +555,7 @@ function DeviceCard({
             ⓘ
           </button>
           <button title="Settings" aria-label={`Settings for ${device.name}`} onClick={onSettings}>⚙</button>
+          {device.has_thermostat && <ThermostatSettingsButton device={device} sources={temperatureSources} />}
           {(device.has_thermostat || device.has_temperature || device.has_humidity || device.has_contact || device.has_power || device.has_occupancy ||
             device.has_battery || device.has_co2 || device.has_pm25 || device.has_air_quality || device.has_light ||
             device.has_actor || device.has_brightness) && (
