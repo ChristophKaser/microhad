@@ -79,7 +79,7 @@ bool sameThermostatInput(const Device& a,const Device& b) {
     return a.source==b.source&&a.modelId==b.modelId&&a.softwareBuildId==b.softwareBuildId&&
         x.values==y.values&&x.unsupported==y.unsupported&&x.attributes==y.attributes&&x.commands==y.commands&&
         x.attributesKnown==y.attributesKnown&&x.commandsKnown==y.commandsKnown&&x.scheduleSupported==y.scheduleSupported&&
-        x.schedules==y.schedules&&x.scheduleDetails==y.scheduleDetails&&x.pending==y.pending&&a.thermostatSourceId==b.thermostatSourceId&&
+        x.schedules==y.schedules&&x.scheduleDetails==y.scheduleDetails&&x.scheduleSources==y.scheduleSources&&x.pending==y.pending&&a.thermostatSourceId==b.thermostatSourceId&&
         a.thermostatStaleMinutes==b.thermostatStaleMinutes&&x.sourceObservedAt==y.sourceObservedAt&&x.status==y.status&&x.error==y.error;
 }
 Value thermostatSnapshotValue(const Device& d) {
@@ -110,11 +110,13 @@ Value thermostatSnapshotValue(const Device& d) {
     out.fields["schedule_midnight_start"]=Value(trv);out.fields["external_input_supported"]=Value(trv);
     Value& details=out.fields["schedule_details"];details=Value::array();
     Value& schedules=out.fields["schedules"];schedules=Value::array();
+    Value& sources=out.fields["schedule_sources"];sources=Value::array();
     for(int day=0;day<7;++day){
         Value detail;std::map<int,std::string>::const_iterator it=t.scheduleDetails.find(day);
         if(it!=t.scheduleDetails.end()&&!parse(it->second,&detail))return Value::object();
         details.items.push_back(detail);it=t.schedules.find(day);
         schedules.items.push_back(it==t.schedules.end()?Value():Value(it->second));
+        it=t.scheduleSources.find(day);sources.items.push_back(it==t.scheduleSources.end()?Value():Value(it->second));
     }
     Value& pending=out.fields["pending"];pending=Value::array();
     for(unsigned i=0;i<ThermostatPendingCount;++i)if(t.pending.count(i))pending.items.push_back(Value(thermostatPendingName(i)));

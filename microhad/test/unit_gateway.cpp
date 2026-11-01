@@ -319,6 +319,7 @@ public:
         g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,8,0,schedule.sequence,0x0b,ack);
         assert(g.thermostatOperations_.empty() && t.thermostat.read().pending.empty());
         assert(t.thermostat.read().error.empty());
+        assert(t.thermostat.read().scheduleSources.find(1)->second=="acknowledged");
         assert(g.thermostatOperations_.empty() && t.thermostat.read().schedules.find(1)->second=="00:00/18 07:00/21");
         // The valve publishes later changes using its own transaction sequence.
         std::vector<unsigned char> published;
@@ -326,6 +327,39 @@ public:
         g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,9,0,schedule.sequence+1,0,published);
         assert(t.thermostat.read().schedules.find(1)->second=="00:00/17 07:00/22");
         assert(t.thermostat.read().schedules.size()==1);
+        assert(t.thermostat.read().scheduleSources.find(1)->second=="reported");
+        struct stat firstSave, repeatedSave;
+        assert(stat((base+"/devices.json").c_str(),&firstSave)==0);
+        g.handleThermostatMessage(valve.ieeeAddress,1,0x0201,9,0,schedule.sequence+2,0,published);
+        assert(stat((base+"/devices.json").c_str(),&repeatedSave)==0);
+        assert(firstSave.st_ino==repeatedSave.st_ino); // atomic persistence would replace the inode
+        std::vector<Device> persisted;
+        assert(loadDevices(base+"/devices.json",&persisted,&error));
+        bool foundSchedule=false;
+        for(unsigned long i=0;i<persisted.size();++i)if(persisted[i].ieeeAddress==valve.ieeeAddress) {
+            foundSchedule=true;
+            assert(persisted[i].thermostat.read().schedules.find(1)->second=="00:00/17 07:00/22");
+            assert(persisted[i].thermostat.read().scheduleSources.find(1)->second=="cached");
+        }
+        assert(foundSchedule);
+        for(unsigned long i=0;i<persisted.size();++i)if(persisted[i].ieeeAddress==valve.ieeeAddress)
+            persisted[i].thermostat.ensure().scheduleDetails[2]="invalid schedule";
+        assert(saveDevices(base+"/malformed.json",persisted,&error));
+        persisted.clear();assert(loadDevices(base+"/malformed.json",&persisted,&error));
+        for(unsigned long i=0;i<persisted.size();++i)if(persisted[i].ieeeAddress==valve.ieeeAddress) {
+            assert(persisted[i].thermostat.read().scheduleDetails.count(1));
+            assert(!persisted[i].thermostat.read().scheduleDetails.count(2));
+        }
+        unlink((base+"/malformed.json").c_str());
+        std::vector<Device> staleCache(1,valve);
+        assert(saveDeviceCache("/tmp/microhad-values.pb",staleCache,&error));
+        Gateway restarted("/dev/null",115200,base,"","","");restarted.loadState();
+        const ThermostatState& restored=restarted.devices_[valve.ieeeAddress].thermostat.read();
+        assert(restored.schedules.find(1)->second=="00:00/17 07:00/22");
+        assert(restored.scheduleSources.find(1)->second=="cached");
+        Device malformed=valve;
+        assert(!restoreThermostatSchedule(&malformed,0,"{\"mode\":1,\"transitions\":[{\"time\":1500,\"heat\":20}]}"));
+        assert(malformed.thermostat.read().scheduleDetails.empty());
         assert(g.setThermostat(valve.ieeeAddress,"schedule_1","00:00/18",&error));
         g.pollThermostats(); schedule=g.thermostatOperations_.front();
         ack[1]=0x81;

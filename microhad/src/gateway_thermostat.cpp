@@ -275,6 +275,7 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
     bool matched=!thermostatOperations_.empty() && thermostatOperations_.front().address==address &&
         thermostatOperations_.front().endpoint==endpoint && thermostatOperations_.front().cluster==cluster &&
         thermostatOperations_.front().sequence==sequence && thermostatOperations_.front().deadline!=0;
+    const std::map<int,std::string> previousSchedules=device.thermostat.read().scheduleDetails;
     bool success=false, completed=false;
     if ((control&3)==0 && command==0x04 && matched) {
         ThermostatOperation& op=thermostatOperations_.front();
@@ -294,6 +295,7 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
             // A successful write acknowledgement is sufficient. TRVZB rejects
             // schedule reads and publishes schedules with its own sequence.
             success=applyThermostatSchedule(&device,op.payload);
+            if(success)for(int day=0;day<7;++day)if(op.payload[1]&(1<<day))device.thermostat.ensure().scheduleSources[day]="acknowledged";
             completed=true;
         }
     } else if ((control&3)==1 && cluster==0x0201 && command==0) {
@@ -357,6 +359,7 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
         }
         markViewDirty();
     }
+    if(previousSchedules!=device.thermostat.read().scheduleDetails)savePersistentState();
     if (matched && completed) {
         ThermostatOperation op=thermostatOperations_.front(); thermostatOperations_.pop_front();
         device.thermostat.ensure().pending.erase(op.pendingId);

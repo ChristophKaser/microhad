@@ -389,6 +389,11 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                    << "\",\"matter_clients\":\"" << encodeMatterServers(device.matter.read().clients)
                    << "\",\"matter_device_types\":\"" << encodeMatterServers(device.matter.read().deviceTypes) << '"';
         }
+        for(int day=0;day<7;++day) {
+            std::map<int,std::string>::const_iterator schedule=device.thermostat.read().scheduleDetails.find(day);
+            if(schedule!=device.thermostat.read().scheduleDetails.end())
+                output << ",\"thermostat_schedule_" << day << "\":\"" << jsonEscape(schedule->second) << '"';
+        }
         output << '}';
         output << (i + 1 == devices.size() ? "\n" : ",\n");
     }
@@ -624,6 +629,11 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             if(line.find("\"has_power\":true")==std::string::npos)device.power.reset();
             if(line.find("\"has_wifi_signal\":true")==std::string::npos)device.wifiSignal.reset();
             device.normalizeComponents();
+            for(int day=0;day<7;++day) {
+                std::ostringstream key;key<<"thermostat_schedule_"<<day;
+                std::string schedule;
+                if(jsonStringField(line,key.str(),&schedule))restoreThermostatSchedule(&device,day,schedule);
+            }
             parsedDevices.push_back(device);
         }
     }

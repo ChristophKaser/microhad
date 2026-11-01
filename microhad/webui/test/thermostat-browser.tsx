@@ -8,6 +8,7 @@ let t: ThermostatState = {
   modes: [0, 1, 4], schedule_max_transitions: 6, schedule_midnight_start: true,
   schedule_supported: true, external_input_supported: true,
   schedule_details: [null, { mode: 1, transitions: [{ time: 0, heat: 20 }] }, null, null, null, null, null],
+  schedule_sources: [null, 'cached', null, null, null, null, null],
   pending: [], values: { occupied_heating_setpoint: 20, occupied_cooling_setpoint: 26, pi_cooling_demand: 50, pi_heating_demand: 70, system_mode: 1, child_lock: 0 },
   supported: { occupied_heating_setpoint: true, system_mode: true, child_lock: true, temperature_sensor_select: true },
   schedules: [], source_id: '', stale_minutes: 30, source_observed_at: 0, status: '', error: '',
@@ -64,6 +65,12 @@ async function run() {
   button('Keep editing').click(); await pause()
   await schedule()
   assert([...document.querySelectorAll('.thermostat-week-day strong')].map(x => x.textContent).join(',') === 'Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday', 'Week order incorrect')
+  assert(day('Monday').textContent!.includes('Cached from previous session'), 'Cached schedule source missing')
+  assert(field('Heat (°C)').value === '20', 'Cached schedule was not restored into editor')
+  t = { ...t, schedule_sources: [null, 'acknowledged', null, null, null, null, null] }; render(); await pause()
+  assert(day('Monday').textContent!.includes('Device acknowledged'), 'Acknowledged source missing')
+  t = { ...t, schedule_sources: [null, 'reported', null, null, null, null, null] }; render(); await pause()
+  assert(day('Monday').textContent!.includes('Device reported'), 'Reported source missing')
   await set(field('Heat (°C)'), '21')
   t = { ...t, schedule_details: [...t.schedule_details] }; render(); await pause()
   assert(field('Heat (°C)').value === '21', 'Polling overwrote schedule draft')
@@ -135,6 +142,14 @@ async function run() {
   await until(() => requests.length === before + 2 && button('Save changes').disabled)
   t = { ...t, values: { child_lock: 1 } }; render(); await pause()
   assert(document.body.textContent!.includes('Confirmed'), 'Retried setting was not confirmed')
+  button('Close').click(); await until(() => !document.querySelector('dialog'))
+  t = { ...t, supported: { occupied_heating_setpoint: true }, schedule_details: [null, { mode: 1, transitions: [{ time: 0, heat: 18 }] }, null, null, null, null, null], schedule_sources: [null, 'cached', null, null, null, null, null], pending: [], error: '' }
+  render(); await open(); await schedule(); day('Monday').click(); await pause()
+  button('Read from device').click(); await pause()
+  t = { ...t, pending: ['schedule_1'] }; render(); await pause()
+  t = { ...t, pending: [], error: 'Schedule read unsupported' }; render(); await pause()
+  assert(field('Heat (°C)').value === '18', 'Failed read erased cached schedule')
+  assert(document.body.textContent!.includes('Schedule read unsupported'), 'Failed read error missing')
   document.getElementById('result')!.dataset.result = 'passed'
   document.getElementById('result')!.textContent = 'PASS thermostat dialog drafts, focus, validation, copy, sequential save, partial failure, confirmation, capabilities and mobile layout'
 }

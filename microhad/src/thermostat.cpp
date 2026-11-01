@@ -295,6 +295,35 @@ bool thermostatScheduleForDevice(const Device& device, const std::string& text, 
     }
     return true;
 }
+// Restore stored data without depending on transient capability discovery.
+bool restoreThermostatSchedule(Device* device, int day, const std::string& json) {
+    if(day<0 || day>6 || !isThermostat(*device))return false;
+    JsonFields root;std::vector<std::string> entries;double mode;
+    if(!BoundedJson(json).parse(&root) || root.size()!=2 || !root.count("mode") || !root.count("transitions") ||
+       !thermostatNumber(root["mode"],&mode) || mode<1 || mode>3 || mode!=std::floor(mode) ||
+       !BoundedJson(root["transitions"]).parseArray(&entries) || entries.size()>32)return false;
+    unsigned int bits=static_cast<unsigned int>(mode);
+    std::vector<unsigned char> bytes;bytes.push_back(static_cast<unsigned char>(entries.size()));
+    bytes.push_back(static_cast<unsigned char>(1<<day));bytes.push_back(bits);
+    int previous=-1;
+    for(unsigned long i=0;i<entries.size();++i) {
+        JsonFields entry;double at;
+        if(!BoundedJson(entries[i]).parse(&entry) || entry.size()!=1+((bits&1)?1U:0U)+((bits&2)?1U:0U) ||
+           !thermostatNumber(entry["time"],&at) || at<0 || at>=1440 || at!=std::floor(at) || at<=previous)return false;
+        previous=static_cast<int>(at);put16(&bytes,previous);
+        for(unsigned bit=1;bit<=2;bit<<=1)if(bits&bit) {
+            double value;
+            if(!thermostatNumber(entry[bit==1?"heat":"cool"],&value) || value< -273.15 || value>327.67 ||
+               std::fabs(value*100-std::floor(value*100+.5))>.00001)return false;
+            put16(&bytes,static_cast<unsigned short>(static_cast<short>(std::floor(value*100+.5))));
+        }
+    }
+    const bool supported=device->thermostat.read().scheduleSupported;
+    if(!applyThermostatSchedule(device,bytes))return false;
+    device->thermostat.ensure().scheduleSupported=supported;
+    device->thermostat.ensure().scheduleSources[day]="cached";
+    return true;
+}
 bool applyThermostatSchedule(Device* device, const std::vector<unsigned char>& payload) {
     if (!isThermostat(*device) || payload.size()<3 || payload[0]>32 || !payload[1] || (payload[1]&128) || !payload[2] || payload[2]>3) return false;
     unsigned int width=2+((payload[2]&1)?2:0)+((payload[2]&2)?2:0);
@@ -317,6 +346,7 @@ bool applyThermostatSchedule(Device* device, const std::vector<unsigned char>& p
     for (int day=0;day<7;++day) if (payload[1]&(1<<day)) {
         device->thermostat.ensure().schedules[day]=payload[2]==1 ? legacy.str() : normalized.str();
         device->thermostat.ensure().scheduleDetails[day]=normalized.str();
+        device->thermostat.ensure().scheduleSources[day]="reported";
         device->thermostat.ensure().pending.erase(2*ThermostatField::Count+day);
     }
     return true;
@@ -434,6 +464,8 @@ std::string thermostatJson(const Device& device) {
        <<",\"schedule_midnight_start\":"<<(isTrvzb(device)?"true":"false")<<",\"external_input_supported\":"<<(isTrvzb(device)?"true":"false")
        <<",\"schedule_details\":[";
     for(int day=0;day<7;++day) {if(day)out<<',';std::map<int,std::string>::const_iterator it=t.scheduleDetails.find(day);out<<(it==t.scheduleDetails.end()?"null":it->second);}
+    out<<"],\"schedule_sources\":[";
+    for(int day=0;day<7;++day) {if(day)out<<',';std::map<int,std::string>::const_iterator it=t.scheduleSources.find(day);if(it==t.scheduleSources.end())out<<"null";else out<<'"'<<jsonEscape(it->second)<<'"';}
     out<<"],\"pending\":[";
     first=true;
     for(unsigned i=0;i<ThermostatPendingCount;++i)if(t.pending.count(i)) {

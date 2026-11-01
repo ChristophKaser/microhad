@@ -61,6 +61,7 @@ struct ThermostatState {
     ThermostatFieldSet unsupported;
     std::map<int, std::string> schedules;
     std::map<int, std::string> scheduleDetails;
+    std::map<int, std::string> scheduleSources;
     std::set<unsigned int> attributes;
     std::set<unsigned int> commands;
     bool attributesKnown;
@@ -109,6 +110,7 @@ bool applyThermostatAttribute(Device* device, unsigned short cluster, unsigned s
                              unsigned char type, const std::vector<unsigned char>& value, long now);
 bool thermostatSchedule(const std::string& text, int day, std::vector<unsigned char>* payload);
 bool applyThermostatSchedule(Device* device, const std::vector<unsigned char>& payload);
+bool restoreThermostatSchedule(Device* device, int day, const std::string& json);
 // Pure validation shared by Lua draft validation and coordinator execution.
 // Live network/queue state and source existence are checked by the caller.
 bool thermostatValidateSetting(const Device& device, const std::string& field,

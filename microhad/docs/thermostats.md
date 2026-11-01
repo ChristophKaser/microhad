@@ -52,7 +52,11 @@ an existing paired thermostat without removing its network state.
 Weekly schedules execute on the thermostat itself. Saving a day updates that
 day without rewriting the rest of the week. Zigbee schedule writes complete on
 a successful device acknowledgement and update the displayed schedule without
-an automatic readback. Later schedule reports update the displayed day independently
+an automatic readback. Known schedules are saved in `devices.json` and restored
+after gateway restarts; the protobuf runtime cache does not store schedules.
+The UI distinguishes cached schedules, device acknowledgements, and device reports.
+Cached schedules may differ from changes made directly on the valve. Later
+schedule reports update the displayed day independently
 of their transaction number. Supported modes, schedule limits,
 and temperature ranges follow the reported capabilities. Standard setpoint
 limits are read from the device, with protocol defaults when optional limits
@@ -142,6 +146,7 @@ names, and temperature observation times. Thermostat devices have
 | `modes` | Available operating-mode values |
 | `schedule_supported` | Whether weekly schedule operations are available |
 | `schedule_max_transitions`, `schedule_midnight_start` | Per-day transition limit and midnight-start requirement |
+| `schedule_sources` | Seven daily source labels: null, `cached`, `acknowledged`, or `reported`; restored schedules are cached |
 | `schedule_details` | Structured daily heating/cooling transitions |
 | `external_input_supported` | Whether a device profile supports automatic external input |
 | `pending` | Setting names with queued or outstanding requests |

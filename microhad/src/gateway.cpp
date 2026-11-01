@@ -773,6 +773,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     Device before = device;
     if (reading.cluster == 513 && isThermostat(device)) {
         if (!(reading.thermostatValue.present?applyMatterThermostat(&device,reading.attribute,reading.thermostatValue.value,time(0)):applyMatterThermostat(&device,reading.attribute,reading.unit,reading.textValue,time(0)))) { *error="invalid thermostat report"; return false; }
+        if(before.thermostat.read().scheduleDetails!=device.thermostat.read().scheduleDetails)savePersistentState();
         if (reading.attribute==0x29 && device.thermostat.read().values.count(ThermostatField::running_state)) {
             const unsigned state=static_cast<unsigned>(device.thermostat.read().values[ThermostatField::running_state]);
             history_.appendNumeric(device.external.read().externalId,SensorHistory::Heating,(state & 0x09)?1:0,"",time(0));
@@ -3783,6 +3784,12 @@ void Gateway::loadState() {
                 volatileValues[i].zigbee.ensure().configuredSignature = persistent.zigbee.read().configuredSignature;
                 volatileValues[i].thermostatSourceId = persistent.thermostatSourceId;
                 volatileValues[i].thermostatStaleMinutes = persistent.thermostatStaleMinutes;
+                if(!persistent.thermostat.read().scheduleDetails.empty()) {
+                    ThermostatState& restored=volatileValues[i].thermostat.ensure();
+                    restored.schedules=persistent.thermostat.read().schedules;
+                    restored.scheduleDetails=persistent.thermostat.read().scheduleDetails;
+                    restored.scheduleSources=persistent.thermostat.read().scheduleSources;
+                }
                 if (volatileValues[i].manufacturerName.empty()) volatileValues[i].manufacturerName = persistent.manufacturerName;
                 if (volatileValues[i].modelId.empty()) volatileValues[i].modelId = persistent.modelId;
                 if (volatileValues[i].zigbee.read().endpoints.empty()) volatileValues[i].zigbee.ensure().endpoints = persistent.zigbee.read().endpoints;

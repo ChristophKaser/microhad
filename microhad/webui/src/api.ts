@@ -44,6 +44,7 @@ export interface ThermostatState {
   schedule_supported: boolean
   external_input_supported: boolean
   schedule_details: (ThermostatSchedule | null)[]
+  schedule_sources?: ('cached' | 'acknowledged' | 'reported' | null)[]
   pending: string[]
   values: Partial<Record<string, number>>
   supported: Record<string, boolean>
