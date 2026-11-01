@@ -64,6 +64,9 @@ are absent. Heating/cooling deadband constraints are checked before writes.
 Generic schedules may start after midnight; the TRVZB restrictions below apply
 only to that model. Use **Read day** to retrieve an existing device schedule
 when the device supports reads; TRVZB firmware may reject these requests.
+Background Zigbee reads continue normally, but their rejection or timeout is
+logged without changing the UI's operation status or error. Explicit read
+requests from the UI or API still show failures to the user and in the logs.
 
 ## External temperature sensors
 

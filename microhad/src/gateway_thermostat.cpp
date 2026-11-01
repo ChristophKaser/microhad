@@ -33,14 +33,14 @@ bool thermostatEndpoint(const Device& device, unsigned short cluster, unsigned c
 }
 }
 void Gateway::queueThermostatOperation(const Device& device, unsigned pendingId, unsigned short cluster,
-                                      unsigned char command, const std::vector<unsigned char>& payload) {
+                                      unsigned char command, const std::vector<unsigned char>& payload, bool userRequested) {
     if (thermostatOperations_.size()>=128) return;
     unsigned char endpoint=0;
     if (!thermostatEndpoint(device,cluster,&endpoint)) return;
     for (std::deque<ThermostatOperation>::const_iterator it=thermostatOperations_.begin();it!=thermostatOperations_.end();++it)
         if (it->address==device.ieeeAddress && it->pendingId==pendingId) return;
     ThermostatOperation op; op.address=device.ieeeAddress; op.pendingId=pendingId; op.cluster=cluster;
-    op.endpoint=endpoint; op.command=command; op.payload=payload;
+    op.endpoint=endpoint; op.command=command; op.payload=payload; op.userRequested=userRequested;
     devices_[device.ieeeAddress].thermostat.ensure().pending.insert(op.pendingId);
     markViewDirty();
     if (command==2 || command==0x81) {
@@ -151,7 +151,7 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
             *error="switch to manual or built-in temperature source first"; return false;
         }
     }
-    queueThermostatOperation(device,thermostatPendingId(field),cluster,command,payload);
+    queueThermostatOperation(device,thermostatPendingId(field),cluster,command,payload,true);
     state.error.clear(); state.status="Awaiting device confirmation"; markViewDirty(); return true;
 }
 long Gateway::thermostatDeadline() const {
@@ -217,8 +217,12 @@ void Gateway::pollThermostats() {
     if (device==devices_.end() || !isThermostat(device->second)) { thermostatOperations_.pop_front(); return; }
     if (op.deadline!=0 && now<op.deadline) return;
     if (op.attempts>=3) {
-        device->second.thermostat.ensure().error="No confirmation for "+thermostatPendingName(op.pendingId);
-        device->second.thermostat.ensure().status="Request timed out";
+        addLog("Thermostat request timed out: "+op.address+" "+thermostatPendingName(op.pendingId)+
+            (op.userRequested ? " source=user" : " source=background"));
+        if(op.reportsResult()) {
+            device->second.thermostat.ensure().error="No confirmation for "+thermostatPendingName(op.pendingId);
+            device->second.thermostat.ensure().status="Request timed out";
+        }
         device->second.thermostat.ensure().pending.erase(op.pendingId);
         thermostatOperations_.pop_front(); markViewDirty(); return;
     }
@@ -363,10 +367,18 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
     if (matched && completed) {
         ThermostatOperation op=thermostatOperations_.front(); thermostatOperations_.pop_front();
         device.thermostat.ensure().pending.erase(op.pendingId);
-        if (!success && op.command!=0) device.thermostat.ensure().error="Device rejected or did not confirm "+thermostatPendingName(op.pendingId);
-        else if (success) {
-            if (op.command!=0) device.thermostat.ensure().error.clear();
-            device.thermostat.ensure().status="Device confirmed "+thermostatPendingName(op.pendingId);
+        if (!success) {
+            std::ostringstream detail;
+            detail<<"Thermostat request rejected or unconfirmed: "<<op.address<<' '<<thermostatPendingName(op.pendingId)
+                  <<(op.userRequested ? " source=user" : " source=background");
+            if(command==0x0b && payload.size()==2)detail<<" zcl_status=0x"<<std::hex<<static_cast<unsigned int>(payload[1]);
+            addLog(detail.str());
+            if(op.reportsResult())device.thermostat.ensure().error="Device rejected or did not confirm "+thermostatPendingName(op.pendingId);
+        } else {
+            if(op.reportsResult()) {
+                device.thermostat.ensure().error.clear();
+                device.thermostat.ensure().status="Device confirmed "+thermostatPendingName(op.pendingId);
+            }
             if (op.pendingId==ThermostatField::external_temperature_input && op.command==2 && op.readback && !device.thermostatSourceId.empty()) {
                 device.thermostat.ensure().lastForwardValue=device.thermostat.read().values.get(ThermostatField::external_temperature_input,0);
                 std::map<std::string,Device>::const_iterator source=devices_.find(device.thermostatSourceId);

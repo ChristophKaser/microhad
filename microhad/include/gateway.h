@@ -459,8 +459,10 @@ private:
         unsigned int attempts;
         long deadline;
         bool readback;
+        bool userRequested;
+        bool reportsResult() const { return userRequested || (command!=0 && command!=0x82); }
         std::vector<unsigned char> payload;
-        ThermostatOperation() : pendingId(ThermostatPendingCount), cluster(0), endpoint(0), command(0), sequence(0), attempts(0), deadline(0), readback(false) {}
+        ThermostatOperation() : pendingId(ThermostatPendingCount), cluster(0), endpoint(0), command(0), sequence(0), attempts(0), deadline(0), readback(false), userRequested(false) {}
     };
     std::deque<ThermostatOperation> thermostatOperations_;
     void queueThermostatReadings(const Device& device);
@@ -470,7 +472,7 @@ private:
         unsigned char frameControl, unsigned short manufacturer, unsigned char sequence, unsigned char command,
         const std::vector<unsigned char>& payload);
     void queueThermostatOperation(const Device& device, unsigned pendingId, unsigned short cluster,
-        unsigned char command, const std::vector<unsigned char>& payload);
+        unsigned char command, const std::vector<unsigned char>& payload, bool userRequested=false);
     enum InterviewOperationType {
         InterviewActiveEndpoints,
         InterviewSimpleDescriptor,
