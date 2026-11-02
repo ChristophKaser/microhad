@@ -218,6 +218,5 @@
   "controller_built": false,
   "controller_run_on_device": false,
   "radio_used": false,
-  "garage_app_changed": false,
   "next_required_work": "Port a modern MIPS-I/o32/big-endian/soft-float C++ library and compatible ABI runtime for factory uClibc before the Matter platform/controller build."
 }

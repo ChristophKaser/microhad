@@ -3050,7 +3050,7 @@ void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen, b
             std::map<std::string, long>::const_iterator due = nextContactTriggerAt_.find(ieeeAddress);
             if (due == nextContactTriggerAt_.end() || now >= due->second) {
                 if (emitNotification("Trigger", (device->second.name.empty() ? device->second.ieeeAddress : device->second.name) +
-                                     " triggered", 0, "de.caser.garage.triggers",
+                                     " triggered", 0, "microhad.triggers",
                                      device->second.waterLeak.present() ? "leak" : "doorbell"))
                 {
                     nextContactTriggerAt_[ieeeAddress] = now + static_cast<long>(device->second.contactTriggerCooldownSeconds);
@@ -3212,7 +3212,7 @@ bool Gateway::emitStateNotification(const std::string& title, const std::string&
     }
     if (!notificationWorker_->enqueueState(title, body, key, clear ? "clear" : "show", presentSensorIds,
                                            error != 0 ? error : &enqueueError,
-                                           "de.caser.garage.gateway_alerts", std::vector<std::string>(), source)) {
+                                           "microhad.gateway_alerts", std::vector<std::string>(), source)) {
         if (!clear) addLog(std::string("Notification queue failed: ") + title + " - " + body);
         return false;
     }

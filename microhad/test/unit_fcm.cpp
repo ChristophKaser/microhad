@@ -33,11 +33,11 @@ static void testFcmEncodingsAndJwt() {
            compare("{\"message\":{\"topic\":\"a\\\"b\",\"notification\":{\"title\":\"line\\n\",\"body\":\"slash\\\\\\u0001\"},\"android\":{\"priority\":\"high\"}}}") == 0);
     assert(makeFcmTokenMessage("token", "Trigger", "Entry triggered") ==
            "{\"message\":{\"token\":\"token\",\"notification\":{\"title\":\"Trigger\",\"body\":\"Entry triggered\"},\"android\":{\"priority\":\"high\"}}}");
-    assert(makeFcmTokenMessage("token", "Trigger", "Entry triggered", "de.caser.garage.triggers") ==
-           "{\"message\":{\"token\":\"token\",\"notification\":{\"title\":\"Trigger\",\"body\":\"Entry triggered\"},\"android\":{\"priority\":\"high\",\"notification\":{\"channel_id\":\"de.caser.garage.triggers\"}}}}");
+    assert(makeFcmTokenMessage("token", "Trigger", "Entry triggered", "microhad.triggers") ==
+           "{\"message\":{\"token\":\"token\",\"notification\":{\"title\":\"Trigger\",\"body\":\"Entry triggered\"},\"android\":{\"priority\":\"high\",\"notification\":{\"channel_id\":\"microhad.triggers\"}}}}");
     assert(makeFcmTokenStateMessage("token", "clear", "value:sensor:humidity:high", "", "",
-                                    "de.caser.garage.gateway_alerts") ==
-           "{\"message\":{\"token\":\"token\",\"data\":{\"action\":\"clear\",\"key\":\"value:sensor:humidity:high\",\"title\":\"\",\"body\":\"\",\"channel_id\":\"de.caser.garage.gateway_alerts\"},\"android\":{\"priority\":\"HIGH\"}}}");
+                                    "microhad.gateway_alerts") ==
+           "{\"message\":{\"token\":\"token\",\"data\":{\"action\":\"clear\",\"key\":\"value:sensor:humidity:high\",\"title\":\"\",\"body\":\"\",\"channel_id\":\"microhad.gateway_alerts\"},\"android\":{\"priority\":\"HIGH\"}}}");
 
     const char* sources[]={"default","window","doorbell","temperature","humidity","leak","battery","power","air_quality"};
     for(size_t i=0;i<sizeof(sources)/sizeof(sources[0]);++i) {

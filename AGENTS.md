@@ -76,9 +76,7 @@ Never deploy to a device unless explicitly requested.
 ## Repository and device state
 
 Generated artifacts under `build/`, Rust targets, tools, logs, target
-specifications, and worktrees are ignored. `garage-app/` is also
-intentionally ignored; it is a separate Android project with local credentials
-and its own Git metadata. Do not stage or commit its contents. Never commit
+specifications, and worktrees are ignored. Never commit
 device configuration, credentials, production TLS keys, Matter identity,
 persistent network state, or Zigbee keys.
 

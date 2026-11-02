@@ -3,7 +3,6 @@
 /targets/
 /micro-thread-matter-daemon/target/
 /ziggurat/stock-uclibc-compat/target/
-/garage-app/
 /worktrees/
 /build/
 /diagnostics/

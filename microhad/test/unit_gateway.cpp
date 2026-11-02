@@ -3827,9 +3827,9 @@ static void testNotificationWorkerQueueLifecycle() {
     NotificationWorker worker(directory, "", "", "", &delivery);
     assert(worker.start(&error));
     assert(!worker.start(&error) && error == "notification worker already started");
-    assert(worker.enqueue("first", "body", &error, "de.caser.garage.triggers"));
+    assert(worker.enqueue("first", "body", &error, "microhad.triggers"));
     assert(delivery.waitUntilEntered());
-    assert(delivery.lastChannelId() == "de.caser.garage.triggers");
+    assert(delivery.lastChannelId() == "microhad.triggers");
     for (i = 0; i < 32; ++i) assert(worker.enqueue("queued", "body", &error));
     assert(!worker.enqueue("overflow", "body", &error) && error == "notification queue is full");
     delivery.release();
