@@ -1,0 +1,10 @@
+<resources>
+    <string name="notification_channel_window">Windows</string>
+    <string name="notification_channel_doorbell">Doorbells</string>
+    <string name="notification_channel_temperature">Temperature</string>
+    <string name="notification_channel_humidity">Humidity</string>
+    <string name="notification_channel_leak">Leak detection</string>
+    <string name="notification_channel_battery">Battery</string>
+    <string name="notification_channel_power">Power</string>
+    <string name="notification_channel_air_quality">Air quality</string>
+</resources>

@@ -1,4 +1,5 @@
 #include "fcm.h"
+#include "notification_source.h"
 #include "json_util.h"
 #include "https_client.h"
 
@@ -82,21 +83,29 @@ std::string makeFcmMessage(const std::string& topic, const std::string& title, c
            jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"},\"android\":{\"priority\":\"high\"}}}";
 }
 std::string makeFcmTokenMessage(const std::string& token, const std::string& title, const std::string& body,
-                                const std::string& androidChannelId) {
+                                const std::string& androidChannelId, const std::string& source) {
     std::string message = std::string("{\"message\":{\"token\":\"") + jsonEscape(token) + "\",\"notification\":{\"title\":\"" +
                          jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"},\"android\":{\"priority\":\"high\"";
-    if (!androidChannelId.empty())
-        message += ",\"notification\":{\"channel_id\":\"" + jsonEscape(androidChannelId) + "\"}";
-    return message + "}}}";
+    const std::string channel = source.empty() ? androidChannelId : notificationChannel(source);
+    if (!channel.empty() || !source.empty()) {
+        message += ",\"notification\":{\"channel_id\":\"" + jsonEscape(channel) + "\"";
+        if (!source.empty()) message += ",\"icon\":\"" + notificationIcon(source) + "\"";
+        message += "}";
+    }
+    message += "}";
+    if (!source.empty()) message += ",\"data\":{\"source\":\"" + jsonEscape(source) + "\"}";
+    return message + "}}";
 }
 std::string makeFcmTokenStateMessage(const std::string& token, const std::string& action,
                                     const std::string& key, const std::string& title,
-                                    const std::string& body, const std::string& androidChannelId) {
+                                    const std::string& body, const std::string& androidChannelId, const std::string& source) {
+    const std::string channel = source.empty() ? androidChannelId : notificationChannel(source);
     std::string message = std::string("{\"message\":{\"token\":\"") + jsonEscape(token) +
         "\",\"data\":{\"action\":\"" + jsonEscape(action) + "\",\"key\":\"" + jsonEscape(key) +
         "\",\"title\":\"" + jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) +
-        "\",\"channel_id\":\"" + jsonEscape(androidChannelId) + "\"},\"android\":{\"priority\":\"HIGH\"}}}";
-    return message;
+        "\",\"channel_id\":\"" + jsonEscape(channel) + "\"";
+    if (!source.empty()) message += ",\"source\":\"" + jsonEscape(source) + "\"";
+    return message + "},\"android\":{\"priority\":\"HIGH\"}}}";
 }
 
 std::string makeGoogleAccessTokenJwt(const FirebaseServiceAccount& account, long issuedAt, std::string* error) {
@@ -132,7 +141,7 @@ static bool sendFcmTarget(const FirebaseServiceAccount& account, const std::stri
                           const std::string& target, bool direct, const std::string& title,
                           const std::string& body, std::string* error, const std::string& androidChannelId,
                           const std::string& stateKey, const std::string& stateAction,
-                          HttpsSession* session) {
+                          HttpsSession* session, const std::string& source) {
     std::string tokenResponse;
     std::string response;
     std::string jwt;
@@ -174,8 +183,8 @@ static bool sendFcmTarget(const FirebaseServiceAccount& account, const std::stri
     }
     if (!fcmSession->post("fcm.googleapis.com", "/v1/projects/" + account.projectId + "/messages:send",
                    "Content-Type: application/json\r\nAuthorization: Bearer " + token + "\r\n",
-                   direct ? (stateKey.empty() ? makeFcmTokenMessage(target, title, body, androidChannelId) :
-                             makeFcmTokenStateMessage(target, stateAction, stateKey, title, body, androidChannelId)) :
+                   direct ? (stateKey.empty() ? makeFcmTokenMessage(target, title, body, androidChannelId, source) :
+                             makeFcmTokenStateMessage(target, stateAction, stateKey, title, body, androidChannelId, source)) :
                             makeFcmMessage(target, title, body),
                    caBundle, &response, error)) return false;
     if (response.find("HTTP/1.1 200") != 0) { *error = "FCM rejected the notification"; return false; }
@@ -199,27 +208,27 @@ bool sendFcmNotification(const FirebaseServiceAccount& account, const std::strin
                          const std::string& caBundle, const std::string& topic, const std::string& title,
                          const std::string& body, std::string* error, HttpsSession* session) {
     return sendFcmTarget(account, serviceAccountPath, caBundle, topic, false, title, body, error,
-                         "", "", "", session);
+                         "", "", "", session, "");
 }
 bool sendFcmTokenNotification(const std::string& serviceAccountPath, const std::string& caBundle,
                               const std::string& token, const std::string& title, const std::string& body,
-                              std::string* error, const std::string& androidChannelId, HttpsSession* session) {
+                              std::string* error, const std::string& androidChannelId, HttpsSession* session, const std::string& source) {
     FirebaseServiceAccount account;
     if (!loadFirebaseServiceAccount(serviceAccountPath, &account, error)) return false;
     return sendFcmTokenNotification(account, serviceAccountPath, caBundle, token, title, body,
-                                    error, androidChannelId, session);
+                                    error, androidChannelId, session, source);
 }
 bool sendFcmTokenNotification(const FirebaseServiceAccount& account, const std::string& serviceAccountPath,
                               const std::string& caBundle, const std::string& token,
                               const std::string& title, const std::string& body, std::string* error,
-                              const std::string& androidChannelId, HttpsSession* session) {
+                              const std::string& androidChannelId, HttpsSession* session, const std::string& source) {
     return sendFcmTarget(account, serviceAccountPath, caBundle, token, true, title, body, error,
-                         androidChannelId, "", "", session);
+                         androidChannelId, "", "", session, source);
 }
 bool sendFcmTokenStateMessage(const std::string& serviceAccountPath, const std::string& caBundle,
                               const std::string& token, const std::string& action, const std::string& key,
                               const std::string& title, const std::string& body, std::string* error,
-                              const std::string& androidChannelId, HttpsSession* session) {
+                              const std::string& androidChannelId, HttpsSession* session, const std::string& source) {
     FirebaseServiceAccount account;
     if ((action != "show" && action != "clear") || key.empty()) {
         *error = "invalid Android notification state message";
@@ -227,17 +236,17 @@ bool sendFcmTokenStateMessage(const std::string& serviceAccountPath, const std::
     }
     if (!loadFirebaseServiceAccount(serviceAccountPath, &account, error)) return false;
     return sendFcmTokenStateMessage(account, serviceAccountPath, caBundle, token, action, key,
-                                    title, body, error, androidChannelId, session);
+                                    title, body, error, androidChannelId, session, source);
 }
 bool sendFcmTokenStateMessage(const FirebaseServiceAccount& account, const std::string& serviceAccountPath,
                               const std::string& caBundle, const std::string& token,
                               const std::string& action, const std::string& key, const std::string& title,
                               const std::string& body, std::string* error,
-                              const std::string& androidChannelId, HttpsSession* session) {
+                              const std::string& androidChannelId, HttpsSession* session, const std::string& source) {
     if ((action != "show" && action != "clear") || key.empty()) {
         *error = "invalid Android notification state message";
         return false;
     }
     return sendFcmTarget(account, serviceAccountPath, caBundle, token, true, title, body, error,
-                         androidChannelId, key, action, session);
+                         androidChannelId, key, action, session, source);
 }

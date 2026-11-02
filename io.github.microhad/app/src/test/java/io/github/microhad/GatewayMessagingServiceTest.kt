@@ -45,4 +45,75 @@ class GatewayMessagingServiceTest {
         service.onMessageReceived(message("show"))
         assertEquals(0, manager.activeNotifications.size)
     }
+    private fun alert(key: String, source: String? = null, legacy: Boolean = false) = RemoteMessage(Bundle().apply {
+        putString("from", "123456"); putString("key", key)
+        if (legacy) {
+            putString("gcm.n.e", "1"); putString("gcm.n.title", "Alert"); putString("gcm.n.body", "Body")
+        } else {
+            putString("action", "show"); putString("title", "Alert"); putString("body", "Body")
+        }
+        source?.let { putString("source", it) }
+    })
+    private fun assertPresentation(key: String, source: String?, category: String?, icon: Int, legacy: Boolean = false) {
+        val service = Robolectric.buildService(GatewayMessagingService::class.java).create().get()
+        service.onMessageReceived(alert(key, source, legacy))
+        val notification = manager.activeNotifications.single().notification
+        assertEquals(category?.let { "microhad.alerts.$it" } ?: GatewayMessagingService.CHANNEL, notification.channelId)
+        assertEquals(icon, notification.smallIcon.resId)
+        manager.cancelAll()
+    }
+    @Test fun explicitSourcesChooseTheirChannelsAndIcons() {
+        listOf(
+            "window" to R.drawable.ic_notification_window,
+            "doorbell" to R.drawable.ic_notification_doorbell,
+            "temperature" to R.drawable.ic_notification_temperature,
+            "humidity" to R.drawable.ic_notification_humidity,
+            "leak" to R.drawable.ic_notification_leak,
+            "battery" to R.drawable.ic_notification_battery,
+            "power" to R.drawable.ic_notification_power,
+            "air_quality" to R.drawable.ic_notification_air_quality
+        ).forEach { (source, icon) -> assertPresentation("automation:test", source, source, icon) }
+        assertNotEquals(NotificationSources.presentation("humidity", null).channel, NotificationSources.presentation("leak", null).channel)
+    }
+    @Test fun oldGatewayKeysInferSources() {
+        assertPresentation("contact:sensor:window", null, "window", R.drawable.ic_notification_window)
+        assertPresentation("legacy:sensor:temperature:low", null, "temperature", R.drawable.ic_notification_temperature)
+        assertPresentation("value:sensor:temperature:high", null, "temperature", R.drawable.ic_notification_temperature)
+        assertPresentation("value:sensor:humidity:low", null, "humidity", R.drawable.ic_notification_humidity)
+        assertPresentation("value:sensor:battery:low", null, "battery", R.drawable.ic_notification_battery)
+        assertPresentation("value:sensor:power:high", null, "power", R.drawable.ic_notification_power)
+        listOf("co2", "pm25").forEach { assertPresentation("value:sensor:$it:high", null, "air_quality", R.drawable.ic_notification_air_quality) }
+        listOf("brightness", "wifi_signal", "link_quality").forEach {
+            assertPresentation("value:sensor:$it:low", null, null, R.drawable.ic_gateway)
+        }
+        assertPresentation("automation:test", null, null, R.drawable.ic_gateway)
+        assertPresentation("unknown", null, null, R.drawable.ic_gateway)
+    }
+    @Test fun explicitSourceOverridesKeyIncludingDefaultAndUnknownSources() {
+        assertPresentation("contact:sensor:window", "humidity", "humidity", R.drawable.ic_notification_humidity)
+        listOf("default", "presence", "motion", "radio", "light", "automation", "unexpected").forEach {
+            assertPresentation("contact:sensor:window", it, null, R.drawable.ic_gateway)
+        }
+    }
+    @Test fun notificationPayloadUsesSourceInForeground() {
+        assertPresentation("legacy-message", "doorbell", "doorbell", R.drawable.ic_notification_doorbell, legacy = true)
+        assertPresentation("legacy-message", null, null, R.drawable.ic_gateway, legacy = true)
+    }
+    @Test fun sourceMetadataDoesNotChangeKeyedUpdateOrClear() {
+        val service = Robolectric.buildService(GatewayMessagingService::class.java).create().get()
+        service.onMessageReceived(alert("test-window", "window"))
+        service.onMessageReceived(alert("test-window", "window"))
+        assertEquals(1, manager.activeNotifications.size)
+        service.onMessageReceived(message("clear"))
+        assertEquals(0, manager.activeNotifications.size)
+    }
+    @Test fun channelRegistrationPreservesUserSettings() {
+        // Simulate an existing channel whose importance the user has lowered.
+        val channel = android.app.NotificationChannel("microhad.alerts.doorbell", "Doorbells", android.app.NotificationManager.IMPORTANCE_LOW)
+        manager.createNotificationChannel(channel)
+        NotificationSources.register(context)
+        assertEquals(android.app.NotificationManager.IMPORTANCE_LOW, manager.getNotificationChannel(channel.id).importance)
+        assertEquals(9, manager.notificationChannels.size)
+    }
+
 }

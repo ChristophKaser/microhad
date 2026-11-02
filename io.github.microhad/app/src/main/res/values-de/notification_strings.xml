@@ -1,0 +1,10 @@
+<resources>
+    <string name="notification_channel_window">Fenster</string>
+    <string name="notification_channel_doorbell">Türklingeln</string>
+    <string name="notification_channel_temperature">Temperatur</string>
+    <string name="notification_channel_humidity">Luftfeuchtigkeit</string>
+    <string name="notification_channel_leak">Wassermelder</string>
+    <string name="notification_channel_battery">Batterie</string>
+    <string name="notification_channel_power">Leistung</string>
+    <string name="notification_channel_air_quality">Luftqualität</string>
+</resources>

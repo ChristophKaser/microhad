@@ -47,11 +47,16 @@ extern void* sensorHistoryQueryPageHookData;
 namespace {
 using Automation::Value;
 class Delivery:public NotificationWorker::DeliveryHook {
-    pthread_mutex_t mutex_;unsigned count_;std::string key_,channel_;
+    pthread_mutex_t mutex_;unsigned count_;std::string key_,channel_;std::map<std::string,unsigned> sources_;
 public:
     Delivery():count_(0){pthread_mutex_init(&mutex_,0);}~Delivery(){pthread_mutex_destroy(&mutex_);}
     void deliver(const std::string&,const std::string&,const std::string&){pthread_mutex_lock(&mutex_);++count_;pthread_mutex_unlock(&mutex_);}
     void deliverState(const std::string&,const std::string&,const std::string& channel,const std::string& key,const std::string& action){assert(action=="show");pthread_mutex_lock(&mutex_);++count_;key_=key;channel_=channel;pthread_mutex_unlock(&mutex_);}
+    void deliverSource(const std::string& title,const std::string& body,const std::string& channel,const std::string& key,const std::string& action,const std::string& source){
+        pthread_mutex_lock(&mutex_);++sources_[source];pthread_mutex_unlock(&mutex_);
+        if(key.empty())deliver(title,body,channel);else deliverState(title,body,channel,key,action);
+    }
+    unsigned sourceCount(const std::string& source){pthread_mutex_lock(&mutex_);unsigned n=sources_[source];pthread_mutex_unlock(&mutex_);return n;}
     unsigned count(){pthread_mutex_lock(&mutex_);unsigned n=count_;pthread_mutex_unlock(&mutex_);return n;}
     bool grouped(){pthread_mutex_lock(&mutex_);bool ok=key_.find("0x00124b0000000042:test")!=key_.npos&&channel_.empty();pthread_mutex_unlock(&mutex_);return ok;}
 };
@@ -282,6 +287,15 @@ void runAutomationIntegrationTests(){
         Device lamp;lamp.ieeeAddress="0x00124b0000000042";lamp.name="Lamp";lamp.source="zigbee";lamp.light.setPresent(true);lamp.brightness.setPresent(true);lamp.kind="light";lamp.zigbee.ensure().networkAddress=0x1234;
         EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.inputClusters.push_back(6);endpoint.inputClusters.push_back(8);lamp.zigbee.ensure().endpoints.push_back(endpoint);
         Device duplicate=lamp;duplicate.ieeeAddress="0x00124b0000000043";duplicate.zigbee.ensure().networkAddress=0x1235;duplicate.name="lamp";std::vector<Device> fixtures;fixtures.push_back(lamp);fixtures.push_back(duplicate);assert(saveDevices(root+"/devices.json",fixtures,&error));
+        // Seed source devices before the coordinator starts; tests read immutable catalog snapshots.
+        Device sourceDevice;sourceDevice.ieeeAddress="notification-source";sourceDevice.name="Notification source";
+        sourceDevice.contact.setPresent(true);sourceDevice.contactTriggerMode=true;fixtures.push_back(sourceDevice);
+        sourceDevice=Device();sourceDevice.ieeeAddress="notification-leak";sourceDevice.waterLeak.setPresent(true);
+        sourceDevice.contact.setPresent(true);sourceDevice.contactTriggerMode=true;fixtures.push_back(sourceDevice);
+        sourceDevice=Device();sourceDevice.ieeeAddress="notification-humidity";sourceDevice.humidity.setPresent(true);fixtures.push_back(sourceDevice);
+        sourceDevice=Device();sourceDevice.ieeeAddress="notification-air";sourceDevice.co2.setPresent(true);sourceDevice.pm25.setPresent(true);fixtures.push_back(sourceDevice);
+        sourceDevice=Device();sourceDevice.ieeeAddress="notification-power";sourceDevice.actor.setPresent(true);sourceDevice.power.setPresent(true);fixtures.push_back(sourceDevice);
+        assert(saveDevices(root+"/devices.json",fixtures,&error));
         SceneGroup group;group.id=1;group.name="Office";Scene scene;scene.id=2;scene.name="Evening";group.scenes.push_back(scene);assert(saveSceneConfiguration(root+"/scenes.conf",std::vector<SceneGroup>(1,group),std::vector<RemoteSceneBinding>(),&error));
         Gateway* gateway=new Gateway("/dev/null",115200,root,"","","",&notifications,root+"/history.bin");GatewayIntegrationTestPeer::attachSerial(gateway,serial[0]);
         GatewayRunner runner(gateway);ExternalHttpDeviceWorker external(root,&runner);gateway->setShellyTransport(&external);assert(runner.start(&error));
@@ -381,6 +395,27 @@ void runAutomationIntegrationTests(){
         std::string checkedApis=apiChecks;for(size_t i=0;i<checkedApis.size();++i)if(checkedApis[i]==';')checkedApis.insert(++i,"\n");
         const unsigned delivered=delivery.count();if(!automations.validate("apis.lua",checkedApis,&error)){fprintf(stderr,"API checks: %s\n",error.c_str());assert(false);}usleep(20000);assert(delivery.count()==delivered);
         assert(automations.save("apis.lua",checkedApis,true,&error));for(unsigned i=0;i<100&&delivery.count()==delivered;++i)usleep(10000);assert(delivery.count()==delivered+1);assert(delivery.grouped());
+        // Real Lua -> queue -> worker delivery for both category and snapshot-derived sources.
+        const unsigned sourceBefore=delivery.count();
+        const unsigned tempBefore=delivery.sourceCount("temperature"),defaultBefore=delivery.sourceCount("default");
+        const std::string sourceChecks=
+            "for _,source in ipairs({'window','doorbell','temperature','humidity','leak','battery','power','air_quality','default'}) do "
+            "assert(notify.send('Category','Message',{source=source,tag=source})) end;"
+            "assert(notify.send('Device','Message',{source={device_id='notification-source'}}));"
+            "for _,id in ipairs({'notification-leak','notification-humidity','notification-air','notification-power'}) do "
+            "assert(notify.send('Device','Message',{source={device_id=id}})) end;"
+            "assert(notify.send('Device','Message',{source={device_id='Renamed temperature'}}));"
+            "assert(notify.send('Device','Message',{source={device_id='0x00124b0000000042'}}));"
+            "local ok,err=notify.send('Missing','Message',{source={device_id='missing'}});assert(ok==nil and err);";
+        assert(automations.save("sources.lua",sourceChecks,true,&error));
+        for(unsigned i=0;i<200&&delivery.count()<sourceBefore+16;++i)usleep(10000);
+        assert(delivery.count()==sourceBefore+16);
+        assert(delivery.sourceCount("doorbell")==2);
+        assert(delivery.sourceCount("temperature")==tempBefore+2);
+        assert(delivery.sourceCount("default")==defaultBefore+2);
+        assert(delivery.sourceCount("humidity")==2&&delivery.sourceCount("leak")==2);
+        assert(delivery.sourceCount("air_quality")==2&&delivery.sourceCount("power")==2);
+        assert(automations.setEnabled("sources.lua",false,&error));
         assert(automations.save("unknown-recipient.lua","local ok,err=notify.send('Title','Body',{recipients={'Test phone','missing'}});assert(ok==nil and err:find('unknown notification recipient'));persistent.checked=true",true,&error));
         assert(notifications.setEnabled(false,&error));assert(automations.validate("disabled.lua","assert(notify.send('Title','Body'))",&error));assert(automations.save("disabled.lua","local ok,err=notify.send('Title','Body');assert(ok==nil and err);persistent.disabled=1",true,&error));assert(notifications.setEnabled(true,&error));
         Automation::Action stale;stale.operation="refresh";stale.script="retired";stale.generation=1;assert(!runner.submitAutomation(stale,&error));

@@ -728,7 +728,7 @@ private:
     void updateTemperatureAlert(const Device& device, bool hadTemperature, double previousTemperature);
     void updateValueAlerts(Device& device, const Device& before);
     bool emitNotification(const std::string& title, const std::string& body, std::string* error,
-                          const std::string& androidChannelId = "");
+                          const std::string& androidChannelId = "", const std::string& source = "default");
     bool emitStateNotification(const std::string& title, const std::string& body, const std::string& key,
                                bool clear, std::string* error);
     std::string deviceLogLabel(unsigned short node) const;

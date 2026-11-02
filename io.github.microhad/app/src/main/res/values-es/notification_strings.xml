@@ -1,0 +1,10 @@
+<resources>
+    <string name="notification_channel_window">Ventanas</string>
+    <string name="notification_channel_doorbell">Timbres</string>
+    <string name="notification_channel_temperature">Temperatura</string>
+    <string name="notification_channel_humidity">Humedad</string>
+    <string name="notification_channel_leak">Detección de fugas</string>
+    <string name="notification_channel_battery">Batería</string>
+    <string name="notification_channel_power">Potencia</string>
+    <string name="notification_channel_air_quality">Calidad del aire</string>
+</resources>

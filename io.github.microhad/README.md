@@ -60,6 +60,28 @@ configure a gateway; this ensures a different Firebase project starts with a
 fresh default Firebase instance. An unreachable old gateway may retain its
 registration; remove it from the dashboard when reachable.
 
+## Notification sources
+
+Android notification settings offer separate channels for windows, doorbells
+(trigger-mode contacts), temperature, humidity, leak detection, battery, power,
+and air quality (CO₂ and PM2.5 together), each with a matching monochrome icon.
+Light, presence/motion, radio/Wi-Fi, automation and unknown sources use the
+existing Gateway notifications channel and gateway icon. Channel importance
+starts at the existing default; Android preserves user sound and importance
+settings when the app registers channels again.
+
+The gateway sends source metadata for new alerts. Older keyed window and sensor
+alerts are recognized by their keys; messages without a recognized source use
+the default. Automations can override the source by category or device reference;
+see [automation notification options](../microhad/README.md).
+
+Keyed alerts are displayed by the companion and can be updated or cleared using
+the same key. Unkeyed notifications use Firebase's notification payload: the
+companion chooses presentation in the foreground, while Firebase uses the
+supplied channel and icon in the background. Launch the updated app once before
+expecting the new channels in background delivery. If the requested channel is
+not registered yet, Firebase falls back to the default channel.
+
 ## Verification
 
 Local tests cover native view navigation, saved dashboard order, device and group

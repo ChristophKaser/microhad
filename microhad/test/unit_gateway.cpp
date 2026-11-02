@@ -504,6 +504,43 @@ public:
         unlink(values.c_str()); if (hadValues) assert(rename(backup.c_str(), values.c_str()) == 0); rmdir(directory);
     }
 
+    static void nativeNotificationSources() {
+        struct Capture : NotificationWorker::DeliveryHook {
+            std::vector<std::string> sources,keys,actions;
+            void deliver(const std::string&,const std::string&,const std::string&) { assert(false); }
+            void deliverSource(const std::string&,const std::string&,const std::string&,const std::string& key,
+                               const std::string& action,const std::string& source) {
+                sources.push_back(source);keys.push_back(key);actions.push_back(action);
+            }
+        } capture;
+        char directory[]="/tmp/microhad-notification-source-XXXXXX";assert(mkdtemp(directory));
+        std::string error;
+        NotificationWorker worker(directory,"","","",&capture);assert(worker.start(&error));
+        {
+            Gateway gateway("/dev/null",115200,directory,"","","",&worker);
+            gateway.history_.useManualPersistenceForTests();
+            Device contact;contact.ieeeAddress="doorbell";contact.contact.setPresent(true);
+            contact.contact.ensure().known=true;contact.contact.ensure().open=true;contact.contactTriggerMode=true;
+            gateway.devices_[contact.ieeeAddress]=contact;
+            gateway.updateContactAlert(contact.ieeeAddress,false,true);
+            contact.ieeeAddress="leak";contact.waterLeak.setPresent(true);gateway.devices_[contact.ieeeAddress]=contact;
+            gateway.updateContactAlert(contact.ieeeAddress,false,true);
+            assert(gateway.emitStateNotification("Window","Open","contact:window:window",false,&error));
+            assert(gateway.emitStateNotification("Leak","Detected","contact:leak:window",false,&error));
+            assert(gateway.emitStateNotification("","","contact:leak:window",true,&error));
+            assert(gateway.emitStateNotification("Temperature","High","value:sensor:temperature:high",false,&error));
+            assert(gateway.emitStateNotification("Air","High","value:sensor:pm25:high",false,&error));
+            worker.stop(); // Drains delivery before reading the capture.
+        }
+        assert(capture.sources.size()==7);
+        assert(capture.sources[0]=="doorbell"&&capture.keys[0].empty());
+        assert(capture.sources[1]=="leak"&&capture.keys[1].empty());
+        assert(capture.sources[2]=="window");
+        assert(capture.sources[3]=="leak"&&capture.sources[4]=="leak"&&capture.actions[4]=="clear");
+        assert(capture.keys[3]==capture.keys[4]);
+        assert(capture.sources[5]=="temperature"&&capture.sources[6]=="air_quality");
+        unlink((std::string(directory)+"/notifications.json").c_str());rmdir(directory);
+    }
     static void contactAlertsSurviveRestart() {
         char directory[] = "/tmp/microhad-contact-restart-XXXXXX";
         assert(mkdtemp(directory));
@@ -4120,6 +4157,7 @@ void runUnitTests() {
     { DeviceCacheIsolation cache; testContactNotificationIsDeferred(); }
     { DeviceCacheIsolation cache; testTemperatureThresholdAlerts(); }
     { DeviceCacheIsolation cache; testContactAlertReminders(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::nativeNotificationSources(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::contactAlertsSurviveRestart(); }
     { DeviceCacheIsolation cache; testNotificationTogglePersistence(); }
     { DeviceCacheIsolation cache; testPresenceBasedPushRouting(); }

@@ -1,8 +1,6 @@
 package io.github.microhad
 
 import android.Manifest
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -29,11 +27,11 @@ class GatewayMessagingService : FirebaseMessagingService() {
             "clear" -> manager.cancel(key, 0)
             "show" -> {
                 if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-                (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
-                    NotificationChannel(CHANNEL, getString(R.string.gateway_alerts_channel_name), NotificationManager.IMPORTANCE_DEFAULT))
+                NotificationSources.register(this)
+                val presentation = NotificationSources.presentation(data["source"], key)
                 val intent = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 val pending = PendingIntent.getActivity(this, key.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                manager.notify(key, 0, NotificationCompat.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_gateway)
+                manager.notify(key, 0, NotificationCompat.Builder(this, presentation.channel).setSmallIcon(presentation.icon)
                     .setContentTitle((data["title"] ?: legacy?.title).orEmpty().take(256)).setContentText((data["body"] ?: legacy?.body).orEmpty().take(2048))
                     .setContentIntent(pending).setAutoCancel(true).build())
             }

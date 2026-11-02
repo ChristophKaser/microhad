@@ -4,6 +4,7 @@
 #include "gateway.h"
 #include "json_util.h"
 #include "notification_worker.h"
+#include "notification_source.h"
 #include "matter_worker.h"
 #include "thread_name.h"
 extern "C" {
@@ -333,6 +334,17 @@ struct AutomationWorker::Impl {
     }
     static int scene(lua_State* L){Script* s=script(L);std::string groupName,sceneName,groupError;if(!targetArg(L,1,&groupName)||(!lua_isnil(L,2)&&!targetArg(L,2,&sceneName)))return luaL_error(L,"scene targets must be names or string IDs");const Automation::SceneCatalogEntry* group=sceneGroup(s,groupName,&groupError);if(!group)return failure(L,groupError);int selected=-1;if(!lua_isnil(L,2)){for(size_t i=0;i<group->scenes.size();++i){std::ostringstream id;id<<static_cast<int>(group->scenes[i].id);if(id.str()==sceneName){selected=i;break;}if(lower(group->scenes[i].name)==lower(sceneName)){if(selected>=0)return failure(L,"ambiguous scene; use stable ID");selected=i;}}if(selected<0)return failure(L,"unknown scene");}
         Automation::Action a;a.operation=selected<0?"scene.off":"scene.activate";a.args.fields["group"]=Value(static_cast<double>(group->id));if(selected>=0)a.args.fields["scene"]=Value(static_cast<double>(group->scenes[selected].id));a.script=s->id;a.generation=s->generation;a.chain=strtoull(s->chain.c_str(),0,10);a.depth=s->depth+1;std::string err;if(!s->validation&&(!s->owner->gateway||!s->owner->gateway->submitAutomation(a,&err)))return failure(L,err);lua_pushboolean(L,1);return 1;}
+    static std::string deviceNotificationSource(const Device& d) {
+        if(d.thermostat.present())return "temperature";
+        if(d.waterLeak.present())return "leak";
+        if(d.contact.present())return d.contactTriggerMode ? "doorbell" : "window";
+        if(!d.light.present() && d.temperature.present())return "temperature";
+        if(!d.light.present() && d.humidity.present())return "humidity";
+        if(!d.light.present() && (d.airQuality.present() || d.co2.present() || d.pm25.present()))return "air_quality";
+        if(d.occupancy.present() || d.light.present() || d.remote.present())return "default";
+        if(d.power.present())return "power";
+        return "default";
+    }
     static int notify(lua_State* L){
         Script* s=script(L);
         std::string title=stringArg(L,1),body=stringArg(L,2);
@@ -341,6 +353,7 @@ struct AutomationWorker::Impl {
         if(!lua_isnoneornil(L,3)&&(!readValue(L,3,&options,true)||options.type!=Value::Object))
             return luaL_error(L,"invalid notification options");
         std::vector<std::string> requested,recipientIds;
+        std::string source="default",sourceDevice;
         for(std::map<std::string,Value>::const_iterator it=options.fields.begin();it!=options.fields.end();++it){
             if(it->first=="recipients"){
                 const Value& recipients=it->second;
@@ -353,8 +366,22 @@ struct AutomationWorker::Impl {
                         return luaL_error(L,"invalid notification recipients");
                     requested.push_back(values[i].string);
                 }
+            }else if(it->first=="source"){
+                const Value& value=it->second;
+                if(value.type==Value::String && validNotificationSource(value.string))source=value.string;
+                else if(value.type==Value::Object && value.fields.size()==1 && value.fields.count("device_id") &&
+                        value.fields.find("device_id")->second.type==Value::String &&
+                        !value.fields.find("device_id")->second.string.empty() && value.fields.find("device_id")->second.string.size()<=256)
+                    sourceDevice=value.fields.find("device_id")->second.string;
+                else return luaL_error(L,"invalid notification source; use a category or {device_id='stable-id'}");
             }else if((it->first!="device_id"&&it->first!="tag")||it->second.type!=Value::String||it->second.string.size()>256)
                 return luaL_error(L,"invalid notification option");
+        }
+        if(!sourceDevice.empty()) {
+            std::string error;
+            const Automation::DeviceSnapshot* device=s->owner->resolve(sourceDevice,&error);
+            if(!device || !device->record)return failure(L,error.empty()?"notification source device unavailable":error);
+            source=deviceNotificationSource(*device->record);
         }
         if(s->validation){lua_pushboolean(L,1);return 1;}
         std::string err;
@@ -363,12 +390,12 @@ struct AutomationWorker::Impl {
         if(notifications){
             if(!requested.empty()&&!notifications->resolveRecipients(requested,&recipientIds,&err))return failure(L,err);
             const std::string device=options.fields["device_id"].string,tag=options.fields["tag"].string;
-            if(device.empty()&&tag.empty())accepted=notifications->enqueue(title,body,std::vector<std::string>(),&err,"",recipientIds);
+            if(device.empty()&&tag.empty())accepted=notifications->enqueue(title,body,std::vector<std::string>(),&err,"",recipientIds,source);
             else{
                 // Keep author grouping separate from Android's channel setting.
                 std::ostringstream key;
                 key<<"automation:"<<s->id<<":"<<device.size()<<":"<<device<<":"<<tag;
-                accepted=notifications->enqueueState(title,body,key.str(),"show",std::vector<std::string>(),&err,"",recipientIds);
+                accepted=notifications->enqueueState(title,body,key.str(),"show",std::vector<std::string>(),&err,"",recipientIds,source);
             }
         }
         if(!accepted)return failure(L,err.empty()?"notifications unavailable":err);

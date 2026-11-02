@@ -1,5 +1,6 @@
 #include "ota.h"
 #include "gateway.h"
+#include "notification_source.h"
 #include "automation_profile.h"
 #include "gateway_config.h"
 #include "gateway_timezone.h"
@@ -3049,7 +3050,8 @@ void Gateway::updateContactAlert(const std::string& ieeeAddress, bool wasOpen, b
             std::map<std::string, long>::const_iterator due = nextContactTriggerAt_.find(ieeeAddress);
             if (due == nextContactTriggerAt_.end() || now >= due->second) {
                 if (emitNotification("Trigger", (device->second.name.empty() ? device->second.ieeeAddress : device->second.name) +
-                                     " triggered", 0, "de.caser.garage.triggers"))
+                                     " triggered", 0, "de.caser.garage.triggers",
+                                     device->second.waterLeak.present() ? "leak" : "doorbell"))
                 {
                     nextContactTriggerAt_[ieeeAddress] = now + static_cast<long>(device->second.contactTriggerCooldownSeconds);
                     markViewDirty();
@@ -3168,7 +3170,7 @@ void Gateway::updateValueAlerts(Device& device, const Device& before) {
 }
 
 bool Gateway::emitNotification(const std::string& title, const std::string& body, std::string* error,
-                               const std::string& androidChannelId) {
+                               const std::string& androidChannelId, const std::string& source) {
     if (notificationWorker_ == 0) { if (error != 0) *error = "no notification delivery is configured"; return false; }
     if (!notificationWorker_->enabled()) {
         if (error != 0) *error = "push notifications are disabled";
@@ -3179,7 +3181,7 @@ bool Gateway::emitNotification(const std::string& title, const std::string& body
     for (std::map<std::string, Device>::const_iterator device = devices_.begin(); device != devices_.end(); ++device)
         if (device->second.occupancy.present() && device->second.occupancy.read().occupied) presentSensorIds.push_back(device->second.ieeeAddress);
     if (!notificationWorker_->enqueue(title, body, presentSensorIds, error != 0 ? error : &enqueueError,
-                                      androidChannelId)) {
+                                      androidChannelId, std::vector<std::string>(), source)) {
         addLog(std::string("Notification queue failed: ") + title + " - " + body);
         return false;
     }
@@ -3202,9 +3204,15 @@ bool Gateway::emitStateNotification(const std::string& title, const std::string&
         for (std::map<std::string, Device>::const_iterator device = devices_.begin(); device != devices_.end(); ++device)
             if (device->second.occupancy.present() && device->second.occupancy.read().occupied) presentSensorIds.push_back(device->second.ieeeAddress);
     std::string enqueueError;
+    std::string source = notificationSourceFromKey(key);
+    if (source == "window") {
+        const std::string id = key.substr(8, key.size()-8-7);
+        std::map<std::string, Device>::const_iterator device = devices_.find(resolveDeviceId(id));
+        if (device != devices_.end() && device->second.waterLeak.present()) source = "leak";
+    }
     if (!notificationWorker_->enqueueState(title, body, key, clear ? "clear" : "show", presentSensorIds,
                                            error != 0 ? error : &enqueueError,
-                                           "de.caser.garage.gateway_alerts")) {
+                                           "de.caser.garage.gateway_alerts", std::vector<std::string>(), source)) {
         if (!clear) addLog(std::string("Notification queue failed: ") + title + " - " + body);
         return false;
     }

@@ -1,4 +1,6 @@
 #include "fcm.h"
+#include "notification_source.h"
+#include "automation_types.h"
 #include "https_client.h"
 #include "json_util.h"
 
@@ -36,6 +38,34 @@ static void testFcmEncodingsAndJwt() {
     assert(makeFcmTokenStateMessage("token", "clear", "value:sensor:humidity:high", "", "",
                                     "de.caser.garage.gateway_alerts") ==
            "{\"message\":{\"token\":\"token\",\"data\":{\"action\":\"clear\",\"key\":\"value:sensor:humidity:high\",\"title\":\"\",\"body\":\"\",\"channel_id\":\"de.caser.garage.gateway_alerts\"},\"android\":{\"priority\":\"HIGH\"}}}");
+
+    const char* sources[]={"default","window","doorbell","temperature","humidity","leak","battery","power","air_quality"};
+    for(size_t i=0;i<sizeof(sources)/sizeof(sources[0]);++i) {
+        const std::string source=sources[i];
+        Automation::Value payload;
+        assert(Automation::parse(makeFcmTokenMessage("token","Title","Body","old-channel",source),&payload));
+        Automation::Value message=payload.fields["message"];
+        assert(message.fields["data"].fields["source"]==Automation::Value(source));
+        assert(message.fields["notification"].fields["title"]==Automation::Value("Title"));
+        assert(message.fields["android"].fields["notification"].fields["channel_id"]==Automation::Value(notificationChannel(source)));
+        assert(message.fields["android"].fields["notification"].fields["icon"]==Automation::Value(notificationIcon(source)));
+        assert(!message.fields["android"].fields.count("data"));
+        assert(Automation::parse(makeFcmTokenStateMessage("token","show","stable-key","Title","Body","old-channel",source),&payload));
+        message=payload.fields["message"];
+        assert(!message.fields.count("notification"));
+        assert(message.fields["data"].fields["source"]==Automation::Value(source));
+        assert(message.fields["data"].fields["key"]==Automation::Value("stable-key"));
+        assert(message.fields["data"].fields["channel_id"]==Automation::Value(notificationChannel(source)));
+    }
+    assert(notificationSourceFromKey("contact:sensor:window")=="window");
+    assert(notificationSourceFromKey("legacy:sensor:temperature:low")=="temperature");
+    assert(notificationSourceFromKey("value:sensor:co2:high")=="air_quality");
+    assert(notificationSourceFromKey("value:sensor:pm25:high")=="air_quality");
+    assert(notificationSourceFromKey("value:sensor:brightness:high")=="default");
+    assert(notificationSourceFromKey("value:sensor:wifi_signal:low")=="default");
+    assert(notificationSourceFromKey("automation:test")=="default");
+    assert(notificationSourceFromKey("value:")=="default");
+    assert(notificationChannel("invalid")=="microhad.gateway_alerts");
 
     assert(readTextFile("test/fixtures/tls/localhost.key", &key));
     account.projectId = "project";

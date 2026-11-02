@@ -99,7 +99,7 @@ void NotificationWorker::stop() {
 
 bool NotificationWorker::enqueue(const std::string& title, const std::string& body,
                                  const std::vector<std::string>& presentSensorIds, std::string* error,
-                                 const std::string& androidChannelId, const std::vector<std::string>& recipientIds) {
+                                 const std::string& androidChannelId, const std::vector<std::string>& recipientIds, const std::string& source) {
     Job job;
     pthread_mutex_lock(&mutex_);
     if (!running_) {
@@ -119,7 +119,7 @@ bool NotificationWorker::enqueue(const std::string& title, const std::string& bo
     }
     job.title = title;
     job.body = body;
-    job.androidChannelId = androidChannelId;
+    job.androidChannelId = androidChannelId; job.source = source;
     job.presentSensorIds = presentSensorIds;
     job.recipientIds = recipientIds;
     jobs_.push_back(job);
@@ -134,7 +134,7 @@ bool NotificationWorker::enqueue(const std::string& title, const std::string& bo
 
 bool NotificationWorker::enqueueState(const std::string& title, const std::string& body, const std::string& key,
                                        const std::string& action, const std::vector<std::string>& presentSensorIds,
-                                       std::string* error, const std::string& androidChannelId, const std::vector<std::string>& recipientIds) {
+                                       std::string* error, const std::string& androidChannelId, const std::vector<std::string>& recipientIds, const std::string& source) {
     if (key.empty() || (action != "show" && action != "clear")) {
         *error = "invalid Android notification state message";
         return false;
@@ -150,7 +150,7 @@ bool NotificationWorker::enqueueState(const std::string& title, const std::strin
         pthread_mutex_unlock(&mutex_); *error = "notification queue is full"; return false;
     }
     Job job;
-    job.title = title; job.body = body; job.androidChannelId = androidChannelId;
+    job.title = title; job.body = body; job.androidChannelId = androidChannelId; job.source = source;
     job.key = key; job.action = action; job.presentSensorIds = presentSensorIds; job.recipientIds = recipientIds;
     jobs_.push_back(job);
     pthread_cond_signal(&ready_);
@@ -291,8 +291,7 @@ void NotificationWorker::deliver(const Job& job, HttpsSession* fcmSession) {
     std::string ignored;
     if (!enabled()) return;
     if (deliveryHook_ != 0) {
-        if (job.key.empty()) deliveryHook_->deliver(job.title, job.body, job.androidChannelId);
-        else deliveryHook_->deliverState(job.title, job.body, job.androidChannelId, job.key, job.action);
+        deliveryHook_->deliverSource(job.title, job.body, job.androidChannelId, job.key, job.action, job.source);
         return;
     }
     std::vector<std::string> allowedPhones, allowedBrowsers;
@@ -319,9 +318,9 @@ void NotificationWorker::deliver(const Job& job, HttpsSession* fcmSession) {
         for (unsigned long i = 0; i < tokens.size() && enabled(); ++i) {
             bool sent = job.key.empty() ?
                 sendFcmTokenNotification(firebaseAccount_, firebaseServiceAccount_, caBundle_, tokens[i], job.title, job.body,
-                                         &ignored, job.androidChannelId, fcmSession) :
+                                         &ignored, job.androidChannelId, fcmSession, job.source) :
                 sendFcmTokenStateMessage(firebaseAccount_, firebaseServiceAccount_, caBundle_, tokens[i], job.action, job.key,
-                                         job.title, job.body, &ignored, job.androidChannelId, fcmSession);
+                                         job.title, job.body, &ignored, job.androidChannelId, fcmSession, job.source);
             if (!sent)
                 fprintf(stderr, "FCM delivery failed: %s\n", ignored.c_str());
         }

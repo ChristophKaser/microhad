@@ -222,6 +222,27 @@ clients with the same label. Empty recipients and malformed lists are invalid.
 Repeated recipients receive one copy. `device_id` and `tag` retain their existing
 notification grouping behavior.
 
+The companion chooses the Android notification channel and status icon from the
+alert source. Automations default to the gateway channel and icon. Override the
+source with a category or a device reference:
+
+```lua
+notify.send("Window open", "Bedroom", { source = "window", tag = "bedroom" })
+notify.send("Check sensor", "Bedroom", { source = { device_id = "stable-device-id" } })
+```
+
+Categories are `default`, `window`, `doorbell`, `temperature`, `humidity`, `leak`,
+`battery`, `power`, and `air_quality`. CO₂ and PM2.5 share `air_quality`; humidity
+and leaks have separate channels. Device references use existing device ID/name
+resolution (prefer stable IDs). The primary device category determines the
+source: thermostat, leak detector, contact (doorbell in trigger mode), climate
+sensor, air quality sensor, then power. Lights, presence/motion, radio/Wi-Fi,
+and ordinary automation messages use `default`. For devices with temperature
+and humidity, temperature wins; select `humidity` explicitly for humidity alerts.
+Invalid categories or malformed references are validation errors; missing or
+ambiguous devices return `nil, error` without sending. Source metadata does not
+change recipients or the top-level `device_id`/`tag` grouping options.
+
 ## Accessory firmware updates
 
 Open **Device settings → Firmware update** for a Zigbee or Matter accessory.

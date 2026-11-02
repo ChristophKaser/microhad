@@ -21,6 +21,13 @@ public:
             (void)key; (void)action;
             deliver(title, body, androidChannelId);
         }
+        virtual void deliverSource(const std::string& title, const std::string& body,
+                                   const std::string& channel, const std::string& key,
+                                   const std::string& action, const std::string& source) {
+            (void)source;
+            if(key.empty()) deliver(title,body,channel);
+            else deliverState(title,body,channel,key,action);
+        }
     };
     NotificationWorker(const std::string& runtimeDirectory, const std::string& firebaseServiceAccount,
                        const std::string& firebaseTopic, const std::string& caBundle,
@@ -31,13 +38,15 @@ public:
     bool enqueue(const std::string& title, const std::string& body,
                  const std::vector<std::string>& presentSensorIds, std::string* error,
                  const std::string& androidChannelId = "",
-                 const std::vector<std::string>& recipientIds = std::vector<std::string>());
+                 const std::vector<std::string>& recipientIds = std::vector<std::string>(),
+                 const std::string& source = "");
     bool enqueue(const std::string& title, const std::string& body, std::string* error,
                  const std::string& androidChannelId = "");
     bool enqueueState(const std::string& title, const std::string& body, const std::string& key,
                       const std::string& action, const std::vector<std::string>& presentSensorIds,
                       std::string* error, const std::string& androidChannelId = "",
-                      const std::vector<std::string>& recipientIds = std::vector<std::string>());
+                      const std::vector<std::string>& recipientIds = std::vector<std::string>(),
+                      const std::string& source = "");
     // Resolved IDs carry a phone:/browser: prefix and may be passed to enqueue.
     bool resolveRecipients(const std::vector<std::string>& requested, std::vector<std::string>* ids, std::string* error) const;
     static bool resolveRecipients(const std::vector<RouteClient>& clients, const std::vector<std::string>& requested,
@@ -53,7 +62,7 @@ public:
     static std::vector<std::string> selectRecipients(const std::vector<RouteClient>& clients,
                                                      const std::vector<std::string>& presentSensorIds);
 private:
-    struct Job { std::string title; std::string body; std::string androidChannelId; std::string key, action; std::vector<std::string> presentSensorIds, recipientIds; };
+    struct Job { std::string title; std::string body; std::string androidChannelId; std::string key, action, source; std::vector<std::string> presentSensorIds, recipientIds; };
     struct Device { std::string id, model, token, label, presenceSensorId; bool enabled; };
     std::string runtimeDirectory_, firebaseServiceAccount_, firebaseTopic_, caBundle_;
     FirebaseServiceAccount firebaseAccount_;

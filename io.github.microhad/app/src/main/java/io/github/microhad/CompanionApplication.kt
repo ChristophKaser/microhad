@@ -10,8 +10,7 @@ class CompanionApplication : Application() {
         super.onCreate()
         GatewayAuth.initialize(this)
         GatewayStore(this).processStarted()
-        (getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager).createNotificationChannel(
-            android.app.NotificationChannel(GatewayMessagingService.CHANNEL, getString(R.string.gateway_alerts_channel_name), android.app.NotificationManager.IMPORTANCE_DEFAULT))
+        NotificationSources.register(this)
         runCatching { initializeFirebase(this) }.onFailure { GatewayStore(this).status("Firebase initialization failed; check gateway settings") }
     }
     companion object {

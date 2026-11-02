@@ -16,10 +16,10 @@ std::string base64UrlEncode(const std::string& data);
 bool base64UrlDecode(const std::string& value, std::string* decoded);
 std::string makeFcmMessage(const std::string& topic, const std::string& title, const std::string& body);
 std::string makeFcmTokenMessage(const std::string& token, const std::string& title, const std::string& body,
-                               const std::string& androidChannelId = "");
+                               const std::string& androidChannelId = "", const std::string& source = "");
 std::string makeFcmTokenStateMessage(const std::string& token, const std::string& action,
                                     const std::string& key, const std::string& title,
-                                    const std::string& body, const std::string& androidChannelId = "");
+                                    const std::string& body, const std::string& androidChannelId = "", const std::string& source = "");
 std::string makeGoogleAccessTokenJwt(const FirebaseServiceAccount& account, long issuedAt, std::string* error);
 bool sendFcmNotification(const std::string& serviceAccountPath, const std::string& caBundle,
                          const std::string& topic, const std::string& title, const std::string& body,
@@ -30,19 +30,19 @@ bool sendFcmNotification(const FirebaseServiceAccount& account, const std::strin
 bool sendFcmTokenNotification(const std::string& serviceAccountPath, const std::string& caBundle,
                               const std::string& token, const std::string& title, const std::string& body,
                               std::string* error, const std::string& androidChannelId = "",
-                              HttpsSession* session = 0);
+                              HttpsSession* session = 0, const std::string& source = "");
 bool sendFcmTokenNotification(const FirebaseServiceAccount& account, const std::string& serviceAccountPath,
                               const std::string& caBundle, const std::string& token, const std::string& title,
                               const std::string& body, std::string* error,
-                              const std::string& androidChannelId = "", HttpsSession* session = 0);
+                              const std::string& androidChannelId = "", HttpsSession* session = 0, const std::string& source = "");
 bool sendFcmTokenStateMessage(const std::string& serviceAccountPath, const std::string& caBundle,
                               const std::string& token, const std::string& action, const std::string& key,
                               const std::string& title, const std::string& body, std::string* error,
-                              const std::string& androidChannelId = "", HttpsSession* session = 0);
+                              const std::string& androidChannelId = "", HttpsSession* session = 0, const std::string& source = "");
 bool sendFcmTokenStateMessage(const FirebaseServiceAccount& account, const std::string& serviceAccountPath,
                               const std::string& caBundle, const std::string& token, const std::string& action,
                               const std::string& key, const std::string& title, const std::string& body,
                               std::string* error, const std::string& androidChannelId = "",
-                              HttpsSession* session = 0);
+                              HttpsSession* session = 0, const std::string& source = "");
 
 #endif
