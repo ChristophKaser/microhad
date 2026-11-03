@@ -389,7 +389,7 @@ print('Content-Encoding: gzip\\r\\n')
     def test_dashboard_wait_handles_delayed_startup_and_timeout(self):
         script = (ROOT.parent / 'deploy.sh').read_text()
         functions = script[script.index('verification_get() {'):script.index('verify_webui_assets() {')]
-        for failures in (0, 2, -1):
+        for failures in (0, 2, 12, -1):
             with self.subTest(failures=failures), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 calls = root / 'calls'
@@ -440,8 +440,9 @@ if failures < 0 or count <= failures:
                     self.assertEqual(len(probes), failures + 1)
                 else:
                     self.assertNotEqual(result.returncode, 0)
-                    self.assertIn('did not become ready within 30 seconds', result.stderr)
-                    self.assertLessEqual(int(clock.read_text()), 35)
+                    self.assertIn('did not become ready within 120 seconds', result.stderr)
+                    self.assertGreaterEqual(int(clock.read_text()), 123)
+                    self.assertLessEqual(int(clock.read_text()), 125)
                 self.assertNotIn('connection refused', result.stderr)
 
     def test_paired_launcher_enables_matter_only_for_staged_executable(self):

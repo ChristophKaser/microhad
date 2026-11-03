@@ -200,10 +200,10 @@ verification_headers() {
 wait_for_dashboard() {
     echo "Waiting for the HTTP dashboard to become ready"
     sleep 3
-    dashboard_deadline=$(($(date +%s) + 30))
+    dashboard_deadline=$(($(date +%s) + 120))
     while ! verification_get /api/status 2 >/dev/null 2>&1; do
         if [ "$(date +%s)" -ge "$dashboard_deadline" ]; then
-            echo "HTTP dashboard did not become ready within 30 seconds" >&2
+            echo "HTTP dashboard did not become ready within 120 seconds" >&2
             return 1
         fi
         sleep 1
