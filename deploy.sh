@@ -753,6 +753,21 @@ prune_web_bundles() {
     assets_dir="$target/webui/assets"
     if [ "${1:-}" = final ]; then
         ssh_command "rm -f \"$target/webui/index.html\" \"$target/webui/index.html.br\" \"$target/webui/sw.js\" \"$target/webui/sw.js.br\" \"$target/webui/licenses.html\" \"$target/webui/licenses.html.br\" \"$target/webui/microhad-icon.svg\" \"$target/webui/microhad-icon.svg.br\" \"$assets_dir\"/index-*.js \"$assets_dir\"/index-*.css \"$assets_dir\"/index-*.js.br \"$assets_dir\"/index-*.css.br \"$assets_dir\"/index-*.js.gz.new \"$assets_dir\"/index-*.css.gz.new"
+        # Prune only after the new index is installed. Keep every asset from
+        # this release, including lazy chunks and workers, rather than only
+        # the files directly referenced by index.html.
+        retained_patterns=$(if [ -d "$webui_dist/assets" ]; then
+            find "$webui_dist/assets" -type f -name '*.gz' | while IFS= read -r asset; do
+                relative=${asset#"$webui_dist/assets"/}
+                case "$relative" in ''|*[!A-Za-z0-9_./-]*|*..*) echo 'Unsupported retained Web UI asset path' >&2; exit 1 ;; esac
+                printf '|"%s/%s"' "$assets_dir" "$relative"
+            done
+        fi) || return 1
+        ssh_command "for asset in \"$assets_dir\"/*.gz; do
+            [ -f \"\$asset\" ] || continue
+            case \"\$asset\" in \"$assets_dir/.keep\"$retained_patterns) continue ;; esac
+            rm -f \"\$asset\" || exit 1
+        done"
     else
         ssh_command "rm -f \"$assets_dir\"/index-*.js.gz.new \"$assets_dir\"/index-*.css.gz.new"
     fi

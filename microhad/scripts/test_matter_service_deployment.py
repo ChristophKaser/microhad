@@ -51,6 +51,38 @@ def webui_release(directory, assets):
 
 
 class Staging(unittest.TestCase):
+    def test_webui_pruning_preserves_release_chunks_until_index_switch(self):
+        script = (ROOT.parent / 'deploy.sh').read_text()
+        function = script.split('prune_web_bundles() {', 1)[1].split('\nif [ "$deploy_binary"', 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            assets = root / 'installed/webui/assets'
+            assets.mkdir(parents=True)
+            release = root / 'release/assets'
+            release.mkdir(parents=True)
+            current = ['index-current.js.gz', 'index-current.css.gz', 'lazy-current.js.gz', 'worker-current.js.gz']
+            obsolete = ['index-old.js.gz', 'index-old.css.gz', 'lazy-old.js.gz']
+            for name in current:
+                (release / name).write_bytes(b'current')
+            for name in current + obsolete + ['index-old.js.gz.new', 'index-old.js.br', 'index-old.js']:
+                (assets / name).write_bytes(b'installed')
+            # Neither state nor another UI installation belongs to this pruning pass.
+            (assets / 'unrelated.txt').write_text('keep')
+            other = root / 'other-ui.js.gz'
+            other.write_bytes(b'keep')
+            harness = ('set -eu\nssh_command() { sh -c "$1"; }\n'
+                       'target=$1\nwebui_dist=$2\nprune_web_bundles() {' + function + '\nprune_web_bundles "$3"\n')
+            for mode in ['temporary', 'final', 'final']:
+                result = subprocess.run(['sh', '-s', '--', str(root / 'installed'), str(root / 'release'), mode],
+                                        input=harness, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for name in current:
+                    self.assertTrue((assets / name).exists(), name)
+                for name in obsolete:
+                    self.assertEqual((assets / name).exists(), mode == 'temporary', name)
+                self.assertTrue((assets / 'unrelated.txt').exists())
+                self.assertTrue(other.exists())
+
     def selected_deployment(self, root, extra=(), **settings):
         artifact = root / 'matter'
         artifact.write_bytes(b'selected Matter executable')
