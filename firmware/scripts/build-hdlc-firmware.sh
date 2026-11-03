@@ -19,6 +19,7 @@ slc generate "$project.slcp" --sdk "$GECKO_SDK" --with EFR32MG1B232F256GM48 --fo
     > "$experiment_root/logs/hdlc-firmware-generate.log" 2>&1
 cp "$patches_dir/sl_uartdrv_usart_vcom_config.h" config/
 cp "$patches_dir/sl_rail_util_pti_config.h" config/
+python3 "$experiment_root/firmware/scripts/prepare-hdlc-diagnostics.py" --sdk "$GECKO_SDK" --build "$build_dir"
 python3 - "$project.Makefile" "$ARM_GCC_DIR" <<'PY'
 import pathlib,re,sys
 p=pathlib.Path(sys.argv[1]);s=p.read_text()

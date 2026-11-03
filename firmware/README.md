@@ -45,6 +45,61 @@ Follow [installation](../docs/installation.md) and
 network state and factory backups; shared-radio maintenance requires exclusive
 UART ownership.
 
+## HDLC receive-error frame diagnostics
+
+Firmware built here includes an error-only HDLC receive snapshot. The upstream
+logger previously printed at most the first 41 decoded bytes. The build now
+patches copies of `ncp_hdlc.cpp` and its header under
+`build/firmware-hdlc/diagnostics/`, using
+[`hdlc-rx-error-frame.patch`](patches/hdlc-rx-error-frame.patch) and the
+[bounded logger](diagnostics/hdlc_rx_error_log.hpp). The pinned SDK checkout is
+not modified.
+
+On an HDLC framing error, the radio retains the decoded bytes currently in its
+receive buffer and queues these ASCII records through `SPINEL_PROP_STREAM_DEBUG`:
+
+```text
+Framing error 6: id=1 len=113 captured=113 residue=1234
+HDLC_RX_FRAME id=1 offset=0 len=32 hex=...
+HDLC_RX_FRAME id=1 offset=32 len=32 hex=...
+HDLC_RX_FRAME id=1 offset=64 len=32 hex=...
+HDLC_RX_FRAME id=1 offset=96 len=17 hex=...
+HDLC_RX_END id=1 captured=113 dropped_total=0
+```
+
+The example residue is illustrative. For a complete HDLC frame with valid FCS,
+the CRC-16/X-25 accumulator over the decoded bytes, including the received FCS,
+is `f0b8`. Checksum-error snapshots retain the failed FCS bytes too. Concatenate
+`hex` fields by `offset` to compare the complete received frame with the host's
+intended Spinel frame plus its two-byte little-endian FCS. The bytes have already
+been HDLC-unescaped; they are not a raw UART capture. A receive-buffer overflow
+can retain only the prefix available in that buffer.
+
+This RCP configuration has a 512-byte receive buffer. The logger keeps one
+bounded copy with no heap allocation and emits at most 32 bytes of frame data
+per record. It advances only when the NCP stream accepts a record, retrying as
+transmit-buffer frames are removed. A second framing error while a snapshot is
+pending preserves the first snapshot and increments `dropped_total`; sequence
+gaps and the end marker make missing data detectable. There is no normal-frame
+byte copying or per-packet diagnostic output.
+
+Existing Ziggurat software packet capture records these messages as IID 0,
+property `0x70`, in `SPINEL_RX` payloads. Decode the property's ASCII bytes after
+reassembling syslog fragments to read the records. This diagnostic does not
+require `radio-trace on` or firmware-level radio packet tracing. Keep those off.
+
+Run the host regression test and build/package a candidate with:
+
+```sh
+python3 firmware/scripts/test-hdlc-diagnostics.py
+bash firmware/scripts/build-hdlc-firmware.sh
+bash firmware/scripts/package-hdlc-gbl.sh
+```
+
+The candidate is `build/firmware-hdlc/build/debug/ot-rcp-multipan.gbl`.
+It does not affect the installed radio until explicitly flashed through the
+existing frozen-snapshot and exclusive-UART maintenance flow.
+
 ## Prebuilt firmware releases
 
 Download `ot-rcp-multipan-VERSION.tar.gz` from the repository's

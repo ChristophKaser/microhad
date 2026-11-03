@@ -268,3 +268,13 @@ The stock production ELF loader has no core-dump callback. Opt-in
 `CRASH_SNAPSHOTS=true` builds userspace SIGSEGV/SIGILL snapshot capture for all
 three services, bypassing that missing kernel writer without changing it.
 Run the isolated device snapshot demo before deploying the instrumented stack.
+
+## Full HDLC receive-error snapshots
+
+The firmware's error-only logger records the complete decoded receive buffer,
+including failed checksum bytes, rather than the old 41-byte prefix. See
+[firmware HDLC diagnostics](../firmware/README.md#hdlc-receive-error-frame-diagnostics)
+for the sequence/offset format, CRC residue, buffer bounds and build/test flow.
+These records use the ordinary Spinel debug stream and existing software packet
+capture. Firmware radio tracing remains disabled. An installed firmware update
+is required before the new records appear.
