@@ -160,6 +160,19 @@ and overload/drop markers or connection gaps must be checked before treating
 an absent event as evidence. Frames filtered or dropped by the RCP are not a
 promiscuous over-the-air capture. No capture files are written to gateway flash.
 
+When Matter raw packet capture is enabled (`--raw-frames` /
+`MATTER_RAW_FRAMES=on`), the `matter_raw` log target also records
+`SESSION_KEY` entries at session establishment. RX and TX entries contain the
+on-wire destination `session_id`, nonce `source_node`, peer address, and the
+16-byte AES-CCM traffic key as hex bytes. The capture covers PASE, CASE and
+resumed sessions through the shared session update hook. Keys follow the same
+filter as raw packets (trace logging also enables that target). Reassemble
+syslog fragments before decoding; correlate using the service process/lifetime,
+peer, direction and session ID, since IDs can be reused. Retain logs from the
+start of the session: rotating away a key entry makes later packets undecodable.
+Turning capture on after session establishment cannot recover old key entries.
+Keys are diagnostic log data only; no additional device flash files are written.
+
 To distinguish malformed accessory fragments from receive-path problems, replay
 an authenticated plaintext 6LoWPAN FRAG1 payload (including its four-byte
 fragment header):

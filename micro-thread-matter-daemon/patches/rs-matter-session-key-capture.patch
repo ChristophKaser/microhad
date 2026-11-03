@@ -1,0 +1,26 @@
+From: Christoph Kaser <christoph@caser.de>
+Subject: [PATCH] rs-matter: capture directional session keys with raw packets
+
+--- a/rs-matter/src/transport/session.rs
++++ b/rs-matter/src/transport/session.rs
+@@ -1134,6 +1134,20 @@
+             session.shared_secret.load(shared_secret);
+         }
+ 
++        // Use the packet capture target so keys follow the same capture filter.
++        // Export traffic keys only, with the on-wire destination session ID and
++        // nonce source node for each direction. This covers PASE, CASE and resume.
++        if dec_key.is_some() {
++            log::trace!(target: "matter_raw",
++                "SESSION_KEY direction=RX session_id={:04X} source_node={:016X} peer={} key={:02X?}",
++                local_sessid, peer_nodeid, peer_addr, session.dec_key.reference().access());
++        }
++        if enc_key.is_some() {
++            log::trace!(target: "matter_raw",
++                "SESSION_KEY direction=TX session_id={:04X} source_node={:016X} peer={} key={:02X?}",
++                peer_sessid, local_nodeid, peer_addr, session.enc_key.reference().access());
++        }
++
+         Ok(())
+     }
+ 

@@ -1,12 +1,56 @@
 #!/usr/bin/env python3
 """Host-only syslog integration using synthetic service traffic and libc interception."""
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
 
+from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+
 ROOT = Path(__file__).resolve().parents[2]
 BINARY = ROOT / 'build/micro-thread-matter-daemon/target/release/mthread-matter'
+
+
+def verify_session_capture(records):
+    # Syslog fragments can interleave; reassemble by entry ID, as in live logs.
+    messages = []
+    pending = {}
+    for line in records.splitlines():
+        body = line.split('\t', 2)[2]
+        fragment = re.match(r'\[([0-9a-fA-F]+)/([0-9a-fA-F]+)([+=])\] ?(.*)', body)
+        if fragment:
+            entry, sequence, end, payload = fragment.groups()
+            pending.setdefault(entry, []).append((int(sequence, 16), payload))
+            if end == '=':
+                messages.append(''.join(p for _, p in sorted(pending.pop(entry))))
+        else:
+            messages.append(body)
+    keys = {}
+    for message in messages:
+        match = re.search(r'SESSION_KEY direction=(RX|TX) session_id=([0-9A-F]+) source_node=([0-9A-F]+) peer=.* key=\[([^]]+)\]', message)
+        if match:
+            direction, sid, node, key = match.groups()
+            keys[direction, int(sid, 16)] = (int(node, 16), bytes.fromhex(key.replace(',', ' ')))
+    assert len(keys) == 2, 'both directional session keys must survive syslog fragmentation'
+    verified = set()
+    for message in messages:
+        match = re.search(r'(RX|TX) unix_us=\d+ peer=.* length=\d+ (?:result=\d+ )?payload=\[([^]]+)\]', message)
+        if not match:
+            continue
+        direction, payload = match.groups()
+        packet = bytes.fromhex(payload.replace(',', ' '))
+        if len(packet) < 24:
+            continue
+        sid = int.from_bytes(packet[1:3], 'little')
+        if (direction, sid) not in keys:
+            continue
+        node, key = keys[direction, sid]
+        nonce = packet[3:4] + packet[4:8] + node.to_bytes(8, 'little')
+        plaintext = AESCCM(key, tag_length=16).decrypt(nonce, packet[8:], packet[:8])
+        assert plaintext == b'synthetic Matter report'
+        verified.add(direction)
+    assert verified == {'RX', 'TX'}, 'exported keys must authenticate both packet directions'
 
 
 def main():
@@ -47,12 +91,15 @@ def main():
             assert 'INFO thread_diagnostics: OpenThread [I] SrpServer----: registration accepted' in records
             assert 'routine stack detail' not in records
             if mode == 'on':
+                verify_session_capture(records)
+                print('PASS captured session keys authenticate RX and TX AES-CCM packets')
                 assert 'RX unix_us=' in records and 'peer=[fd00::1234]:5540' in records
                 assert 'length=3 payload=[00, AB, FF]' in records
                 assert 'length=2 result=0 payload=[01, CD]' in records
                 assert 'length=1 result=4 payload=[02]' in records
             else:
                 assert 'matter_raw' not in records
+                assert 'SESSION_KEY' not in records
         print('PASS asynchronous UDP payload capture, peer metadata, send results, filtering and shutdown flush')
         for level in ('off', 'error', 'warn', 'info', 'debug', 'trace'):
             capture.unlink(missing_ok=True)
