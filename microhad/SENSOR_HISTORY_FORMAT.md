@@ -8,7 +8,7 @@ The coordinator owns appends, allocation, eviction, and the in-memory page
 catalog. HTTP workers copy the requested device’s page list under a short
 catalog lock, then release it before all disk reads and JSON construction.
 They compare page identity and allocation generation against their snapshot,
-validate header and record CRCs, and recheck the header after copying a page.
+validate header and record CRCs, and recheck immutable page identity after copying a page.
 A page evicted during a request is skipped; a later request sees the new data.
 Pages are visited by newest timestamp and position, skipping ranges outside
 the cursor and stopping once the response and pagination sentinel are known. The API keeps
@@ -43,8 +43,10 @@ Each page is exactly 2,048 bytes: an 86-byte header followed by 218 records of
 | 2 | 1 | State: `1` allocated; zero means unused |
 | 3 | 4 | Page allocation generation |
 | 7 | 64 | Device ID, zero-padded |
-| 71 | 14 | Reserved zero bytes, including the five bytes moved into the header |
-| 85 | 1 | CRC over bytes 0–84 |
+| 71 | 3 | First committed-count copy: count, complemented count, identity-bound CRC |
+| 74 | 3 | Second committed-count copy, same encoding |
+| 77 | 8 | Reserved zero bytes |
+| 85 | 1 | CRC over bytes 0–84, treating counter bytes 71–76 as zero |
 
 The record is a full Unix timestamp (4 bytes), IEEE-754 binary32 value (4 bytes),
 and CRC (1 byte). No sequence number is stored. The record CRC covers the page
@@ -88,14 +90,34 @@ rejected rather than mixed into an incompatible series.
 
 ## Recovery and retention
 
-Startup scans page headers and contiguous valid records to rebuild the page
-catalog and highest allocation generation. Each pair’s pages are sorted by
-allocation generation so appends resume in the newest partially filled page
-after allocation wraps, including when the clock moves backwards. The oldest
-allocation generation determines eviction. Invalid headers and checksummed
-records are skipped; an incomplete record tail is ignored. V3 is written fresh
-without migration or legacy-file removal. Unknown or damaged formats are
-preserved and initialization fails closed.
+V3 now uses six formerly reserved bytes for committed record counters; file magic,
+version, page sizes and record encoding remain unchanged. Updated readers accept
+legacy all-zero counter fields. Older unmodified readers reject counter-bearing
+pages because they require all reserved bytes to be zero; downgrade requires an
+updated reader.
+
+Each counter copy stores a count from 0 through 218, its XOR-0xff complement,
+and CRC-8/ATM over the immutable first 71 header bytes followed by the two counter
+bytes. The highest valid count wins. Count parity selects the next copy. The
+record is written completely before the counter is published; only then is the
+in-memory catalog advanced. An interrupted update falls back to the other copy,
+ignoring an unpublished tail. New pages start with a protected zero count.
+
+Startup rebuilds the catalog using committed counts and first/last valid records.
+The count remains the append boundary even when endpoint records fail CRC; endpoint
+searches move inward without reclaiming occupied slots. All-invalid records provide
+no timestamp/value bounds but retain their committed count. Pages are ordered by
+allocation generation for appends and eviction. Timestamp bounds use the endpoints,
+assuming increasing timestamps; backward clock adjustments can make queries omit
+interior samples or whole pages, without deleting the stored records.
+
+Legacy pages and pages with two invalid counters receive a page-sized scan to find
+the highest valid slot, retaining valid records after interior corruption. Counters
+are backfilled in RAM without changing record bytes or header identity. Flash gains
+counters through ordinary background page persistence; there is no bulk flash
+migration, compaction or extra per-append flash write. Pages copied from flash into
+RAM receive counters. Unknown/damaged file formats are preserved and initialization
+fails closed. Queries validate records and skip damaged entries in both interfaces.
 
 Samples append until a page fills, then a new page is allocated for that
 device/metric pair. Full timestamps support devices reporting once per day

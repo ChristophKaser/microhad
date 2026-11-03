@@ -36,6 +36,7 @@ public:
     bool flushDeviceCache(std::string* error = 0);
 
 #ifdef MICROHAD_TESTING
+    ReadStats recoveryStatsForTests() const;
     void useManualPersistenceForTests();
     bool persistForTests(unsigned long seconds, std::string* error);
     unsigned long persistenceWritesForTests() const;
@@ -122,6 +123,7 @@ private:
     struct FlashState;
     FlashState* flash_;
     ValueJournal values_;
+    ReadStats recoveryStats_;
     bool prepareFlash(std::string* error);
     bool persistPages(unsigned long seconds, std::string* error);
     bool startPersistenceLocked(std::string* error);

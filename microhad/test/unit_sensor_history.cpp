@@ -16,6 +16,7 @@ extern void* sensorHistorySnapshotHookData;
 extern void (*sensorHistoryPersistenceCopyHook)(void*);
 extern void* sensorHistoryPersistenceCopyHookData;
 extern bool sensorHistoryFailPersistenceSync;
+extern unsigned int sensorHistoryCounterWriteLimit;
 
 namespace {
 std::string historyPath() {
@@ -58,10 +59,146 @@ std::vector<SensorHistory::ValueRecord> samplesIn(const std::string& json) {
     return samples;
 }
 
+void patchHistory(const std::string& path, long offset, const unsigned char* bytes, size_t count) {
+    FILE* file = fopen((path + ".values").c_str(), "r+b"); assert(file);
+    assert(fseek(file, offset, SEEK_SET) == 0);
+    assert(fwrite(bytes, 1, count, file) == count); assert(fclose(file) == 0);
+}
+void damageHistoryByte(const std::string& path, long offset) {
+    FILE* file = fopen((path + ".values").c_str(), "rb"); assert(file);
+    assert(fseek(file, offset, SEEK_SET) == 0); int value = fgetc(file); assert(value != EOF); fclose(file);
+    unsigned char damaged = static_cast<unsigned char>(value ^ 0x80); patchHistory(path, offset, &damaged, 1);
+}
+void counterHistoryFixture(const std::string& path) {
+    SensorHistory history(path);
+    for (unsigned int i = 0; i < 10; ++i)
+        assert(history.appendNumeric("synthetic:counter", SensorHistory::Contact, i % 2, "", 1709000000 + i));
+}
+void counterRecoveryTests() {
+    const std::string id = "synthetic:counter";
+    for (unsigned int mode = 0; mode < 7; ++mode) {
+        const std::string path = historyPath(); counterHistoryFixture(path);
+        const unsigned char zeros[6] = {0, 0, 0, 0, 0, 0};
+        if (mode == 1) damageHistoryByte(path, 16 + 86 + 4 * 9 + 8); // Interior hole.
+        if (mode == 2) {
+            damageHistoryByte(path, 16 + 86 + 8); damageHistoryByte(path, 16 + 86 + 9 * 9 + 8);
+        }
+        if (mode == 3 || mode == 4) damageHistoryByte(path, 16 + 73); // Newest counter.
+        if (mode == 4) damageHistoryByte(path, 16 + 76); // Both counters.
+        if (mode == 5) {
+            patchHistory(path, 16 + 71, zeros, sizeof(zeros)); // A genuine legacy V3 header.
+            damageHistoryByte(path, 16 + 86 + 4 * 9 + 8);
+        }
+        if (mode == 6) {
+            // A valid record written before its counter publication must remain invisible.
+            FILE* file = fopen((path + ".values").c_str(), "rb"); assert(file);
+            unsigned char record[9]; assert(fseek(file, 16 + 86, SEEK_SET) == 0);
+            assert(fread(record, 1, sizeof(record), file) == sizeof(record)); fclose(file);
+            patchHistory(path, 16 + 86 + 10 * 9, record, sizeof(record));
+        }
+        {
+            SensorHistory history(path); std::string error, json; assert(history.initialize(&error));
+            const SensorHistory::ReadStats stats = history.recoveryStatsForTests();
+            assert(stats.pagesRead == 1);
+            if (mode == 4 || mode == 5) assert(stats.recordsChecked == 218);
+            else assert(stats.recordsChecked == (mode == 2 ? 4 : 2));
+            if (mode == 0) assert(stats.bytesRead == 86 + 2 * 9);
+            assert(history.readForDevice(id, 0, &json, &error));
+            const unsigned int expected = mode == 1 || mode == 3 || mode == 5 ? 9 : mode == 2 ? 8 : 10;
+            assert(samplesIn(json).size() == expected);
+            std::vector<std::string> ids(1, id);
+            SensorHistory::Query* query = history.beginQuery(ids, SensorHistory::Contact, 0, 0, 128, false, 0, &error);
+            assert(query); while (!query->done) assert(history.stepQuery(query, &error));
+            assert(query->samples.size() == expected); delete query;
+            // Recovered latest values still suppress duplicate samples.
+            const unsigned int last = mode == 2 || mode == 3 ? 0 : 1;
+            assert(history.appendNumeric(id, SensorHistory::Contact, last, "", 1709000020));
+            assert(history.readForDevice(id, 0, &json, &error)); assert(samplesIn(json).size() == expected);
+            assert(history.appendNumeric(id, SensorHistory::Contact, 1 - last, "", 1709000021));
+            assert(history.readForDevice(id, 0, &json, &error)); assert(samplesIn(json).size() == expected + 1);
+        }
+        {
+            SensorHistory history(path); assert(history.initialize());
+            assert(history.recoveryStatsForTests().recordsChecked <= 4); // Backfill is retained on restart.
+        }
+        removeHistoryFiles(path);
+    }
+    for (unsigned int length = 0; length < 3; ++length) {
+        const std::string path = historyPath(); counterHistoryFixture(path);
+        {
+            SensorHistory history(path); assert(history.initialize());
+            sensorHistoryCounterWriteLimit = length;
+            assert(!history.appendNumeric(id, SensorHistory::Contact, 0, "", 1709000030));
+            sensorHistoryCounterWriteLimit = 3;
+        }
+        {
+            SensorHistory history(path); std::string json, error;
+            assert(history.readForDevice(id, 0, &json, &error)); assert(samplesIn(json).size() == 10);
+            assert(history.appendNumeric(id, SensorHistory::Contact, 0, "", 1709000031));
+            assert(history.readForDevice(id, 0, &json, &error)); assert(samplesIn(json).size() == 11);
+        }
+        removeHistoryFiles(path);
+    }
+    // Flash counters use the same fast metadata path; legacy flash is left
+    // untouched while its restored RAM copy gains counters.
+    for (unsigned int legacy = 0; legacy < 2; ++legacy) {
+        const std::string ram = historyPath(), flash = historyPath();
+        {
+            SensorHistory history(ram, flash); history.useManualPersistenceForTests();
+            for (unsigned int i = 0; i < 10; ++i)
+                assert(history.appendNumeric(id, SensorHistory::Contact, i % 2, "", 1709000000 + i));
+            assert(history.persistForTests(14400, 0)); assert(history.persistenceWritesForTests() == 1);
+        }
+        if (legacy) {
+            FILE* file = fopen(flash.c_str(), "r+b"); assert(file);
+            const unsigned char zeros[6] = {0, 0, 0, 0, 0, 0}; assert(fseek(file, 16 + 71, SEEK_SET) == 0);
+            assert(fwrite(zeros, 1, sizeof(zeros), file) == sizeof(zeros)); fclose(file);
+        }
+        removeHistoryFiles(ram);
+        {
+            SensorHistory history(ram, flash); history.useManualPersistenceForTests(); assert(history.initialize());
+            assert(history.recoveryStatsForTests().recordsChecked == (legacy ? 220 : 4));
+            std::string json, error; assert(history.readForDevice(id, 0, &json, &error));
+            assert(samplesIn(json).size() == 10); assert(history.persistenceWritesForTests() == 0);
+        }
+        if (legacy) {
+            FILE* file = fopen(flash.c_str(), "rb"); assert(file); assert(fseek(file, 16 + 71, SEEK_SET) == 0);
+            for (unsigned int i = 0; i < 6; ++i) assert(fgetc(file) == 0);
+            fclose(file);
+        }
+        removeHistoryFiles(ram); unlink(flash.c_str());
+    }
+    // A page allocated before the first counter publication has no committed records.
+    const std::string empty = historyPath();
+    { SensorHistory history(empty); assert(history.appendNumeric(id, SensorHistory::Contact, 0, "", 1709000000)); }
+    const unsigned char zeroSlot[3] = {0, 0, 0}; patchHistory(empty, 16 + 74, zeroSlot, sizeof(zeroSlot));
+    {
+        SensorHistory history(empty); std::string json, error; assert(history.initialize(&error));
+        assert(history.recoveryStatsForTests().recordsChecked == 0);
+        assert(history.readForDevice(id, 0, &json, &error)); assert(samplesIn(json).empty());
+        assert(history.appendNumeric(id, SensorHistory::Contact, 1, "", 1709000001));
+    }
+    removeHistoryFiles(empty);
+    // Accepted limitation: endpoint bounds need not retain interior timestamps after a clock rollback.
+    const std::string backwards = historyPath();
+    {
+        SensorHistory history(backwards);
+        assert(history.appendNumeric(id, SensorHistory::Contact, 0, "", 1709000000));
+        assert(history.appendNumeric(id, SensorHistory::Contact, 1, "", 1709000100));
+        assert(history.appendNumeric(id, SensorHistory::Contact, 0, "", 1709000050));
+    }
+    {
+        SensorHistory history(backwards); std::string json, error;
+        assert(history.readForDevice(id, 0, &json, &error)); assert(samplesIn(json).size() == 2);
+    }
+    removeHistoryFiles(backwards);
+}
+
 }
 
 void runSensorHistoryUnitTests() {
     fprintf(stderr, "unit: paged sensor history v3\n");
+    counterRecoveryTests();
     const std::string heatingPath=historyPath();
     {
         SensorHistory history(heatingPath);
@@ -202,7 +339,8 @@ void runSensorHistoryUnitTests() {
         assert(header[0] == 'T' && header[1] == 'Z' && header[2] == 'H' && header[3] == '3');
         assert(header[6] == 86 && header[7] == 9 && header[9] == 218 && header[11] == 0xff);
         unsigned char pageHeader[86]; assert(fread(pageHeader, 1, sizeof(pageHeader), file) == sizeof(pageHeader));
-        for (int i = 71; i <= 84; ++i) assert(pageHeader[i] == 0);
+        assert(pageHeader[74] == 1 && pageHeader[75] == 254);
+        for (int i = 77; i <= 84; ++i) assert(pageHeader[i] == 0);
         fclose(file);
 
         assert(history.readForDevice(zigbeeId, 0, &json, &error));

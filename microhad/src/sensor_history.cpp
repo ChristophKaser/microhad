@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #ifdef MICROHAD_TESTING
@@ -26,6 +27,7 @@ void* sensorHistorySnapshotHookData = 0;
 void (*sensorHistoryPersistenceCopyHook)(void*) = 0;
 void* sensorHistoryPersistenceCopyHookData = 0;
 bool sensorHistoryFailPersistenceSync = false;
+unsigned int sensorHistoryCounterWriteLimit = 3;
 void (*sensorHistoryQueryPageHook)(void*) = 0;
 void* sensorHistoryQueryPageHookData = 0;
 #endif
@@ -51,8 +53,7 @@ uint32_t get32(const unsigned char* b) {
 uint64_t recordCursor(uint32_t timestamp, unsigned int page, unsigned int slot) {
     return (static_cast<uint64_t>(timestamp) << 18) | (static_cast<uint64_t>(page) << 8) | slot;
 }
-unsigned char crc8(const unsigned char* bytes, unsigned long length) {
-    unsigned char crc = 0;
+unsigned char crc8Update(unsigned char crc, const unsigned char* bytes, unsigned long length) {
     for (unsigned long i = 0; i < length; ++i) {
         crc ^= bytes[i];
         for (int bit = 0; bit < 8; ++bit)
@@ -60,10 +61,22 @@ unsigned char crc8(const unsigned char* bytes, unsigned long length) {
     }
     return crc;
 }
+unsigned char crc8(const unsigned char* bytes, unsigned long length) { return crc8Update(0, bytes, length); }
+bool readAllAt(int fd, unsigned char* bytes, unsigned long length, off_t offset) {
+    unsigned long copied = 0;
+    while (copied < length) {
+        ssize_t count = pread(fd, bytes + copied, length - copied, offset + copied);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) return false;
+        copied += static_cast<unsigned long>(count);
+    }
+    return true;
+}
 bool writeAllAt(int fd, const unsigned char* bytes, unsigned long length, off_t offset) {
     unsigned long written = 0;
     while (written < length) {
         ssize_t count = pwrite(fd, bytes + written, length - written, offset + written);
+        if (count < 0 && errno == EINTR) continue;
         if (count <= 0) return false;
         written += static_cast<unsigned long>(count);
     }
@@ -194,10 +207,49 @@ bool normalizeValue(unsigned char inputMetric, const std::string& value, const s
     text->clear();return normalizeNumeric(inputMetric,v,unit,metric,number);
 }
 
+unsigned char recordCrcSeed(const unsigned char* pageHeader) {
+    return crc8Update(crc8(pageHeader, 71), pageHeader + 3, 4);
+}
 unsigned char recordCrc(const unsigned char* pageHeader, const unsigned char* record) {
-    unsigned char data[71 + 4 + 8];
-    memcpy(data, pageHeader, 71); memcpy(data + 71, pageHeader + 3, 4); memcpy(data + 75, record, 8);
-    return crc8(data, sizeof(data));
+    return crc8Update(recordCrcSeed(pageHeader), record, 8);
+}
+unsigned char identityCrc(const unsigned char* header) {
+    unsigned char immutable[85]; memcpy(immutable, header, sizeof(immutable));
+    memset(immutable + 71, 0, 6);
+    return crc8(immutable, sizeof(immutable));
+}
+bool sameHeaderIdentity(const unsigned char* a, const unsigned char* b) {
+    return memcmp(a, b, 71) == 0 && memcmp(a + 77, b + 77, 9) == 0;
+}
+unsigned char counterCrc(const unsigned char* header, const unsigned char* counter) {
+    return crc8Update(crc8(header, 71), counter, 2);
+}
+bool pageCounter(const unsigned char* header, unsigned int* count) {
+    bool found = false; *count = 0;
+    for (unsigned int offset = 71; offset <= 74; offset += 3) {
+        const unsigned char* counter = header + offset;
+        if (counter[0] > recordsPerPage || static_cast<unsigned int>(counter[0]) + static_cast<unsigned int>(counter[1]) != 255u ||
+            counter[2] != counterCrc(header, counter)) continue;
+        if (!found || counter[0] > *count) *count = counter[0];
+        found = true;
+    }
+    return found;
+}
+void setPageCounter(unsigned char* header, unsigned int count) {
+    unsigned char* counter = header + 71 + (count % 2) * 3;
+    counter[0] = static_cast<unsigned char>(count); counter[1] = static_cast<unsigned char>(255u - count);
+    counter[2] = counterCrc(header, counter);
+}
+bool writePageCounter(int fd, off_t base, unsigned char* header, unsigned int count) {
+    setPageCounter(header, count);
+    const unsigned int offset = 71 + (count % 2) * 3;
+#ifdef MICROHAD_TESTING
+    if (sensorHistoryCounterWriteLimit < 3) {
+        if (sensorHistoryCounterWriteLimit) writeAllAt(fd, header + offset, sensorHistoryCounterWriteLimit, base + offset);
+        return false;
+    }
+#endif
+    return writeAllAt(fd, header + offset, 3, base + offset);
 }
 void encodeFloat(unsigned char* b, float value) {
     uint32_t bits = 0; memcpy(&bits, &value, sizeof(bits)); put32(b, bits);
@@ -205,25 +257,20 @@ void encodeFloat(unsigned char* b, float value) {
 float decodeFloat(const unsigned char* b) {
     uint32_t bits = get32(b); float value = 0; memcpy(&value, &bits, sizeof(value)); return value;
 }
-std::string numberText(float value) {
-    char text[32];
-    snprintf(text, sizeof(text), "%.9g", static_cast<double>(value));
-    return text;
-}
 std::string qualityText(float value) {
     static const char* const qualities[] = {"good", "fair", "moderate", "poor", "very_poor", "extremely_poor"};
     int index = static_cast<int>(value); return index >= 0 && index < 6 ? qualities[index] : "";
 }
 bool pageHeaderValid(const unsigned char* h, std::string* id, unsigned char* metric, uint32_t* generation) {
-    if (h[2] != 1 || h[0] == 0 || h[0] > 64 || h[1] < 1 || h[1] > maximumMetric || h[85] != crc8(h, 85)) return false;
-    for (int i = 71; i <= 84; ++i) if (h[i] != 0) return false;
+    if (h[2] != 1 || h[0] == 0 || h[0] > 64 || h[1] < 1 || h[1] > maximumMetric || h[85] != identityCrc(h)) return false;
+    for (int i = 77; i <= 84; ++i) if (h[i] != 0) return false;
     id->assign(reinterpret_cast<const char*>(h + 7), h[0]);
     *metric = h[1]; *generation = get32(h + 3);
     return plainText(*id, 64, false) && *generation != 0;
 }
 void makePageHeader(unsigned char* h, const std::string& id, unsigned char metric, uint32_t generation) {
     memset(h, 0, pageHeaderBytes); h[0] = static_cast<unsigned char>(id.size()); h[1] = metric; h[2] = 1;
-    put32(h + 3, generation); memcpy(h + 7, id.data(), id.size()); h[85] = crc8(h, 85);
+    put32(h + 3, generation); memcpy(h + 7, id.data(), id.size()); h[85] = identityCrc(h); setPageCounter(h, 0);
 }
 }
 
@@ -241,21 +288,71 @@ bool samePage(const SensorHistory::Page& a, const SensorHistory::Page& b) {
 bool historyPageAllowed(const SensorHistory::Page& p) {
     return p.metric != SensorHistory::Light && p.metric != SensorHistory::Brightness && p.id.find("fritz:") != 0;
 }
-// Decode contiguous records only: CRC8 remains the explicitly chosen recovery protection.
-bool decodePage(const unsigned char* bytes, SensorHistory::Page* page) {
+// Recovery checks only endpoints when a committed counter is present. The
+// reader can address either a copied flash page or individual RAM records.
+struct RecoveryReader {
+    int fd; off_t base; const unsigned char* bytes; const unsigned char* header;
+    unsigned char seed; SensorHistory::ReadStats* stats; bool failed;
+    RecoveryReader(int descriptor, off_t at, const unsigned char* data, const unsigned char* ph,
+                   SensorHistory::ReadStats* samples)
+        : fd(descriptor), base(at), bytes(data), header(ph), seed(recordCrcSeed(ph)), stats(samples), failed(false) {}
+    bool record(unsigned int index, uint32_t* timestamp, float* value) {
+        unsigned char storage[recordBytes]; const unsigned char* rec = storage;
+        if (stats) ++stats->recordsChecked;
+        if (bytes) rec = bytes + pageHeaderBytes + index * recordBytes;
+        else {
+            if (stats) stats->bytesRead += recordBytes;
+            if (!readAllAt(fd, storage, sizeof(storage), base + pageHeaderBytes + index * recordBytes)) {
+                failed = true; return false;
+            }
+        }
+        *timestamp = get32(rec); *value = decodeFloat(rec + 4);
+        return *timestamp != 0 && std::isfinite(*value) && rec[8] == crc8Update(seed, rec, 8) &&
+            (header[1] != SensorHistory::AirQuality || !qualityText(*value).empty());
+    }
+};
+void recoverRecords(RecoveryReader* reader, SensorHistory::Page* page, unsigned int pageIndex) {
+    unsigned int count = 0, firstIndex = 0, lastIndex = 0;
+    uint32_t firstTime = 0, lastTime = 0; float lastValue = 0;
+    if (!pageCounter(reader->header, &count)) {
+        // Compatibility/fallback scan: retain slot positions across bad records.
+        for (unsigned int i = 0; i < recordsPerPage; ++i) {
+            uint32_t timestamp; float value;
+            if (!reader->record(i, &timestamp, &value)) continue;
+            if (!firstTime) { firstTime = timestamp; firstIndex = i; }
+            lastTime = timestamp; lastValue = value; lastIndex = i; count = i + 1;
+        }
+    } else if (count) {
+        for (unsigned int i = 0; i < count; ++i) {
+            float value;
+            if (!reader->record(i, &firstTime, &value)) { firstTime = 0; continue; }
+            firstIndex = i; lastTime = firstTime; lastIndex = i; lastValue = value; break;
+        }
+        if (firstTime) {
+            for (unsigned int i = count; i > firstIndex + 1; --i) {
+                uint32_t timestamp; float value;
+                if (!reader->record(i - 1, &timestamp, &value)) continue;
+                lastTime = timestamp; lastValue = value; lastIndex = i - 1; break;
+            }
+        }
+    }
+    page->recordCount = count; page->allocated = count != 0;
+    if (firstTime) {
+        const uint64_t first = recordCursor(firstTime, pageIndex, firstIndex);
+        const uint64_t last = recordCursor(lastTime, pageIndex, lastIndex);
+        page->oldest = std::min(first, last); page->newest = std::max(first, last);
+        page->lastTimestamp = lastTime; page->lastValue = lastValue;
+    }
+}
+bool decodePage(const unsigned char* bytes, SensorHistory::Page* page,
+                SensorHistory::ReadStats* stats = 0) {
     uint32_t generation = 0;
     if (!pageHeaderValid(bytes, &page->id, &page->metric, &generation)) return false;
-    page->generation = generation; page->allocated = true; page->recordCount = 0;
+    page->generation = generation;
     if (!historyPageAllowed(*page)) return false;
-    for (unsigned int r = 0; r < recordsPerPage; ++r) {
-        const unsigned char* record = bytes + pageHeaderBytes + r * recordBytes;
-        const uint32_t timestamp = get32(record);
-        const float value = decodeFloat(record + 4);
-        if (record[8] != recordCrc(bytes, record) || timestamp == 0 || !std::isfinite(value) ||
-            (page->metric == SensorHistory::AirQuality && qualityText(value).empty())) break;
-        ++page->recordCount;
-    }
-    return page->recordCount != 0;
+    RecoveryReader reader(-1, 0, bytes, bytes, stats);
+    recoverRecords(&reader, page, 0);
+    return page->allocated;
 }
 struct FlashCandidate {
     SensorHistory::Page page;
@@ -318,7 +415,8 @@ bool SensorHistory::prepareFlash(std::string* error) {
                     const off_t at = fileHeaderBytes + static_cast<off_t>(i) * pageBytes;
                     if (at + pageBytes > st.st_size) break;
                     unsigned char bytes[pageBytes]; Page page;
-                    if (pread(fd, bytes, sizeof(bytes), at) == pageBytes && decodePage(bytes, &page))
+                    ++recoveryStats_.pagesRead; recoveryStats_.bytesRead += pageBytes;
+                    if (readAllAt(fd, bytes, sizeof(bytes), at) && decodePage(bytes, &page, &recoveryStats_))
                         flash_->residents[i] = page;
                 }
             }
@@ -344,6 +442,8 @@ bool SensorHistory::prepareFlash(std::string* error) {
         const off_t at = fileHeaderBytes + static_cast<off_t>(i) * pageBytes;
         if (pread(source, bytes, sizeof(bytes), at) != pageBytes || !decodePage(bytes, &page) ||
             !samePage(page, flash_->residents[i])) continue;
+        // Immutable identity and record CRCs do not change when counters appear.
+        setPageCounter(bytes, page.recordCount);
         ok = writeAllAt(target, bytes, sizeof(bytes), fileHeaderBytes + static_cast<off_t>(restored) * pageBytes);
         if (ok) ++restored;
     }
@@ -421,7 +521,7 @@ bool SensorHistory::persistPages(unsigned long seconds, std::string* error) {
         if (pread(source, bytes, sizeof(bytes), at) != pageBytes || !decodePage(bytes, &actual) ||
             !samePage(actual, candidate.page) || actual.recordCount < candidate.page.recordCount ||
             pread(source, confirmed, sizeof(confirmed), at) != pageHeaderBytes ||
-            memcmp(confirmed, bytes, sizeof(confirmed)) != 0) continue;
+            !sameHeaderIdentity(confirmed, bytes)) continue;
         if (candidate.slot < 0) {
             // Surviving residents already own their slots. Never move them to compact the file.
             for (unsigned int slot = 0; slot < flashPageLimit; ++slot)
@@ -442,6 +542,7 @@ bool SensorHistory::persistPages(unsigned long seconds, std::string* error) {
             flash_->residents[candidate.slot].recordCount : 0;
         flash_->residents[candidate.slot] = reserved;
         at = fileHeaderBytes + static_cast<off_t>(candidate.slot) * pageBytes;
+        setPageCounter(bytes, actual.recordCount);
         ok = writeAllAt(target, bytes, sizeof(bytes), at);
         if (ok) { candidate.page = actual; written.push_back(candidate); }
     }
@@ -589,6 +690,13 @@ SensorHistory::~SensorHistory() {
 }
 const std::string& SensorHistory::path() const { return values_.path; }
 
+#ifdef MICROHAD_TESTING
+SensorHistory::ReadStats SensorHistory::recoveryStatsForTests() const {
+    pthread_mutex_lock(&values_.mutex); ReadStats result = recoveryStats_;
+    pthread_mutex_unlock(&values_.mutex); return result;
+}
+#endif
+
 bool SensorHistory::initialize(std::string* error) {
     if (error) error->clear();
     return initializeValues(error);
@@ -596,6 +704,8 @@ bool SensorHistory::initialize(std::string* error) {
 bool SensorHistory::initializeValues(std::string* error) {
     pthread_mutex_lock(&values_.mutex);
     if (values_.initialized) { pthread_mutex_unlock(&values_.mutex); return true; }
+    struct timespec started; clock_gettime(CLOCK_MONOTONIC, &started);
+    recoveryStats_ = ReadStats();
     if (!prepareFlash(error)) { pthread_mutex_unlock(&values_.mutex); return false; }
     int fd = open(values_.path.c_str(), O_RDWR | O_CREAT, 0600);
     if (fd < 0) { if (error) *error = "cannot open paged history"; pthread_mutex_unlock(&values_.mutex); return false; }
@@ -616,37 +726,40 @@ bool SensorHistory::initializeValues(std::string* error) {
         off_t base = fileHeaderBytes + static_cast<off_t>(i) * pageBytes;
         if (base + pageHeaderBytes > st.st_size) break;
         unsigned char ph[pageHeaderBytes];
-        if (pread(fd, ph, sizeof(ph), base) != static_cast<ssize_t>(sizeof(ph))) continue;
-        std::string id; unsigned char metric = 0; uint32_t generation = 0;
-        if (!pageHeaderValid(ph, &id, &metric, &generation)) continue;
-        Page& page = values_.pages[i]; page.allocated = true; page.id = id; page.metric = metric; page.generation = generation;
+        ++recoveryStats_.pagesRead; recoveryStats_.bytesRead += sizeof(ph);
+        if (!readAllAt(fd, ph, sizeof(ph), base)) { ok = false; break; }
+        Page& page = values_.pages[i]; uint32_t generation = 0;
+        if (!pageHeaderValid(ph, &page.id, &page.metric, &generation)) continue;
+        page.generation = generation;
         if (generation > values_.generation) values_.generation = generation;
-        for (unsigned int r = 0; r < recordsPerPage; ++r) {
-            unsigned char rec[recordBytes]; off_t at = base + pageHeaderBytes + static_cast<off_t>(r) * recordBytes;
-            if (at + recordBytes > st.st_size || pread(fd, rec, sizeof(rec), at) != static_cast<ssize_t>(sizeof(rec))) break;
-            if (rec[8] != recordCrc(ph, rec)) break;
-            uint32_t timestamp = get32(rec); float v = decodeFloat(rec + 4);
-            const uint64_t cursor = recordCursor(timestamp, i, r);
-            if (timestamp == 0 || !std::isfinite(v)) break;
-            std::string text = metric == AirQuality ? qualityText(v) : numberText(v);
-            if (text.empty()) break;
-            ++page.recordCount;
-            if (page.oldest == 0 || cursor < page.oldest) page.oldest = cursor;
-            if (cursor > page.newest) page.newest = cursor;
-            page.lastValue = v; page.lastTimestamp = timestamp;
-            const std::string key = pairKey(id, metric);
-            std::map<std::string, LastValue>::iterator previous = values_.lastValues.find(key);
-            if (previous == values_.lastValues.end() || generation >= previous->second.generation)
-                values_.lastValues[key] = LastValue(generation, timestamp, v);
+        unsigned int count = 0; const bool counted = pageCounter(ph, &count);
+        unsigned char bytes[pageBytes];
+        if (!counted) {
+            recoveryStats_.bytesRead += sizeof(bytes);
+            if (!readAllAt(fd, bytes, sizeof(bytes), base)) { ok = false; break; }
         }
-        if (page.recordCount != 0) {
-            const std::string key = pairKey(id, metric); values_.pairPages[key].push_back(i);
-        } else page.allocated = false;
+        RecoveryReader reader(fd, base, counted ? 0 : bytes, ph, &recoveryStats_);
+        recoverRecords(&reader, &page, i);
+        if (reader.failed || (!counted && !writePageCounter(fd, base, ph, page.recordCount))) { ok = false; break; }
+        if (page.allocated) {
+            const std::string key = pairKey(page.id, page.metric); values_.pairPages[key].push_back(i);
+            std::map<std::string, LastValue>::iterator previous = values_.lastValues.find(key);
+            if (page.lastTimestamp && (previous == values_.lastValues.end() || generation >= previous->second.generation))
+                values_.lastValues[key] = LastValue(generation, page.lastTimestamp, page.lastValue);
+        }
+    }
+    if (!ok) {
+        if (error) *error = "cannot recover paged history; records preserved";
+        close(fd); pthread_mutex_unlock(&values_.mutex); return false;
     }
     for (std::map<std::string, std::vector<unsigned int> >::iterator pair = values_.pairPages.begin();
          pair != values_.pairPages.end(); ++pair)
         std::sort(pair->second.begin(), pair->second.end(), PageOrder(&values_.pages));
     close(fd); values_.initialized = true;
+    struct timespec ended; clock_gettime(CLOCK_MONOTONIC, &ended);
+    const long elapsedMs = (ended.tv_sec - started.tv_sec) * 1000 + (ended.tv_nsec - started.tv_nsec) / 1000000;
+    syslog(LOG_INFO, "HISTORY_STARTUP elapsed_ms=%ld pages=%lu records_checked=%lu bytes_read=%lu",
+           elapsedMs, recoveryStats_.pagesRead, recoveryStats_.recordsChecked, recoveryStats_.bytesRead);
     if (!flash_->path.empty() && !flash_->disabled && !flash_->manual) {
         flash_->nextSparse = monotonicSeconds() + 4 * 60 * 60;
         std::string workerError;
@@ -748,7 +861,8 @@ bool SensorHistory::appendNormalizedLocked(const std::string& deviceId,unsigned 
     unsigned int slot = page->recordCount;
     if (slot >= recordsPerPage) { close(fd); return false; }
     off_t offset = base + pageHeaderBytes + static_cast<off_t>(slot) * recordBytes;
-    bool ok = writeAllAt(fd, rec, sizeof(rec), offset); close(fd); if (!ok) return false;
+    bool ok = writeAllAt(fd, rec, sizeof(rec), offset) && writePageCounter(fd, base, ph, slot + 1);
+    close(fd); if (!ok) return false;
     ++page->recordCount; page->lastValue = numeric;
     if (page->recordCount == recordsPerPage) flash_->signal();
     const uint64_t cursor = recordCursor(static_cast<uint32_t>(timestamp), pageIndex, slot);
@@ -814,7 +928,8 @@ bool SensorHistory::readValuesJson(const std::vector<std::string>& deviceIds, ui
         unsigned char confirmed[pageHeaderBytes];
         if (stats) stats->bytesRead += pageHeaderBytes;
         if (pread(fd, confirmed, sizeof(confirmed), base) != static_cast<ssize_t>(sizeof(confirmed)) ||
-            memcmp(confirmed, pageData, sizeof(confirmed)) != 0) continue;
+            !sameHeaderIdentity(confirmed, pageData)) continue;
+        const unsigned char recordSeed = recordCrcSeed(pageData);
         for (unsigned int i = 0; i < snapshot.page.recordCount; ++i) {
             const unsigned char* rec = pageData + pageHeaderBytes + i * recordBytes;
             const uint32_t timestamp = get32(rec);
@@ -822,7 +937,7 @@ bool SensorHistory::readValuesJson(const std::vector<std::string>& deviceIds, ui
             if (cursor < snapshot.page.oldest || cursor > snapshot.page.newest) continue;
             if ((since == 0 || timestamp >= since) && before != 0 && cursor >= before) continue;
             if (stats) ++stats->recordsChecked;
-            if (rec[8] != recordCrc(pageData, rec)) continue;
+            if (rec[8] != crc8Update(recordSeed, rec, 8)) continue;
             const float value = decodeFloat(rec + 4);
             if (timestamp == 0 || !std::isfinite(value) || (metric == AirQuality && qualityText(value).empty())) continue;
             const ValueRecord sample(cursor, timestamp, metric, value);
@@ -957,7 +1072,7 @@ bool SensorHistory::stepQuery(Query* query,std::string* error,ReadStats* stats) 
         if(stats){++stats->pagesRead;stats->bytesRead+=fileHeaderBytes+pageBytes+pageHeaderBytes;}
         ok=pread(fd,bytes,sizeof(bytes),base)==pageBytes&&
            pread(fd,confirmed,sizeof(confirmed),base)==pageHeaderBytes&&
-           memcmp(bytes,confirmed,pageHeaderBytes)==0;
+           sameHeaderIdentity(bytes,confirmed);
     }
     close(fd);
     std::string owner;unsigned char metric=0;uint32_t generation=0;
@@ -969,17 +1084,15 @@ bool SensorHistory::stepQuery(Query* query,std::string* error,ReadStats* stats) 
 #ifdef MICROHAD_TESTING
     if(sensorHistoryQueryPageHook)sensorHistoryQueryPageHook(sensorHistoryQueryPageHookData);
 #endif
+    const unsigned char recordSeed = recordCrcSeed(bytes);
     for(unsigned int i=0;i<snapshot.page.recordCount;++i) {
         const unsigned char* rec=bytes+pageHeaderBytes+i*recordBytes;
         uint32_t timestamp=get32(rec);uint64_t cursor=recordCursor(timestamp,snapshot.index,i);
         if(cursor<snapshot.page.oldest||cursor>snapshot.page.newest)continue;
         if(stats)++stats->recordsChecked;
         float value=decodeFloat(rec+4);
-        if(rec[8]!=recordCrc(bytes,rec)||!timestamp||!std::isfinite(value)||
-           (metric==AirQuality&&qualityText(value).empty())) {
-            if(error)*error="invalid history record; retry query";
-            return false;
-        }
+        if(rec[8]!=crc8Update(recordSeed,rec,8)||!timestamp||!std::isfinite(value)||
+           (metric==AirQuality&&qualityText(value).empty())) continue;
         if((q.before&&cursor>=q.before)||timestamp<q.since||(q.filterValue&&value!=q.value))continue;
         query->samples.push_back(ValueRecord(cursor,timestamp,metric,value));
     }
