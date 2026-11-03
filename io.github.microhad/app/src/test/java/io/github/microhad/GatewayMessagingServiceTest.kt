@@ -60,6 +60,7 @@ class GatewayMessagingServiceTest {
         val notification = manager.activeNotifications.single().notification
         assertEquals(category?.let { "microhad.alerts.$it" } ?: GatewayMessagingService.CHANNEL, notification.channelId)
         assertEquals(icon, notification.smallIcon.resId)
+        if (category == null) assertNull(notification.getLargeIcon()) else assertNotNull(notification.getLargeIcon())
         manager.cancelAll()
     }
     @Test fun explicitSourcesChooseTheirChannelsAndIcons() {
@@ -114,6 +115,62 @@ class GatewayMessagingServiceTest {
         NotificationSources.register(context)
         assertEquals(android.app.NotificationManager.IMPORTANCE_LOW, manager.getNotificationChannel(channel.id).importance)
         assertEquals(9, manager.notificationChannels.size)
+    }
+
+    private fun oneShot(id: String?, sender: String = "123456", action: String = "show", key: String? = null) = RemoteMessage(Bundle().apply {
+        putString("from", sender); putString("action", action); putString("source", "doorbell")
+        putString("title", "Doorbell"); putString("body", "At the front door")
+        id?.let { putString("google.message_id", it) }
+        key?.let { putString("key", it) }
+    })
+    @Test fun dataOnlyOneShotMessagesKeepSeparateEventsAndDeduplicateRedelivery() {
+        val service = Robolectric.buildService(GatewayMessagingService::class.java).create().get()
+        service.onMessageReceived(oneShot("event-1"))
+        service.onMessageReceived(oneShot("event-2"))
+        service.onMessageReceived(oneShot("event-1"))
+        assertEquals(2, manager.activeNotifications.size)
+        assertEquals(setOf("fcm:event-1", "fcm:event-2"), manager.activeNotifications.map { it.tag }.toSet())
+        manager.activeNotifications.forEach {
+            assertEquals("microhad.alerts.doorbell", it.notification.channelId)
+            assertEquals(R.drawable.ic_notification_doorbell, it.notification.smallIcon.resId)
+            assertNotNull(it.notification.getLargeIcon())
+            assertEquals("Doorbell", it.notification.extras.getString(android.app.Notification.EXTRA_TITLE))
+            assertEquals("At the front door", it.notification.extras.getString(android.app.Notification.EXTRA_TEXT))
+        }
+    }
+    @Test fun malformedIdentitiesAndUnkeyedClearMessagesCannotPostOrClearAlerts() {
+        val service = Robolectric.buildService(GatewayMessagingService::class.java).create().get()
+        listOf(null, "", " ", "x".repeat(253)).forEach { service.onMessageReceived(oneShot(it)) }
+        listOf("", " ", "x".repeat(257)).forEach { service.onMessageReceived(oneShot("valid-id", key = it)) }
+        service.onMessageReceived(oneShot("event-1", action = "clear"))
+        service.onMessageReceived(oneShot("event-1", action = "unsupported"))
+        assertEquals(0, manager.activeNotifications.size)
+        service.onMessageReceived(oneShot("event-1"))
+        service.onMessageReceived(oneShot("event-1", action = "clear"))
+        assertEquals(1, manager.activeNotifications.size)
+    }
+    @Test fun malformedExplicitKeyDoesNotFallBackToLegacyNotificationIdentity() {
+        val service = Robolectric.buildService(GatewayMessagingService::class.java).create().get()
+        service.onMessageReceived(alert("", "doorbell", legacy = true))
+        assertEquals(0, manager.activeNotifications.size)
+    }
+    @Test fun oneShotMessagesStillRequireConfiguredSenderAndGateway() {
+        val service = Robolectric.buildService(GatewayMessagingService::class.java).create().get()
+        service.onMessageReceived(oneShot("event-1", sender = "wrong-sender"))
+        assertEquals(0, manager.activeNotifications.size)
+        GatewayStore(context).clear()
+        service.onMessageReceived(oneShot("event-1"))
+        assertEquals(0, manager.activeNotifications.size)
+    }
+    @Test fun artworkSourceCanChangeWithoutLeavingAnOldKeyedCard() {
+        val service = Robolectric.buildService(GatewayMessagingService::class.java).create().get()
+        service.onMessageReceived(alert("test-window", "window"))
+        assertNotNull(manager.activeNotifications.single().notification.getLargeIcon())
+        service.onMessageReceived(alert("test-window", "default"))
+        assertEquals(1, manager.activeNotifications.size)
+        assertNull(manager.activeNotifications.single().notification.getLargeIcon())
+        service.onMessageReceived(message("clear"))
+        assertEquals(0, manager.activeNotifications.size)
     }
 
 }

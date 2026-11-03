@@ -3,6 +3,12 @@ package io.github.microhad
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import androidx.core.content.ContextCompat
+import kotlin.math.roundToInt
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 
@@ -37,6 +43,32 @@ internal object NotificationSources {
             else -> "default"
         }
         return categories[inferred] ?: default
+    }
+
+    private data class ArtworkKey(val icon: Int, val density: Int)
+    private val artwork = mutableMapOf<ArtworkKey, Bitmap>()
+
+    /** Draw locally so background delivery never needs an image download. */
+    @Synchronized
+    fun largeIcon(context: Context, presentation: Presentation): Bitmap? {
+        if (presentation == default) return null
+        val resources = context.resources
+        val key = ArtworkKey(presentation.icon, resources.displayMetrics.densityDpi)
+        return artwork.getOrPut(key) {
+            val scale = resources.displayMetrics.density
+            val size = (64 * scale).roundToInt().coerceAtLeast(1)
+            val inset = (12 * scale).roundToInt()
+            Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).apply {
+                density = resources.displayMetrics.densityDpi
+                val canvas = Canvas(this)
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(38, 59, 80) }
+                canvas.drawRoundRect(0f, 0f, size.toFloat(), size.toFloat(), 16 * scale, 16 * scale, paint)
+                val drawable = requireNotNull(ContextCompat.getDrawable(context, presentation.icon)).mutate()
+                drawable.setTint(Color.WHITE)
+                drawable.setBounds(inset, inset, size - inset, size - inset)
+                drawable.draw(canvas)
+            }
+        }
     }
 
     fun register(context: Context) {

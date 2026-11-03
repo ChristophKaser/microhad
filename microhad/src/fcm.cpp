@@ -84,17 +84,20 @@ std::string makeFcmMessage(const std::string& topic, const std::string& title, c
 }
 std::string makeFcmTokenMessage(const std::string& token, const std::string& title, const std::string& body,
                                 const std::string& androidChannelId, const std::string& source) {
+    // Source-aware one-shot alerts are rendered by the companion even in the background.
+    // FCM supplies their message ID; no stable alert key or collapse key is assigned here.
+    if (!source.empty()) {
+        return std::string("{\"message\":{\"token\":\"") + jsonEscape(token) +
+            "\",\"data\":{\"action\":\"show\",\"title\":\"" + jsonEscape(title) +
+            "\",\"body\":\"" + jsonEscape(body) + "\",\"source\":\"" + jsonEscape(source) +
+            "\",\"channel_id\":\"" + jsonEscape(notificationChannel(source)) +
+            "\"},\"android\":{\"priority\":\"HIGH\"}}}";
+    }
     std::string message = std::string("{\"message\":{\"token\":\"") + jsonEscape(token) + "\",\"notification\":{\"title\":\"" +
                          jsonEscape(title) + "\",\"body\":\"" + jsonEscape(body) + "\"},\"android\":{\"priority\":\"high\"";
-    const std::string channel = source.empty() ? androidChannelId : notificationChannel(source);
-    if (!channel.empty() || !source.empty()) {
-        message += ",\"notification\":{\"channel_id\":\"" + jsonEscape(channel) + "\"";
-        if (!source.empty()) message += ",\"icon\":\"" + notificationIcon(source) + "\"";
-        message += "}";
-    }
-    message += "}";
-    if (!source.empty()) message += ",\"data\":{\"source\":\"" + jsonEscape(source) + "\"}";
-    return message + "}}";
+    if (!androidChannelId.empty())
+        message += ",\"notification\":{\"channel_id\":\"" + jsonEscape(androidChannelId) + "\"}";
+    return message + "}}}";
 }
 std::string makeFcmTokenStateMessage(const std::string& token, const std::string& action,
                                     const std::string& key, const std::string& title,

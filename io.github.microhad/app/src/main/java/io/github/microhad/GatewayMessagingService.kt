@@ -20,10 +20,18 @@ class GatewayMessagingService : FirebaseMessagingService() {
         if (message.from != sender) return
         val data = message.data
         val legacy = message.notification
-        val key = data["key"]?.takeIf { it.isNotBlank() && it.length <= 256 }
-            ?: if (legacy != null) (message.messageId ?: "gateway-test") else return
+        val action = data["action"] ?: if (legacy != null) "show" else ""
+        val key = if (data.containsKey("key")) {
+            data["key"]?.takeIf { it.isNotBlank() && it.length <= 256 } ?: return
+        } else if (legacy != null) {
+            message.messageId ?: "gateway-test"
+        } else if (action == "show" && data.containsKey("source")) {
+            // Separate one-shot events; redelivery of the same FCM message updates its card.
+            val id = message.messageId?.takeIf { it.isNotBlank() && it.length <= 252 } ?: return
+            "fcm:$id"
+        } else return
         val manager = NotificationManagerCompat.from(this)
-        when (data["action"] ?: if (legacy != null) "show" else "") {
+        when (action) {
             "clear" -> manager.cancel(key, 0)
             "show" -> {
                 if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
@@ -32,6 +40,7 @@ class GatewayMessagingService : FirebaseMessagingService() {
                 val intent = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 val pending = PendingIntent.getActivity(this, key.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 manager.notify(key, 0, NotificationCompat.Builder(this, presentation.channel).setSmallIcon(presentation.icon)
+                    .setLargeIcon(NotificationSources.largeIcon(this, presentation))
                     .setContentTitle((data["title"] ?: legacy?.title).orEmpty().take(256)).setContentText((data["body"] ?: legacy?.body).orEmpty().take(2048))
                     .setContentIntent(pending).setAutoCancel(true).build())
             }

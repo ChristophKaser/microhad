@@ -243,6 +243,12 @@ Invalid categories or malformed references are validation errors; missing or
 ambiguous devices return `nil, error` without sending. Source metadata does not
 change recipients or the top-level `device_id`/`tag` grouping options.
 
+Source-bearing one-shot notifications are sent as high-priority FCM data messages
+so the companion can render source artwork even in the background. Install the
+updated companion before deploying this gateway change; older companions discard
+unkeyed data messages. Keyed alert updates and clearing retain their existing
+protocol. Source-free legacy FCM payload builders retain their prior behavior.
+
 ## Accessory firmware updates
 
 Open **Device settings → Firmware update** for a Zigbee or Matter accessory.

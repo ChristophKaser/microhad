@@ -75,12 +75,23 @@ alerts are recognized by their keys; messages without a recognized source use
 the default. Automations can override the source by category or device reference;
 see [automation notification options](../microhad/README.md).
 
+Dedicated sources also show a large source symbol inside the notification card.
+The symbol is rendered locally on a contrasting tile and works in light and dark
+mode. Android may retain its app-identification icon in the card header; the
+source artwork supplements that icon. Default notifications have no added artwork.
+
 Keyed alerts are displayed by the companion and can be updated or cleared using
-the same key. Unkeyed notifications use Firebase's notification payload: the
-companion chooses presentation in the foreground, while Firebase uses the
-supplied channel and icon in the background. Launch the updated app once before
-expecting the new channels in background delivery. If the requested channel is
-not registered yet, Firebase falls back to the default channel.
+the same key. Source-bearing unkeyed alerts now use high-priority FCM data
+messages too, so the companion supplies source artwork in foreground and
+background delivery. Their FCM message ID identifies each separate event;
+redelivery of that event updates the existing card. Unkeyed messages without a
+usable FCM ID and malformed explicit keys are rejected. Older gateway notification
+payloads remain supported, although Firebase-rendered background messages cannot
+show the locally generated artwork.
+
+Install the updated companion on subscribed phones before deploying this gateway
+change: older companion versions discard data messages that have no alert key.
+No existing channels or user notification settings are reset.
 
 ## Verification
 

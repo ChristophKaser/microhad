@@ -46,9 +46,15 @@ static void testFcmEncodingsAndJwt() {
         assert(Automation::parse(makeFcmTokenMessage("token","Title","Body","old-channel",source),&payload));
         Automation::Value message=payload.fields["message"];
         assert(message.fields["data"].fields["source"]==Automation::Value(source));
-        assert(message.fields["notification"].fields["title"]==Automation::Value("Title"));
-        assert(message.fields["android"].fields["notification"].fields["channel_id"]==Automation::Value(notificationChannel(source)));
-        assert(message.fields["android"].fields["notification"].fields["icon"]==Automation::Value(notificationIcon(source)));
+        assert(message.fields["data"].fields["title"]==Automation::Value("Title"));
+        assert(message.fields["data"].fields["body"]==Automation::Value("Body"));
+        assert(message.fields["data"].fields["action"]==Automation::Value("show"));
+        assert(message.fields["data"].fields["channel_id"]==Automation::Value(notificationChannel(source)));
+        assert(!message.fields["data"].fields.count("key"));
+        assert(!message.fields.count("notification"));
+        assert(!message.fields["android"].fields.count("notification"));
+        assert(!message.fields["android"].fields.count("collapse_key"));
+        assert(message.fields["android"].fields["priority"]==Automation::Value("HIGH"));
         assert(!message.fields["android"].fields.count("data"));
         assert(Automation::parse(makeFcmTokenStateMessage("token","show","stable-key","Title","Body","old-channel",source),&payload));
         message=payload.fields["message"];
@@ -57,6 +63,10 @@ static void testFcmEncodingsAndJwt() {
         assert(message.fields["data"].fields["key"]==Automation::Value("stable-key"));
         assert(message.fields["data"].fields["channel_id"]==Automation::Value(notificationChannel(source)));
     }
+    Automation::Value escaped;
+    assert(Automation::parse(makeFcmTokenMessage("token","Title\"\n","Body\\","","doorbell"),&escaped));
+    assert(escaped.fields["message"].fields["data"].fields["title"]==Automation::Value("Title\"\n"));
+    assert(escaped.fields["message"].fields["data"].fields["body"]==Automation::Value("Body\\"));
     assert(notificationSourceFromKey("contact:sensor:window")=="window");
     assert(notificationSourceFromKey("legacy:sensor:temperature:low")=="temperature");
     assert(notificationSourceFromKey("value:sensor:co2:high")=="air_quality");
