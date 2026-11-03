@@ -15,6 +15,7 @@ struct microhad_tls_server {
     mbedtls_x509_crt certificate;
     mbedtls_pk_context private_key;
     mbedtls_ssl_cache_context cache;
+    int* ciphersuites;
 };
 
 struct microhad_tls_session {
@@ -29,6 +30,25 @@ static const uint16_t server_curves[] = {
     MBEDTLS_SSL_IANA_TLS_GROUP_SECP256R1,
     0
 };
+
+/* ChaCha20 costs substantially less CPU than AES-GCM on the gateway.
+ * Reorder the library list rather than removing compatible fallback suites. */
+static int* server_ciphersuites(void) {
+    const int* defaults = mbedtls_ssl_list_ciphersuites();
+    int count = 0, offset = 0, pass, i;
+    int* preferred;
+    while (defaults[count] != 0) ++count;
+    preferred = (int*)calloc(count + 1, sizeof(*preferred));
+    if (preferred == NULL) return NULL;
+    for (pass = 0; pass < 2; ++pass) {
+        for (i = 0; i < count; ++i) {
+            int chacha = defaults[i] == MBEDTLS_TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 ||
+                         defaults[i] == MBEDTLS_TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256;
+            if (chacha == (pass == 0)) preferred[offset++] = defaults[i];
+        }
+    }
+    return preferred;
+}
 
 static char ascii_lower(char value) {
     return value >= 'A' && value <= 'Z' ? (char)(value + ('a' - 'A')) : value;
@@ -105,10 +125,18 @@ int microhad_tls_server_create(const char* certificate_path, const char* private
     if (result == 0) result = mbedtls_ssl_config_defaults(&server->config, MBEDTLS_SSL_IS_SERVER,
                                                            MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
     if (result == 0) mbedtls_ssl_conf_groups(&server->config, server_curves);
+    if (result == 0) {
+        server->ciphersuites = server_ciphersuites();
+        if (server->ciphersuites == NULL) result = -1;
+        else {
+            mbedtls_ssl_conf_ciphersuites(&server->config, server->ciphersuites);
+            mbedtls_ssl_conf_preference_order(&server->config, MBEDTLS_SSL_SRV_CIPHERSUITE_ORDER_SERVER);
+        }
+    }
     if (result == 0) mbedtls_ssl_conf_session_cache(&server->config, &server->cache,
                                                      mbedtls_ssl_cache_get, mbedtls_ssl_cache_set);
     if (result == 0) result = mbedtls_ssl_conf_own_cert(&server->config, &server->certificate, &server->private_key);
-    if (result != 0) { mbedtls_ssl_cache_free(&server->cache); mbedtls_ssl_config_free(&server->config); mbedtls_x509_crt_free(&server->certificate); mbedtls_pk_free(&server->private_key); free(server); return -1; }
+    if (result != 0) { mbedtls_ssl_cache_free(&server->cache); mbedtls_ssl_config_free(&server->config); mbedtls_x509_crt_free(&server->certificate); mbedtls_pk_free(&server->private_key); free(server->ciphersuites); free(server); return -1; }
     *output_server = server;
     return 0;
 }
@@ -119,7 +147,7 @@ void microhad_tls_server_destroy(void* opaque_server) {
     mbedtls_ssl_cache_free(&server->cache); mbedtls_ssl_config_free(&server->config);
     mbedtls_x509_crt_free(&server->certificate); mbedtls_pk_free(&server->private_key);
 
-    free(server);
+    free(server->ciphersuites); free(server);
 }
 
 int microhad_tls_session_open(void* opaque_server, int fd, void** output_session) {

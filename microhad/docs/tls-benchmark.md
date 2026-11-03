@@ -62,6 +62,18 @@ Results describe the dummy and this Chromium version, not the resumption rate
 of an existing production browser session. All original gateway services remain
 running and can affect wall-clock timings.
 
+## Applied server preference
+
+The HTTPS server now moves ECDHE ChaCha20-Poly1305 suites ahead of the other
+compiled-in suites and uses server preference even when a client offers AES
+first. All existing fallback suites, including AES-GCM, remain available.
+This ordering applies only to inbound HTTPS; outbound clients are unchanged.
+The benchmark matrix explicitly selects one cipher at a time, independently of
+the server's default order.
+
+The configured gateway's public certificate was checked and already uses
+ECDSA P-256 (prime256v1), so no certificate or private-key replacement is needed.
+
 ## Gateway results (2026-11-03)
 
 The 20-sample run on the gateway, with original services running, measured:

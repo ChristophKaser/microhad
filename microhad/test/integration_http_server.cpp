@@ -115,7 +115,7 @@ std::string plainRequestParts(int port, const std::vector<std::string>& parts, b
     return response;
 }
 
-std::string tlsRequest(int port, const std::string& request) {
+std::string tlsRequest(int port, const std::string& request, const int* suites = 0, const char* expectedSuite = 0) {
     mbedtls_net_context socket;
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config config;
@@ -132,6 +132,7 @@ std::string tlsRequest(int port, const std::string& request) {
     if (result == 0) result = mbedtls_net_connect(&socket, "127.0.0.1", portText.str().c_str(), MBEDTLS_NET_PROTO_TCP);
     if (result == 0) result = mbedtls_ssl_config_defaults(&config, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
     if (result == 0) {
+        if (suites != 0) mbedtls_ssl_conf_ciphersuites(&config, suites);
         mbedtls_ssl_conf_authmode(&config, MBEDTLS_SSL_VERIFY_REQUIRED);
         mbedtls_ssl_conf_ca_chain(&config, &certificate, 0);
         result = mbedtls_ssl_setup(&ssl, &config);
@@ -143,6 +144,7 @@ std::string tlsRequest(int port, const std::string& request) {
                (result == MBEDTLS_ERR_SSL_WANT_READ || result == MBEDTLS_ERR_SSL_WANT_WRITE)) {}
     }
     assert(result == 0 && mbedtls_ssl_get_verify_result(&ssl) == 0);
+    if (expectedSuite != 0) assert(strcmp(mbedtls_ssl_get_ciphersuite(&ssl), expectedSuite) == 0);
     unsigned long offset = 0;
     while (offset < request.size()) {
         result = mbedtls_ssl_write(&ssl, reinterpret_cast<const unsigned char*>(request.data()) + offset, request.size() - offset);
@@ -704,6 +706,15 @@ void testServers() {
     response = tlsRequest(https.boundPort(), "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("https status", response, 200);
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"devices\":") != std::string::npos);
+    const int aesFirst[] = {MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+                           MBEDTLS_TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, 0};
+    expectStatus("https prefers ChaCha20 over client AES preference", tlsRequest(https.boundPort(),
+                 "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n", aesFirst,
+                 "TLS-ECDHE-RSA-WITH-CHACHA20-POLY1305-SHA256"), 200);
+    const int aesOnly[] = {MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, 0};
+    expectStatus("https keeps AES-GCM fallback", tlsRequest(https.boundPort(),
+                 "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n", aesOnly,
+                 "TLS-ECDHE-RSA-WITH-AES-128-GCM-SHA256"), 200);
     response = tlsRequest(https.boundPort(), "GET /api/logs HTTP/1.1\r\nHost: localhost\r\n\r\n");
     expectStatus("https logs", response, 200);
     assert(response.find("Content-Type: application/json\r\n") != std::string::npos && response.find("\"lines\":") != std::string::npos);
