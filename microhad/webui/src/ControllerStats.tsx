@@ -1,3 +1,4 @@
+import { startVisiblePolling } from './visiblePolling'
 import { useEffect, useRef, useState } from 'react'
 import { Chart as ChartJS, ArcElement, DoughnutController, Tooltip } from 'chart.js'
 import { errorMessage, jsonRequest } from './api'
@@ -84,9 +85,8 @@ export function ControllerStats({ status, thread }: { status: Status | null; thr
       } catch (cause) { if (active) setError(errorMessage(cause)) }
       finally { pending = false }
     }
-    void refresh()
-    const timer = window.setInterval(() => { void refresh() }, 2000)
-    return () => { active = false; window.clearInterval(timer) }
+    const stop = startVisiblePolling(refresh, 2000)
+    return () => { active = false; stop() }
   }, [])
   const points = samples.map((sample, index) => `${samples.length < 2 ? 50 : index * 100 / (samples.length - 1)},${100 - Math.min(100, Math.max(0, sample.value))}`).join(' ')
   const cpu = stats?.cpu_usage_percent ?? null

@@ -1,3 +1,4 @@
+import { startVisiblePolling } from './visiblePolling'
 import { useEffect, useState } from 'react'
 import type { ControllerStats } from './api'
 import { jsonRequest } from './api'
@@ -22,9 +23,8 @@ export function useGatewayOverview() {
       }
       pending = false
     }
-    void refresh()
-    const timer = window.setInterval(() => { void refresh() }, 10000)
-    return () => { active = false; window.clearInterval(timer) }
+    const stop = startVisiblePolling(refresh, 10000)
+    return () => { active = false; stop() }
   }, [])
   return { thread, resources }
 }

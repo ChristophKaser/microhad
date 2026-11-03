@@ -1,3 +1,4 @@
+import { startVisiblePolling } from './visiblePolling'
 import { useEffect, useRef, useState } from 'react'
 import { matterAvailability, matterCall, sessionResult, terminalSession, validDataset } from './matter'
 import type { MatterSession, MatterStatus, ThreadStatus } from './matter'
@@ -55,7 +56,6 @@ export function MatterPanel() {
   }, [])
   useEffect(() => {
     const controller = new AbortController()
-    let timer = 0
     async function load() {
       try {
         const next = await matterAvailability(controller.signal)
@@ -63,10 +63,9 @@ export function MatterPanel() {
       } catch (cause) {
         if (!controller.signal.aborted) { setAvailability(null); setError(failure(cause)) }
       }
-      if (!controller.signal.aborted) timer = window.setTimeout(() => void load(), 5000)
     }
-    void load()
-    return () => { controller.abort(); window.clearTimeout(timer) }
+    const stop = startVisiblePolling(load, 5000)
+    return () => { controller.abort(); stop() }
   }, [revision])
   useEffect(() => {
     const running = availability?.matter.commissioning_session

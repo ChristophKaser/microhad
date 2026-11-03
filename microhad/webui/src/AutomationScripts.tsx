@@ -1,3 +1,4 @@
+import { startVisiblePolling } from './visiblePolling'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { errorMessage, type Device, type SceneGroupSummary } from './api'
 import { AutomationTrigger } from './AutomationTrigger'
@@ -35,8 +36,8 @@ export function AutomationScripts({ onDirtyChange, devices = [], groups = [] }: 
   useEffect(() => {
     let active = true
     const poll = async () => { try { if (active) await refresh() } catch (failure) { if (active) setError(errorMessage(failure)) } }
-    void poll(); const timer = window.setInterval(() => void poll(), 2000)
-    return () => { active = false; window.clearInterval(timer) }
+    const stop = startVisiblePolling(poll, 2000)
+    return () => { active = false; stop() }
   }, [refresh])
   useEffect(() => { onDirtyChange(dirty); return () => onDirtyChange(false) }, [dirty, onDirtyChange])
   useEffect(() => {

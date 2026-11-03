@@ -1,3 +1,4 @@
+import { startVisiblePolling } from './visiblePolling'
 import { useEffect, useState } from 'react'
 import type { HistorySample } from './api'
 import { errorMessage } from './api'
@@ -12,7 +13,6 @@ export function useHistory(id: string, range: HistoryRange, refresh = false): Hi
   const [state, setState] = useState(() => emptyHistory(key, Boolean(id)))
   useEffect(() => {
     const controller = new AbortController()
-    let timer = 0
     let complete = false
     setState(emptyHistory(key, Boolean(id)))
     if (!id) return () => controller.abort()
@@ -30,12 +30,12 @@ export function useHistory(id: string, range: HistoryRange, refresh = false): Hi
       } finally {
         if (!controller.signal.aborted) {
           setState(previous => ({ ...previous, loading: false }))
-          if (refresh) timer = window.setTimeout(() => { void load() }, 30000)
         }
       }
     }
-    void load()
-    return () => { controller.abort(); window.clearTimeout(timer) }
+    const stop = refresh ? startVisiblePolling(load, 30000) : () => {}
+    if (!refresh) void load()
+    return () => { controller.abort(); stop() }
   }, [id, range, refresh, key])
   return state.key === key ? state : emptyHistory(key, Boolean(id))
 }

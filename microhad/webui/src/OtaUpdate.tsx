@@ -1,3 +1,4 @@
+import { startVisiblePolling } from './visiblePolling'
 import { useEffect, useState } from 'react'
 import { authFetch } from './auth'
 import type { Device } from './api'
@@ -21,9 +22,8 @@ export function OtaUpdate({ device }: { device: Device }) {
   useEffect(() => {
     let mounted = true
     const refresh = () => request('status').then(value => { if (mounted) setStatus(value) }).catch(cause => { if (mounted) setError(String(cause.message || cause)) })
-    void refresh()
-    const timer = window.setInterval(() => { if (!busy) void refresh() }, 2000)
-    return () => { mounted = false; window.clearInterval(timer) }
+    const stop = startVisiblePolling(async () => { if (!busy) await refresh() }, 2000)
+    return () => { mounted = false; stop() }
   }, [busy])
   const upload = async (file: File) => {
     setBusy(true); setError(''); setUploadPercent(0)

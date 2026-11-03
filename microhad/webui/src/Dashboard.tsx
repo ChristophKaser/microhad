@@ -1,3 +1,4 @@
+import { startVisiblePolling } from './visiblePolling'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Chart as ChartJS, LineController, LineElement, LinearScale, PointElement, Tooltip } from 'chart.js'
@@ -111,9 +112,8 @@ export function Dashboard({ config, editing, devices, groups, status, restarting
       try { const result = await listAutomations(); if (active) setScripts(result.scripts) }
       catch { if (active) setScripts([]) }
     }
-    void refresh()
-    const timer = window.setInterval(() => void refresh(), 3000)
-    return () => { active = false; window.clearInterval(timer) }
+    const stop = startVisiblePolling(refresh, 3000)
+    return () => { active = false; stop() }
   }, [])
   const triggers = scripts.filter(script => script.enabled && script.loaded).flatMap(script => (script.triggers ?? []).map(trigger => ({ id: JSON.stringify([script.id, trigger.id]), name: `${trigger.label} (${script.id})`, script_id: script.id, trigger_id: trigger.id, label: trigger.label })))
   const [kind, setKind] = useState<DashboardWidget['kind']>('device')

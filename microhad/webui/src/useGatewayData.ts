@@ -1,3 +1,4 @@
+import { startVisiblePolling } from './visiblePolling'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Status } from './api'
 import { errorMessage, jsonRequest } from './api'
@@ -20,7 +21,6 @@ export function useGatewayData(diagnosticsActive: boolean) {
   const statusPending = useRef(false)
   const logsPending = useRef(false)
   const logsLoaded = useRef(false)
-  const logsActivated = useRef(false)
   const latestLogTimestamp = useRef<number | null>(null)
   const olderCursor = useRef<number | null>(null)
   const active = useRef(true)
@@ -117,16 +117,12 @@ export function useGatewayData(diagnosticsActive: boolean) {
 
   useEffect(() => {
     active.current = true
-    const refresh = () => {
-      void refreshStatus(false)
-      if (diagnosticsActive) logsActivated.current = true
-      if (logsActivated.current) void refreshLogs()
-    }
-    refresh()
-    const timer = window.setInterval(refresh, 2000)
+    const stop = startVisiblePolling(async () => {
+      await Promise.all([refreshStatus(false), diagnosticsActive ? refreshLogs() : Promise.resolve()])
+    }, 2000)
     return () => {
       active.current = false
-      window.clearInterval(timer)
+      stop()
     }
   }, [diagnosticsActive, refreshStatus, refreshLogs])
 

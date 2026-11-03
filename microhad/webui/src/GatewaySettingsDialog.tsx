@@ -1,3 +1,4 @@
+import { startVisiblePolling } from './visiblePolling'
 import { useEffect, useRef, useState } from 'react'
 import { errorMessage, form, jsonRequest, post } from './api'
 import { matterCall, threadResult } from './matter'
@@ -51,7 +52,6 @@ export function GatewaySettingsDialog({ onClose, onReplaceZigbeeNetwork, matterN
 
   useEffect(() => {
     let active = true
-    let timer: ReturnType<typeof setTimeout> | undefined
     async function refresh() {
       try {
         const data = await jsonRequest<GatewaySettings>('/api/settings')
@@ -67,10 +67,9 @@ export function GatewaySettingsDialog({ onClose, onReplaceZigbeeNetwork, matterN
       } catch (reason) {
         if (active) setError(errorMessage(reason))
       }
-      if (active) timer = setTimeout(() => void refresh(), 1000)
     }
-    void refresh()
-    return () => { active = false; if (timer) clearTimeout(timer) }
+    const stop = startVisiblePolling(refresh, 1000)
+    return () => { active = false; stop() }
   }, [])
 
   async function save(event: React.FormEvent) {
