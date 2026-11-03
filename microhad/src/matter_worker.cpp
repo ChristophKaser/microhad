@@ -412,7 +412,7 @@ void MatterWorker::run() {
     unavailable();
 }
 
-bool MatterWorker::adoptRelay(int fd, const std::string& handshake, std::string* error) {
+bool MatterWorker::adoptRelay(int fd, const std::string& handshake, std::string* error, const std::string& initialInput) {
     error->clear(); pthread_mutex_lock(&mutex_);
     const int64_t now = tick();
     if (!running_ || refreshed_ <= 0 || now < refreshed_ || now - refreshed_ > 5000) {
@@ -424,7 +424,7 @@ bool MatterWorker::adoptRelay(int fd, const std::string& handshake, std::string*
         if (owned >= 0) close(owned);
         pthread_mutex_unlock(&mutex_); *error = "transport"; return false;
     }
-    phoneActive_ = true; phonePendingFd_ = owned; phoneHandshake_ = handshake;
+    phoneActive_ = true; phonePendingFd_ = owned; phoneHandshake_ = handshake; phoneInitialInput_ = initialInput;
     pthread_mutex_unlock(&mutex_); return true;
 }
 bool MatterWorker::phoneQueue(unsigned char opcode, const std::string& payload) {
@@ -450,7 +450,7 @@ void MatterWorker::dropPhone(bool cancel, unsigned int code) {
     phoneLastId_ = 0; phoneGeneration_ = 0; phoneReceived_ = 0; phonePingAt_ = 0; phoneReady_ = false;
     pthread_mutex_lock(&mutex_);
     if (phonePendingFd_ >= 0) { close(phonePendingFd_); phonePendingFd_ = -1; }
-    phoneHandshake_.clear(); phoneActive_ = false;
+    phoneHandshake_.clear(); phoneInitialInput_.clear(); phoneActive_ = false;
     pthread_mutex_unlock(&mutex_);
     if (session!=0 && !cancel) abandonedSession_ = session;
     if (cancel && session!=0) {
@@ -481,8 +481,13 @@ void MatterWorker::phonePump() {
         if (!phoneQueue(9, "")) { dropPhone(true, 1009); return; }
         phonePingAt_ = now + 10000;
     }
+    if (phoneReady_ && !phoneInitialInput_.empty()) {
+        if (!phoneDecoder_.feed(phoneInitialInput_)) { dropPhone(true, phoneDecoder_.closeCode()); return; }
+        phoneInitialInput_.clear();
+    }
     char buffer[MatterWebSocket::MaxChunk];
-    ssize_t count = recv(phoneFd_, buffer, sizeof(buffer), MSG_DONTWAIT);
+    ssize_t count = phoneReady_ ? recv(phoneFd_, buffer, sizeof(buffer), MSG_DONTWAIT) : -1;
+    if (!phoneReady_) errno = EAGAIN;
     if (count == 0 || (count < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)) {
         dropPhone(true, 1001); return;
     }
@@ -491,7 +496,7 @@ void MatterWorker::phonePump() {
         dropPhone(true, phoneDecoder_.closeCode()); return;
     }
     MatterWebSocket::Message message;
-    if (phoneDecoder_.pop(&message)) {
+    if (phoneReady_ && phoneDecoder_.pop(&message)) {
         phoneReceived_ = tick();
         phonePingAt_ = phoneReceived_ + 10000;
         if (message.opcode == 8) { dropPhone(true, 1000); return; }

@@ -38,6 +38,7 @@ extern "C" int microhad_crypto_init(void);
 #include <sys/time.h>
 #include <ctime>
 #include <pthread.h>
+#include <poll.h>
 #include <signal.h>
 #include <unistd.h>
 #include <vector>
@@ -55,7 +56,7 @@ extern "C" int microhad_crypto_init(void);
 extern "C" int microhad_tls_server_create(const char* certificatePath, const char* privateKeyPath, void** server);
 extern "C" void microhad_tls_server_destroy(void* server);
 extern "C" int microhad_tls_session_open(void* server, int fd, void** session);
-extern "C" int microhad_tls_read_request(void* session, char* request, unsigned long capacity);
+extern "C" int microhad_tls_pending(void* session);
 extern "C" int microhad_tls_read(void* session, char* output, unsigned long capacity);
 extern "C" int microhad_tls_write(void* session, const char* response, unsigned long length);
 extern "C" void microhad_tls_session_close(void* session);
@@ -74,6 +75,21 @@ enum RequestReadResult {
 };
 
 std::string* queuedResponse = 0;
+struct ResponseState {
+    bool keepAlive, failed;
+    ResponseState() : keepAlive(false), failed(false) {}
+};
+pthread_key_t responseStateKey;
+pthread_once_t responseStateOnce = PTHREAD_ONCE_INIT;
+void createResponseStateKey() { pthread_key_create(&responseStateKey, 0); }
+ResponseState* responseState() {
+    pthread_once(&responseStateOnce, createResponseStateKey);
+    return static_cast<ResponseState*>(pthread_getspecific(responseStateKey));
+}
+uint64_t connectionClock() {
+    struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+    return static_cast<uint64_t>(now.tv_sec) * 1000 + now.tv_nsec / 1000000;
+}
 #ifdef MICROHAD_MBEDTLS_ENABLED
 pthread_key_t tlsSessionKey;
 pthread_once_t tlsSessionKeyOnce = PTHREAD_ONCE_INIT;
@@ -85,14 +101,17 @@ void setActiveTlsSession(void* value) { pthread_once(&tlsSessionKeyOnce, createT
 bool writeBytes(int fd, const std::string& bytes) {
 #ifdef MICROHAD_MBEDTLS_ENABLED
     if (activeTlsSession() != 0) {
-        return microhad_tls_write(activeTlsSession(), bytes.data(), bytes.size()) == 0;
+        bool ok = microhad_tls_write(activeTlsSession(), bytes.data(), bytes.size()) == 0;
+        if (!ok && responseState()) responseState()->failed = true;
+        return ok;
     }
 #endif
     const char* cursor = bytes.data();
     unsigned long remaining = bytes.size();
     while (remaining != 0) {
-        ssize_t written = write(fd, cursor, remaining);
-        if (written <= 0) return false;
+        ssize_t written = send(fd, cursor, remaining, MSG_NOSIGNAL);
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) { if (responseState()) responseState()->failed = true; return false; }
         cursor += written;
         remaining -= static_cast<unsigned long>(written);
     }
@@ -108,8 +127,12 @@ void relayTls(void* session, int clientFd, int bridgeFd) {
     while (true) {
         fd_set ready; FD_ZERO(&ready); FD_SET(clientFd, &ready); FD_SET(bridgeFd, &ready);
         int maximum = clientFd > bridgeFd ? clientFd : bridgeFd;
-        if (select(maximum + 1, &ready, 0, 0, 0) <= 0) break;
-        if (FD_ISSET(clientFd, &ready)) {
+        const bool buffered = microhad_tls_pending(session) != 0;
+        struct timeval immediate; immediate.tv_sec = 0; immediate.tv_usec = 0;
+        int selected = select(maximum + 1, &ready, 0, 0, buffered ? &immediate : 0);
+        if (selected < 0 && errno == EINTR) continue;
+        if (selected < 0) break;
+        if (buffered || FD_ISSET(clientFd, &ready)) {
             int length = microhad_tls_read(session, buffer, sizeof(buffer));
             if (length <= 0 || write(bridgeFd, buffer, length) != length) break;
         }
@@ -130,7 +153,8 @@ void writeResponse(int fd, int status, const char* contentType, const std::strin
                                            status == 413 ? " Payload Too Large" : status == 404 ? " Not Found" : " Bad Request") << "\r\n"
              << "Content-Type: " << contentType << "\r\n";
     if (contentEncoding != 0) response << "Content-Encoding: " << contentEncoding << "\r\n";
-    response << "Cache-Control: no-store\r\nConnection: close\r\n"
+    response << "Cache-Control: no-store\r\nConnection: "
+             << (responseState() && responseState()->keepAlive ? "keep-alive" : "close") << "\r\n"
              << "Content-Length: " << body.size() << "\r\n\r\n";
     std::string header = response.str();
     if (queuedResponse != 0) {
@@ -161,6 +185,12 @@ RequestReadResult expectedRequestLength(const std::string& request, unsigned lon
     if (headerEnd + 4 > 16384) return RequestReadTooLarge;
     lineStart = request.find("\r\n");
     if (lineStart == std::string::npos || lineStart == 0) return RequestReadMalformed;
+    const std::string firstLine = request.substr(0, lineStart);
+    const std::string::size_type firstSpace = firstLine.find(' ');
+    const std::string::size_type lastSpace = firstLine.rfind(' ');
+    if (firstSpace == std::string::npos || firstSpace == 0 || lastSpace <= firstSpace + 1 ||
+        (firstLine.substr(lastSpace + 1) != "HTTP/1.1" && firstLine.substr(lastSpace + 1) != "HTTP/1.0"))
+        return RequestReadMalformed;
     lineStart += 2;
     while (lineStart < headerEnd) {
         std::string::size_type lineEnd = request.find("\r\n", lineStart);
@@ -171,13 +201,14 @@ RequestReadResult expectedRequestLength(const std::string& request, unsigned lon
         colon = request.find(':', lineStart);
         if (colon == std::string::npos || colon >= lineEnd) return RequestReadMalformed;
         name = request.substr(lineStart, colon - lineStart);
+        if (name.empty() || name.find_first_of(" \t\r\n") != std::string::npos) return RequestReadMalformed;
         value = request.substr(colon + 1, lineEnd - colon - 1);
         while (!value.empty() && (value[0] == ' ' || value[0] == '\t')) value.erase(0, 1);
         if (equalHeaderName(name, "transfer-encoding")) return RequestReadMalformed;
         if (equalHeaderName(name, "content-length")) {
             char* end = 0;
             unsigned long parsed;
-            if (value.empty() || value[0] == '-') return RequestReadMalformed;
+            if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos) return RequestReadMalformed;
             errno = 0;
             parsed = strtoul(value.c_str(), &end, 10);
             if (errno != 0 || end == value.c_str() || *end != 0 || sawContentLength)
@@ -209,26 +240,60 @@ bool parseShellyIndices(const std::string& text, std::vector<int>* indices) {
     return true;
 }
 
-RequestReadResult readPlainRequest(int fd, std::string* request) {
-    char chunk[1024];
-    unsigned long expected = 0;
-    bool haveHeaders = false;
-    request->clear();
-    while (request->size() < maximumRequestBytes) {
-        ssize_t received = read(fd, chunk, sizeof(chunk));
-        if (received <= 0) return RequestReadFailed;
-        request->append(chunk, static_cast<unsigned long>(received));
-        if (!haveHeaders && request->find("\r\n\r\n") != std::string::npos) {
-            RequestReadResult result = expectedRequestLength(*request, &expected);
-            if (result != RequestReadOk) return result;
-            haveHeaders = true;
+bool requestKeepsAlive(const std::string& request) {
+    const std::string line = request.substr(0, request.find("\r\n"));
+    bool persistent = line.size() >= 9 && line.substr(line.size() - 9) == " HTTP/1.1";
+    bool closeRequested = false;
+    std::string::size_type start = request.find("\r\n") + 2;
+    while (start < request.size()) {
+        std::string::size_type end = request.find("\r\n", start);
+        if (end == std::string::npos || end == start) break;
+        std::string::size_type colon = request.find(':', start);
+        if (colon < end && equalHeaderName(request.substr(start, colon - start), "connection")) {
+            std::string value = request.substr(colon + 1, end - colon - 1);
+            std::string::size_type pos = 0;
+            while (pos < value.size()) {
+                std::string::size_type comma = value.find(',', pos);
+                std::string token = value.substr(pos, comma == std::string::npos ? comma : comma - pos);
+                while (!token.empty() && (token[0] == ' ' || token[0] == '\t')) token.erase(0, 1);
+                while (!token.empty() && (token[token.size()-1] == ' ' || token[token.size()-1] == '\t')) token.erase(token.size()-1);
+                if (equalHeaderName(token, "close")) closeRequested = true;
+                if (equalHeaderName(token, "keep-alive") && line.size() >= 9 && line.substr(line.size()-9) == " HTTP/1.0") persistent = true;
+                if (comma == std::string::npos) break;
+                pos = comma + 1;
+            }
         }
-        if (haveHeaders && request->size() >= expected) {
-            request->resize(expected);
-            return RequestReadOk;
-        }
+        start = end + 2;
     }
-    return RequestReadTooLarge;
+    return persistent && !closeRequested;
+}
+
+RequestReadResult readRequest(int fd, void* session, std::string* pending, std::string* request) {
+    char chunk[4096];
+    unsigned long expected = 0;
+    while (true) {
+        if (!expected && pending->find("\r\n\r\n") != std::string::npos) {
+            RequestReadResult result = expectedRequestLength(*pending, &expected);
+            if (result != RequestReadOk) return result;
+        }
+        if (expected) {
+            if (pending->size() >= expected) {
+                request->assign(*pending, 0, expected);
+                pending->erase(0, expected);
+                return RequestReadOk;
+            }
+        } else if (pending->size() >= 16384) return RequestReadTooLarge;
+        unsigned long capacity = expected ? std::min<unsigned long>(sizeof(chunk), expected - pending->size()) : sizeof(chunk);
+        ssize_t received;
+#ifdef MICROHAD_MBEDTLS_ENABLED
+        if (session) received = microhad_tls_read(session, chunk, capacity);
+        else
+#endif
+        received = read(fd, chunk, capacity);
+        if (received < 0 && errno == EINTR) continue;
+        if (received <= 0) return RequestReadFailed;
+        pending->append(chunk, received);
+    }
 }
 
 std::string decodeComponent(const std::string& value) {
@@ -573,6 +638,31 @@ bool threadUsageOrder(const ThreadCpuReading& left, const ThreadCpuReading& righ
 
 }
 
+struct HttpServer::Connection {
+    int fd;
+    void* session;
+    bool initialized, idle;
+    unsigned int requests;
+    uint64_t deadline;
+    std::string pending;
+    Connection(int descriptor) : fd(descriptor), session(0), initialized(false), idle(false), requests(0), deadline(0) {}
+};
+
+void HttpServer::wakeAcceptor() {
+    const char byte = 1;
+    if (wakePipe_[1] >= 0) { ssize_t ignored = write(wakePipe_[1], &byte, 1); (void)ignored; }
+}
+
+void HttpServer::releaseConnection(Connection* connection) {
+    // Caller holds queueMutex_; only idle or exclusively owned connections reach here.
+    connections_.erase(std::find(connections_.begin(), connections_.end(), connection));
+#ifdef MICROHAD_MBEDTLS_ENABLED
+    if (connection->session) microhad_tls_session_close(connection->session);
+#endif
+    close(connection->fd);
+    delete connection;
+}
+
 HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webuiDirectory,
                        const std::string& certificatePath, const std::string& privateKeyPath,
                        ExternalHttpDeviceWorker* shelly, NotificationWorker* notifications, MatterWorker* matterWorker, const std::string& companionConfig, AutomationWorker* automations) :
@@ -581,6 +671,7 @@ HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webu
     matter_(new MatterClient("/tmp/microhad-matter.sock")), matterWorker_(matterWorker), automations_(automations), webPush_(new WebPushStore(gateway->runtimeDirectory())), webuiDirectory_(webuiDirectory),
     certificatePath_(certificatePath), privateKeyPath_(privateKeyPath), tlsServer_(0), running_(false),
     previousCpuTotal_(0), previousCpuIdle_(0), hasPreviousCpu_(false), previousThreadSampleUptime_(0) {
+    wakePipe_[0] = wakePipe_[1] = -1;
     OtaStore::instance();
     pthread_mutex_init(&queueMutex_, 0);
     pthread_cond_init(&queueReady_, 0);
@@ -589,16 +680,21 @@ HttpServer::HttpServer(int port, GatewayRunner* gateway, const std::string& webu
 
 HttpServer::~HttpServer() {
     pthread_mutex_lock(&queueMutex_);
-    if (running_) {
-        running_ = false;
-        if (listenFd_ >= 0) { close(listenFd_); listenFd_ = -1; }
-        pthread_cond_broadcast(&queueReady_);
-        pthread_mutex_unlock(&queueMutex_);
+    const bool started = running_;
+    running_ = false;
+    for (unsigned long i = 0; i < connections_.size(); ++i) shutdown(connections_[i]->fd, SHUT_RDWR);
+    pthread_cond_broadcast(&queueReady_);
+    wakeAcceptor();
+    pthread_mutex_unlock(&queueMutex_);
+    if (started) {
         pthread_join(acceptThread_, 0);
         pthread_join(workerThreads_[0], 0);
         pthread_join(workerThreads_[1], 0);
-    } else pthread_mutex_unlock(&queueMutex_);
-    while (!clientQueue_.empty()) { close(clientQueue_.back()); clientQueue_.pop_back(); }
+    }
+    if (listenFd_ >= 0) close(listenFd_);
+    while (!connections_.empty()) releaseConnection(connections_.back());
+    if (wakePipe_[0] >= 0) close(wakePipe_[0]);
+    if (wakePipe_[1] >= 0) close(wakePipe_[1]);
     pthread_cond_destroy(&queueReady_);
     pthread_mutex_destroy(&queueMutex_);
     pthread_mutex_destroy(&statsMutex_);
@@ -632,15 +728,22 @@ bool HttpServer::start(std::string* error) {
         *error = strerror(errno); close(listenFd_); listenFd_ = -1; return false;
     }
     fcntl(listenFd_, F_SETFL, O_NONBLOCK);
+    if (pipe(wakePipe_) != 0) { *error = strerror(errno); close(listenFd_); listenFd_ = -1; return false; }
+    fcntl(wakePipe_[0], F_SETFL, O_NONBLOCK);
+    fcntl(wakePipe_[1], F_SETFL, O_NONBLOCK);
     pthread_mutex_lock(&queueMutex_);
     running_ = true;
     pthread_mutex_unlock(&queueMutex_);
-    if (pthread_create(&acceptThread_, 0, acceptThreadMain, this) != 0 ||
-        pthread_create(&workerThreads_[0], 0, workerThreadMain, this) != 0 ||
-        pthread_create(&workerThreads_[1], 0, workerThreadMain, this) != 0) {
+    bool acceptStarted = pthread_create(&acceptThread_, 0, acceptThreadMain, this) == 0;
+    bool firstStarted = acceptStarted && pthread_create(&workerThreads_[0], 0, workerThreadMain, this) == 0;
+    bool secondStarted = firstStarted && pthread_create(&workerThreads_[1], 0, workerThreadMain, this) == 0;
+    if (!secondStarted) {
         *error = "cannot create HTTP worker threads";
-        pthread_mutex_lock(&queueMutex_); running_ = false; close(listenFd_); listenFd_ = -1;
-        pthread_cond_broadcast(&queueReady_); pthread_mutex_unlock(&queueMutex_);
+        pthread_mutex_lock(&queueMutex_); running_ = false;
+        for (unsigned long i = 0; i < connections_.size(); ++i) shutdown(connections_[i]->fd, SHUT_RDWR);
+        pthread_cond_broadcast(&queueReady_); wakeAcceptor(); pthread_mutex_unlock(&queueMutex_);
+        if (acceptStarted) pthread_join(acceptThread_, 0);
+        if (firstStarted) pthread_join(workerThreads_[0], 0);
         return false;
     }
     return true;
@@ -677,73 +780,109 @@ void* HttpServer::workerThreadMain(void* opaque) {
 }
 
 void HttpServer::acceptLoop() {
-    int clientFd;
     while (true) {
-        clientFd = accept(listenFd_, 0, 0);
-        if (clientFd < 0) { usleep(10000); pthread_mutex_lock(&queueMutex_); bool keepGoing = running_; pthread_mutex_unlock(&queueMutex_); if (!keepGoing) break; continue; }
+        std::vector<struct pollfd> watched;
+        std::vector<Connection*> idle;
+        struct pollfd item; item.events = POLLIN; item.revents = 0;
+        item.fd = listenFd_; watched.push_back(item);
+        item.fd = wakePipe_[0]; watched.push_back(item);
         pthread_mutex_lock(&queueMutex_);
-        if (!running_) { pthread_mutex_unlock(&queueMutex_); close(clientFd); break; }
-        if (clientQueue_.size() >= 16) { pthread_mutex_unlock(&queueMutex_); close(clientFd); continue; }
-        clientQueue_.push_back(clientFd);
-        pthread_cond_signal(&queueReady_);
+        if (!running_) { pthread_mutex_unlock(&queueMutex_); break; }
+        // Only the acceptor deletes idle connections: its poll snapshot stays
+        // valid while workers return other connections under queueMutex_.
+        while (true) {
+            Connection* oldest = 0; unsigned int count = 0;
+            for (unsigned long i = 0; i < connections_.size(); ++i) {
+                Connection* candidate = connections_[i];
+                if (candidate->idle) {
+                    ++count;
+                    if (!oldest || candidate->deadline < oldest->deadline) oldest = candidate;
+                }
+            }
+            if (count <= 16) break;
+            releaseConnection(oldest);
+        }
+        const uint64_t now = connectionClock();
+        for (unsigned long i = 0; i < connections_.size();) {
+            Connection* connection = connections_[i];
+            if (!connection->idle) { ++i; continue; }
+            if (now >= connection->deadline) { releaseConnection(connection); continue; }
+            bool ready = !connection->pending.empty();
+#ifdef MICROHAD_MBEDTLS_ENABLED
+            if (connection->session && microhad_tls_pending(connection->session)) ready = true;
+#endif
+            if (ready && clientQueue_.size() < 16) {
+                connection->idle = false; clientQueue_.push_back(connection); pthread_cond_signal(&queueReady_);
+            } else {
+                item.fd = connection->fd; watched.push_back(item); idle.push_back(connection);
+            }
+            ++i;
+        }
+        pthread_mutex_unlock(&queueMutex_);
+        int result = ::poll(&watched[0], watched.size(), 1000);
+        if (result < 0 && errno == EINTR) continue;
+        pthread_mutex_lock(&queueMutex_);
+        if (!running_) { pthread_mutex_unlock(&queueMutex_); break; }
+        if (watched[1].revents) { char bytes[64]; while (read(wakePipe_[0], bytes, sizeof(bytes)) > 0) {} }
+        for (unsigned long i = 0; i < idle.size(); ++i) {
+            if (!watched[i+2].revents) continue;
+            Connection* connection = idle[i];
+            if (clientQueue_.size() >= 16) { releaseConnection(connection); continue; }
+            connection->idle = false; clientQueue_.push_back(connection); pthread_cond_signal(&queueReady_);
+        }
+        if (watched[0].revents & POLLIN) {
+            int fd = accept(listenFd_, 0, 0);
+            if (fd >= 0) {
+                if (clientQueue_.size() >= 16) close(fd);
+                else {
+                    Connection* connection = new Connection(fd);
+                    connections_.push_back(connection); clientQueue_.push_back(connection); pthread_cond_signal(&queueReady_);
+                }
+            }
+        }
         pthread_mutex_unlock(&queueMutex_);
     }
 }
 
 void HttpServer::workerLoop() {
     while (true) {
-        int clientFd;
         pthread_mutex_lock(&queueMutex_);
         while (running_ && clientQueue_.empty()) pthread_cond_wait(&queueReady_, &queueMutex_);
-        if (!running_ && clientQueue_.empty()) { pthread_mutex_unlock(&queueMutex_); break; }
-        clientFd = clientQueue_.front(); clientQueue_.erase(clientQueue_.begin());
+        if (!running_) { pthread_mutex_unlock(&queueMutex_); break; }
+        Connection* connection = clientQueue_.front(); clientQueue_.erase(clientQueue_.begin());
         pthread_mutex_unlock(&queueMutex_);
-        struct timeval timeout;
-        timeout.tv_sec = 5; timeout.tv_usec = 0;
-        setsockopt(clientFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-        setsockopt(clientFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-        handleClient(clientFd);
-        close(clientFd);
+        struct timeval timeout; timeout.tv_sec = 5; timeout.tv_usec = 0;
+        setsockopt(connection->fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(connection->fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+        const bool reusable = handleClient(connection);
+        pthread_mutex_lock(&queueMutex_);
+        if (reusable && running_) {
+            connection->idle = true; connection->deadline = connectionClock() + 45000;
+        } else releaseConnection(connection);
+        wakeAcceptor();
+        pthread_mutex_unlock(&queueMutex_);
     }
 }
 
-void HttpServer::handleClient(int clientFd) {
+bool HttpServer::handleClient(Connection* connection) {
+    const int clientFd = connection->fd;
     std::string request;
-    RequestReadResult readResult = RequestReadFailed;
 #ifdef MICROHAD_MBEDTLS_ENABLED
-    void* session = 0;
-    if (tlsServer_ != 0 && microhad_tls_session_open(tlsServer_, clientFd, &session) != 0) return;
-#else
+    if (!connection->initialized && tlsServer_ && microhad_tls_session_open(tlsServer_, clientFd, &connection->session) != 0) return false;
+    void* session = connection->session;
+    setActiveTlsSession(session);
 #endif
-#ifdef MICROHAD_MBEDTLS_ENABLED
-    if (session != 0) {
-        std::vector<char> buffer(maximumRequestBytes + 1, 0);
-        int tlsResult = microhad_tls_read_request(session, &buffer[0], buffer.size());
-        if (tlsResult != 0) {
-            setActiveTlsSession(session);
-            writeResponse(clientFd, tlsResult == -2 ? 413 : 400, "application/json",
-                          tlsResult == -2 ? "{\"error\":\"request is too large\"}" : "{\"error\":\"malformed request\"}");
-            setActiveTlsSession(0);
-            microhad_tls_session_close(session);
-            return;
-        }
-        request.assign(&buffer[0]);
-        setActiveTlsSession(session);
-        unsigned long expected=0;
-        if(expectedRequestLength(request,&expected)==RequestReadTooLarge){writeResponse(clientFd,413,"application/json","{\"error\":\"request is too large\"}");setActiveTlsSession(0);microhad_tls_session_close(session);return;}
-    } else readResult = readPlainRequest(clientFd, &request);
-#else
-    readResult = readPlainRequest(clientFd, &request);
-#endif
-    if (
-#ifdef MICROHAD_MBEDTLS_ENABLED
-        session != 0 ||
-#endif
-        readResult == RequestReadOk) {
+    connection->initialized = true;
+    RequestReadResult readResult = readRequest(clientFd, connection->session, &connection->pending, &request);
+    ResponseState state;
+    state.keepAlive = readResult == RequestReadOk && requestKeepsAlive(request) && ++connection->requests < 100;
+    responseState(); pthread_setspecific(responseStateKey, &state);
+    if (readResult == RequestReadOk) {
         int authStatus=0; std::string authResponse;
         if (api_auth::gate(webuiDirectory_, request, &authStatus, &authResponse))
             writeResponse(clientFd, authStatus, "application/json", authResponse);
         else if (request.find("GET /api/matter/relay ") == 0) {
+            state.keepAlive = false;
 #if MICROHAD_MATTER_ENABLED
             std::string upgrade, error;
             const bool validHandshake = MatterWebSocket::handshake(request, "/api/matter/relay", &upgrade);
@@ -760,7 +899,7 @@ void HttpServer::handleClient(int clientFd) {
             else if (session != 0) {
                 int bridge[2] = {-1, -1};
                 if (socketpair(AF_UNIX, SOCK_STREAM, 0, bridge) != 0 ||
-                    !matterWorker_->adoptRelay(bridge[1], upgrade, &error)) {
+                    !matterWorker_->adoptRelay(bridge[1], upgrade, &error, connection->pending)) {
                     if (bridge[0] >= 0) close(bridge[0]);
                     if (bridge[1] >= 0) close(bridge[1]);
                     writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"" +
@@ -770,7 +909,7 @@ void HttpServer::handleClient(int clientFd) {
                 }
             }
 #endif
-            else if (!matterWorker_->adoptRelay(clientFd, upgrade, &error))
+            else if (!matterWorker_->adoptRelay(clientFd, upgrade, &error, connection->pending))
                 writeResponse(clientFd, 503, "application/json", "{\"ok\":false,\"error\":\"" +
                               (error.empty() ? "not_ready" : error) + "\"}");
 #else
@@ -783,8 +922,11 @@ void HttpServer::handleClient(int clientFd) {
     }
 #ifdef MICROHAD_MBEDTLS_ENABLED
     setActiveTlsSession(0);
-    if (session != 0) microhad_tls_session_close(session);
 #endif
+    pthread_setspecific(responseStateKey, 0);
+    // Do not retain the capacity of a large source upload in the idle pool.
+    if (connection->pending.empty()) std::string().swap(connection->pending);
+    return state.keepAlive && !state.failed;
 }
 
 void HttpServer::handleRequest(int clientFd, const std::string& request) {

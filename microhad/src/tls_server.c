@@ -1,6 +1,7 @@
 extern int microhad_crypto_init(void);
 #include <stddef.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -48,57 +49,6 @@ static int* server_ciphersuites(void) {
         }
     }
     return preferred;
-}
-
-static char ascii_lower(char value) {
-    return value >= 'A' && value <= 'Z' ? (char)(value + ('a' - 'A')) : value;
-}
-
-static int header_name_is(const char* start, const char* end, const char* name) {
-    unsigned long length = (unsigned long)(end - start);
-    unsigned long i;
-    if (length != strlen(name)) return 0;
-    for (i = 0; i < length; i++) if (ascii_lower(start[i]) != name[i]) return 0;
-    return 1;
-}
-
-static int request_length(char* request, unsigned long capacity, unsigned long* expected) {
-    char* header_end = strstr(request, "\r\n\r\n");
-    char* line = strstr(request, "\r\n");
-    unsigned long content_length = 0;
-    unsigned long request_limit = capacity - 1;
-    int saw_content_length = 0;
-    if (header_end == 0 || line == 0 || line == request) return -1;
-    if ((unsigned long)(header_end + 4 - request) >= capacity || header_end + 4 - request > 16384) return -2;
-    /* Only source uploads get the larger body allowance. Check this while
-       parsing headers, before waiting for a body that must be rejected. */
-    if (strncmp(request, "POST /api/automations/save ", sizeof("POST /api/automations/save ") - 1) != 0 &&
-        strncmp(request, "POST /api/automations/validate ", sizeof("POST /api/automations/validate ") - 1) != 0 &&
-        request_limit > 16384) request_limit = 16384;
-    line += 2;
-    while (line < header_end) {
-        char* line_end = strstr(line, "\r\n");
-        char* colon;
-        char* value;
-        char* end;
-        unsigned long parsed;
-        if (line_end == 0 || line_end > header_end || (colon = strchr(line, ':')) == 0 || colon >= line_end) return -1;
-        value = colon + 1;
-        while (value < line_end && (*value == ' ' || *value == '\t')) value++;
-        if (header_name_is(line, colon, "transfer-encoding")) return -1;
-        if (header_name_is(line, colon, "content-length")) {
-            if (value == line_end || *value == '-') return -1;
-            errno = 0;
-            parsed = strtoul(value, &end, 10);
-            if (errno != 0 || end == value || end != line_end || (saw_content_length && parsed != content_length)) return -1;
-            saw_content_length = 1;
-            content_length = parsed;
-        }
-        line = line_end + 2;
-    }
-    if (content_length > request_limit - (unsigned long)(header_end + 4 - request)) return -2;
-    *expected = (unsigned long)(header_end + 4 - request) + content_length;
-    return 0;
 }
 
 static void release_session(struct microhad_tls_session* session) {
@@ -150,6 +100,22 @@ void microhad_tls_server_destroy(void* opaque_server) {
     free(server->ciphersuites); free(server);
 }
 
+/* These sessions use blocking sockets with SO_RCVTIMEO/SO_SNDTIMEO.
+ * Mbed TLS maps EAGAIN to WANT_READ/WRITE, which would retry forever after
+ * each socket timeout. Propagate an actual timeout instead. */
+static int socket_receive(void* context, unsigned char* bytes, size_t length) {
+    int result;
+    do { result = mbedtls_net_recv(context, bytes, length); }
+    while (result == MBEDTLS_ERR_SSL_WANT_READ && errno == EINTR);
+    return result == MBEDTLS_ERR_SSL_WANT_READ ? MBEDTLS_ERR_SSL_TIMEOUT : result;
+}
+static int socket_send(void* context, const unsigned char* bytes, size_t length) {
+    int result;
+    do { result = mbedtls_net_send(context, bytes, length); }
+    while (result == MBEDTLS_ERR_SSL_WANT_WRITE && errno == EINTR);
+    return result == MBEDTLS_ERR_SSL_WANT_WRITE ? MBEDTLS_ERR_SSL_TIMEOUT : result;
+}
+
 int microhad_tls_session_open(void* opaque_server, int fd, void** output_session) {
     struct microhad_tls_session* session;
     int result = -1;
@@ -163,40 +129,13 @@ int microhad_tls_session_open(void* opaque_server, int fd, void** output_session
     session->socket.fd = fd;
     session->server = server;
     result = mbedtls_ssl_setup(&session->ssl, &server->config);
-    if (result == 0) mbedtls_ssl_set_bio(&session->ssl, &session->socket, mbedtls_net_send, mbedtls_net_recv, 0);
+    if (result == 0) mbedtls_ssl_set_bio(&session->ssl, &session->socket, socket_send, socket_receive, 0);
     while (result == 0 && (received = mbedtls_ssl_handshake(&session->ssl)) != 0) {
         if (received != MBEDTLS_ERR_SSL_WANT_READ && received != MBEDTLS_ERR_SSL_WANT_WRITE) result = received;
     }
     if (result == 0) { *output_session = session; return 0; }
     release_session(session);
     return -1;
-}
-
-int microhad_tls_read_request(void* opaque_session, char* request, unsigned long capacity) {
-    struct microhad_tls_session* session = (struct microhad_tls_session*)opaque_session;
-    int result = 0;
-    int received;
-    unsigned long length = 0;
-    unsigned long expected = 0;
-    int parsed_headers = 0;
-    if (session == 0 || capacity < 2) return -1;
-    while (result == 0 && length < capacity - 1) {
-        received = mbedtls_ssl_read(&session->ssl, (unsigned char*)request + length, capacity - 1 - length);
-        if (received > 0) {
-            length += (unsigned long)received;
-            request[length] = 0;
-            if (!parsed_headers && length > 16384 && strstr(request, "\r\n\r\n") == 0) { result = -2; break; }
-            if (!parsed_headers && strstr(request, "\r\n\r\n") != 0) {
-                result = request_length(request, capacity, &expected);
-                if (result != 0) break;
-                parsed_headers = 1;
-            }
-            if (parsed_headers && length >= expected) { request[expected] = 0; break; }
-        }
-        else if (received != MBEDTLS_ERR_SSL_WANT_READ && received != MBEDTLS_ERR_SSL_WANT_WRITE) { result = -1; }
-    }
-    if (result == -2 || (!parsed_headers && length == capacity - 1)) return -2;
-    return result == 0 && parsed_headers ? 0 : -1;
 }
 
 int microhad_tls_write(void* opaque_session, const char* response, unsigned long length) {
@@ -222,9 +161,17 @@ int microhad_tls_read(void* opaque_session, char* output, unsigned long capacity
     return received;
 }
 
+int microhad_tls_pending(void* opaque_session) {
+    struct microhad_tls_session* session = (struct microhad_tls_session*)opaque_session;
+    return session != 0 && mbedtls_ssl_check_pending(&session->ssl);
+}
+
 void microhad_tls_session_close(void* opaque_session) {
     struct microhad_tls_session* session = (struct microhad_tls_session*)opaque_session;
     if (session == 0) return;
+    /* Best effort only: closing must not block the idle scheduler. */
+    int flags = fcntl(session->socket.fd, F_GETFL, 0);
+    if (flags >= 0) fcntl(session->socket.fd, F_SETFL, flags | O_NONBLOCK);
     mbedtls_ssl_close_notify(&session->ssl);
     release_session(session);
 }

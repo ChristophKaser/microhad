@@ -10,6 +10,19 @@
 #include <netinet/in.h>
 #include "../src/tls_server.c"
 
+/* The benchmark accepts bodyless GETs only; production HTTP framing lives in
+ * HttpServer and is shared by plaintext and TLS connections. */
+static int read_get_request(void* session, char* request, size_t capacity) {
+    size_t length = 0;
+    while (length + 1 < capacity) {
+        int count = microhad_tls_read(session, request + length, capacity - length - 1);
+        if (count <= 0) return -1;
+        length += (size_t)count; request[length] = 0;
+        if (strstr(request, "\r\n\r\n") != NULL) return strncmp(request, "GET ", 4) == 0 ? 0 : -1;
+    }
+    return -1;
+}
+
 static int cache_hit;
 static double cpu_us(void) {
     struct timespec t;
@@ -92,7 +105,7 @@ int main(int argc, char **argv) {
                cpu_us()-cpu, wall_us()-wall, suite[0], result == 0 ?
                mbedtls_ssl_get_ciphersuite(&((struct microhad_tls_session *)session)->ssl) : "");
         if (result != 0) { close(fd); continue; }
-        if (microhad_tls_read_request(session, request, sizeof(request)) == 0) {
+        if (read_get_request(session, request, sizeof(request)) == 0) {
             if (strncmp(request, "GET /records/1024 ", 18) == 0) block = 1024;
             if (strncmp(request, "GET /records/16384 ", 19) == 0) block = 16384;
             if (block) count = 64; else block = 128;

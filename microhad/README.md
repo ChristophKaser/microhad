@@ -103,6 +103,13 @@ the notification worker owns outbound delivery. Never call `Gateway` directly
 from HTTP or notification threads. The Matter worker owns its persistent IPC
 connection and hands common-device updates to the coordinator.
 
+HTTP and HTTPS reuse connections by default for HTTP/1.1; HTTP/1.0 requires
+`Connection: keep-alive`. Each listener retains up to 16 idle connections for
+45 seconds and closes a connection after 100 requests. The acceptor polls idle
+sockets while the two request workers remain available. Request framing is
+shared between HTTP and HTTPS, including buffered pipelined requests; framing
+errors close the connection. Matter WebSocket upgrades leave HTTP scheduling.
+
 Dashboard and Lua reads share immutable per-device records from one published
 inventory. Normal value updates replace only the affected records and reuse
 unchanged metadata and the name index. Automation preserves each accepted

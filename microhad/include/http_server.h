@@ -49,7 +49,12 @@ private:
     pthread_t workerThreads_[2];
     pthread_mutex_t queueMutex_;
     pthread_cond_t queueReady_;
-    std::vector<int> clientQueue_;
+    struct Connection;
+    std::vector<Connection*> clientQueue_;
+    std::vector<Connection*> connections_;
+    int wakePipe_[2];
+    void wakeAcceptor();
+    void releaseConnection(Connection* connection);
     bool running_;
     pthread_mutex_t statsMutex_;
     uint64_t previousCpuTotal_;
@@ -58,7 +63,7 @@ private:
     struct ThreadCpuSample { uint64_t startTicks; uint64_t cpuTicks; };
     std::map<uint64_t, ThreadCpuSample> previousThreadSamples_;
     double previousThreadSampleUptime_;
-    void handleClient(int clientFd);
+    bool handleClient(Connection* connection);
     void handleRequest(int clientFd, const std::string& request);
     std::string controllerStatsJson();
     static void* acceptThreadMain(void* opaque);

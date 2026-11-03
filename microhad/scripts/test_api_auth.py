@@ -120,6 +120,25 @@ class AccessTests(unittest.TestCase):
                 self.assertEqual(self.call('/api/auth/status', token=token)[1]['role'], effective_role)
         self.assertEqual(self.call('/api/auth/password', {'role': 'guest', 'salt': '', 'verifier': ''}, headers={'Origin': 'http://evil.invalid'})[0], 403)
 
+    def test_keepalive_authentication_is_per_request(self):
+        import http.client
+        self.change(0, 'keepalive-password')
+        token = self.login(2)
+        connection = http.client.HTTPConnection('127.0.0.1', self.fixture.port, timeout=5)
+        self.addCleanup(connection.close)
+        original_socket = None
+        for supplied, expected in [('', 401), (token, 200), ('', 401)]:
+            headers = {'Authorization': 'Bearer ' + supplied} if supplied else {}
+            connection.request('GET', '/api/settings', headers=headers)
+            response = connection.getresponse()
+            self.assertEqual(response.status, expected)
+            self.assertEqual(response.getheader('Connection'), 'keep-alive')
+            response.read()
+            if original_socket is None:
+                original_socket = connection.sock
+            self.assertIsNotNone(connection.sock)
+            self.assertIs(connection.sock, original_socket)
+
     def test_invalid_proofs_and_changed_password_challenges(self):
         self.change(0, 'initial')
         code, challenge = self.call('/api/auth/challenge', {'role': 'guest'})

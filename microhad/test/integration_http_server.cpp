@@ -97,7 +97,32 @@ std::string readAll(int fd) {
     return output;
 }
 
-std::string plainRequest(int port, const std::string& request) {
+std::string readResponse(int fd, mbedtls_ssl_context* ssl, std::string* pending) {
+    while (true) {
+        std::string::size_type end = pending->find("\r\n\r\n");
+        if (end != std::string::npos) {
+            std::string::size_type length = pending->find("Content-Length: ");
+            assert(length != std::string::npos && length < end);
+            unsigned long total = end + 4 + strtoul(pending->c_str() + length + 16, 0, 10);
+            if (pending->size() >= total) {
+                std::string response = pending->substr(0, total); pending->erase(0, total); return response;
+            }
+        }
+        char buffer[4096];
+        int count = ssl ? mbedtls_ssl_read(ssl, reinterpret_cast<unsigned char*>(buffer), sizeof(buffer)) : read(fd, buffer, sizeof(buffer));
+        assert(count > 0);
+        pending->append(buffer, count);
+    }
+}
+
+std::string closingRequest(std::string request) {
+    std::string::size_type end = request.find("\r\n\r\n");
+    if (end != std::string::npos) request.insert(end + 2, "Connection: close\r\n");
+    return request;
+}
+
+std::string plainRequest(int port, const std::string& input) {
+    const std::string request = closingRequest(input);
     int fd = connectLoopback(port);
     assert(write(fd, request.data(), request.size()) == static_cast<ssize_t>(request.size()));
     std::string response = readAll(fd);
@@ -110,12 +135,14 @@ std::string plainRequestParts(int port, const std::vector<std::string>& parts, b
     for (unsigned long i = 0; i < parts.size(); ++i)
         assert(write(fd, parts[i].data(), parts[i].size()) == static_cast<ssize_t>(parts[i].size()));
     if (endWrite) assert(shutdown(fd, SHUT_WR) == 0);
-    std::string response = readAll(fd);
+    std::string pending;
+    std::string response = readResponse(fd, 0, &pending);
     close(fd);
     return response;
 }
 
-std::string tlsRequest(int port, const std::string& request, const int* suites = 0, const char* expectedSuite = 0) {
+std::string tlsRequest(int port, const std::string& input, const int* suites = 0, const char* expectedSuite = 0, unsigned int rounds = 1, bool pipelined = false) {
+    const std::string request = closingRequest(input);
     mbedtls_net_context socket;
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config config;
@@ -145,18 +172,114 @@ std::string tlsRequest(int port, const std::string& request, const int* suites =
     }
     assert(result == 0 && mbedtls_ssl_get_verify_result(&ssl) == 0);
     if (expectedSuite != 0) assert(strcmp(mbedtls_ssl_get_ciphersuite(&ssl), expectedSuite) == 0);
-    unsigned long offset = 0;
-    while (offset < request.size()) {
-        result = mbedtls_ssl_write(&ssl, reinterpret_cast<const unsigned char*>(request.data()) + offset, request.size() - offset);
-        assert(result > 0);
-        offset += static_cast<unsigned long>(result);
+    std::string pending;
+    for (unsigned int round = 0; round < rounds; ++round) {
+        std::string bytes = round + 1 == rounds ? request : input;
+        if (pipelined) {
+            bytes.clear();
+            if (round == 0) {
+                for (unsigned int i = 1; i < rounds; ++i) bytes += input;
+                bytes += request;
+            }
+        }
+        unsigned long offset = 0;
+        while (offset < bytes.size()) {
+            result = mbedtls_ssl_write(&ssl, reinterpret_cast<const unsigned char*>(bytes.data()) + offset, bytes.size() - offset);
+            assert(result > 0); offset += result;
+        }
+        // Malformed/truncated request tests also return a framed error.
+        response = readResponse(socket.fd, &ssl, &pending);
+        if (round + 1 < rounds) assert(response.find("Connection: keep-alive\r\n") != std::string::npos);
     }
-    while ((result = mbedtls_ssl_read(&ssl, reinterpret_cast<unsigned char*>(buffer), sizeof(buffer))) > 0)
-        response.append(buffer, static_cast<unsigned long>(result));
+    result = mbedtls_ssl_read(&ssl, reinterpret_cast<unsigned char*>(buffer), sizeof(buffer));
     assert(result == 0 || result == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY);
     mbedtls_ssl_close_notify(&ssl); mbedtls_ssl_free(&ssl); mbedtls_ssl_config_free(&config);
     mbedtls_net_free(&socket); mbedtls_x509_crt_free(&certificate);
     return response;
+}
+
+void testKeepAlive(int port, int tlsPort) {
+    const std::string get = "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    std::string pending;
+    int fd = connectLoopback(port);
+    // More than two idle connections must leave the request workers available.
+    std::vector<int> idle;
+    for (unsigned int i = 0; i < 6; ++i) {
+        int client = connectLoopback(port);
+        assert(write(client, get.data(), get.size()) == static_cast<ssize_t>(get.size()));
+        assert(readResponse(client, 0, &pending).find("Connection: keep-alive\r\n") != std::string::npos);
+        idle.push_back(client);
+    }
+    const std::string body("a\0b", 3);
+    const std::string post = "POST /api/unknown HTTP/1.1\r\nHost: localhost\r\nContent-Length: 3\r\n\r\n" + body;
+    const std::string pipeline = post + get + closingRequest(get);
+    assert(write(fd, pipeline.data(), pipeline.size()) == static_cast<ssize_t>(pipeline.size()));
+    assert(readResponse(fd, 0, &pending).find("Connection: keep-alive\r\n") != std::string::npos);
+    assert(readResponse(fd, 0, &pending).find("HTTP/1.1 200") == 0);
+    assert(readResponse(fd, 0, &pending).find("Connection: close\r\n") != std::string::npos);
+    char byte; assert(read(fd, &byte, 1) == 0); close(fd);
+    for (unsigned long i = 0; i < idle.size(); ++i) close(idle[i]);
+    // A single handshake carries three sequential TLS requests.
+    assert(tlsRequest(tlsPort, get, 0, 0, 3).find("HTTP/1.1 200") == 0);
+    assert(tlsRequest(tlsPort, get, 0, 0, 3, true).find("HTTP/1.1 200") == 0);
+    fd = connectLoopback(port);
+    for (unsigned int i = 0; i < 100; ++i) {
+        assert(write(fd, get.data(), get.size()) == static_cast<ssize_t>(get.size()));
+        std::string response = readResponse(fd, 0, &pending);
+        assert(response.find(i == 99 ? "Connection: close\r\n" : "Connection: keep-alive\r\n") != std::string::npos);
+    }
+    assert(read(fd, &byte, 1) == 0); close(fd);
+    const char* variants[] = {
+        "GET /api/status HTTP/1.0\r\nHost: localhost\r\n\r\n",
+        "GET /api/status HTTP/1.0\r\nConnection: Keep-Alive\r\n\r\n",
+        "GET /api/status HTTP/1.1\r\nCoNnEcTiOn: upgrade, KeEp-AlIvE, ClOsE\r\n\r\n",
+        "POST /api/unknown HTTP/1.1\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n",
+        "POST /api/unknown HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n",
+        "POST /api/unknown HTTP/1.1\r\nContent-Length: +1\r\n\r\nx"
+    };
+    for (unsigned int i = 0; i < sizeof(variants) / sizeof(variants[0]); ++i) {
+        fd = connectLoopback(port);
+        const std::string bytes = variants[i];
+        // Split a request across writes on a reusable connection as well.
+        assert(write(fd, get.data(), get.size()) == static_cast<ssize_t>(get.size()));
+        readResponse(fd, 0, &pending);
+        assert(write(fd, bytes.data(), 7) == 7);
+        assert(write(fd, bytes.data() + 7, bytes.size() - 7) == static_cast<ssize_t>(bytes.size() - 7));
+        std::string response = readResponse(fd, 0, &pending);
+        assert(response.find(i == 1 ? "Connection: keep-alive\r\n" : "Connection: close\r\n") != std::string::npos);
+        if (i >= 3) assert(response.find("HTTP/1.1 400") == 0);
+        if (i != 1) assert(read(fd, &byte, 1) == 0);
+        close(fd);
+    }
+    idle.clear();
+    // The oldest idle connection is reclaimed when the seventeenth returns.
+    for (unsigned int i = 0; i < 17; ++i) {
+        fd = connectLoopback(port);
+        assert(write(fd, get.data(), get.size()) == static_cast<ssize_t>(get.size()));
+        readResponse(fd, 0, &pending); idle.push_back(fd);
+    }
+    assert(read(idle.front(), &byte, 1) == 0);
+    for (unsigned long i = 0; i < idle.size(); ++i) close(idle[i]);
+    fprintf(stderr, "integration: HTTP/TLS reuse, pipelining, binary bodies, idle fairness and request cap passed\n");
+}
+
+void testKeepAliveShutdown(GatewayRunner* runner, const std::string& directory) {
+    std::vector<int> clients;
+    const std::string get = "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    {
+        HttpServer server(0, runner, directory, "", "");
+        std::string error, pending;
+        assert(server.start(&error));
+        for (unsigned int i = 0; i < 4; ++i) {
+            int fd = connectLoopback(server.boundPort()); clients.push_back(fd);
+            assert(write(fd, get.data(), get.size()) == static_cast<ssize_t>(get.size()));
+            readResponse(fd, 0, &pending);
+        }
+        const std::string partial = "POST /api/unknown HTTP/1.1\r\nContent-Length: 10\r\n\r\nx";
+        assert(write(clients[0], partial.data(), partial.size()) == static_cast<ssize_t>(partial.size()));
+        usleep(20000);
+    }
+    for (unsigned long i = 0; i < clients.size(); ++i) close(clients[i]);
 }
 
 void testHttpQueuePressureAndBindFailure(HttpServer* server, GatewayRunner* runner, const std::string& dashboardPath) {
@@ -179,7 +302,7 @@ void testHttpQueuePressureAndBindFailure(HttpServer* server, GatewayRunner* runn
     std::vector<int> delayed;
     std::vector<int> pressure;
     const std::string partial = "GET /api/status HTTP/1.1\r\nHost: localhost\r\n";
-    const std::string complete = "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    const std::string complete = "GET /api/status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
     unsigned int i;
     for (i = 0; i < 2; ++i) {
         int fd = connectLoopback(server->boundPort());
@@ -323,6 +446,8 @@ void testServers() {
     if (!http.start(&error)) { fprintf(stderr, "HTTP start failed: %s\n", error.c_str()); assert(false); }
     if (!https.start(&error)) { fprintf(stderr, "HTTPS start failed: %s\n", error.c_str()); assert(false); }
     assert(http.boundPort() > 0 && https.boundPort() > 0);
+    testKeepAlive(http.boundPort(), https.boundPort());
+    testKeepAliveShutdown(&runner, directory + "/webui");
 
     HttpServer missingCertificate(0, &runner, directory + "/webui", directory + "/missing.crt",
                                   "test/fixtures/tls/localhost.key");

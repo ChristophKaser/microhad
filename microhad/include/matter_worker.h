@@ -24,13 +24,14 @@ public:
  #ifdef MICROHAD_TESTING
     bool takeEvent(std::string* json);
  #endif
-    bool adoptRelay(int fd, const std::string& handshake, std::string* error);
+    bool adoptRelay(int fd, const std::string& handshake, std::string* error, const std::string& initialInput = "");
 
 private:
     std::string otaSocket_;
     GatewayRunner* gateway_;
     int phonePendingFd_;
     std::string phoneHandshake_;
+    std::string phoneInitialInput_;
     bool phoneActive_;
     int phoneFd_;
     bool phoneReady_;
