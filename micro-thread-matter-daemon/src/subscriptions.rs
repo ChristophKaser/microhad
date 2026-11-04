@@ -846,7 +846,7 @@ async fn receive_report_exchange_progress(
             // Abort a chunked stream after the current validated chunk rather
             // than acknowledging it as a subscription we intend to retain.
             values.append(&mut chunk_values);
-            log::debug!("Matter inactive report: fabric={} node={:016x} id={} values={} more_chunks={} reply=InvalidSubscription",
+            log::info!("Received report with unexpected subscription ID: fabric={} node={:016x} id={} values={} more_chunks={}; using tracked values and replying InvalidSubscription",
                 fabric, node, received_id, values.len(), more_chunks);
             progress((fabric, node, received_id), Some(ReceivedReport {
                 fabric, node, subscription_id: received_id, values,

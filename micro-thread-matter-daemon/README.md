@@ -258,9 +258,10 @@ and value deduplication. They do not refresh subscription health, recovery
 deadlines or reachability, and their button/clock events are ignored. The daemon
 replies InvalidSubscription to stop the obsolete subscription; for chunked
 reports it accepts the validated prefix and stops without requesting more
-chunks. This expected case is logged at debug level with the peer and
-subscription ID. Malformed reports remain failures; an inactive ID is not used
-as a proxy for measurement age.
+chunks. This expected case is logged at info level as a report with an unexpected
+subscription ID, including the peer, ID and value count, and explaining that
+tracked values are used while replying InvalidSubscription. Malformed reports
+remain failures; an inactive ID is not used as a proxy for measurement age.
 A publisher explicitly rejecting a multi-path request with InvalidAction or
 ResourceExhausted falls back to separate environmental subscriptions at the same
 requested cadence until rediscovery or restart. Transport errors use ordinary
