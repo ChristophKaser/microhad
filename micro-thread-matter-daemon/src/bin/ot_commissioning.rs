@@ -1544,57 +1544,80 @@ async fn run(
                 rs_matter::error::ErrorCode::RxTimeout
             })?;
             assert!(subscription_id != 0);
-            // An obsolete subscription must be rejected on the wire, even
-            // when its ReportData contains no changed attribute values.
-            let invalid_report = async {
-                use rs_matter::tlv::FromTLV;
-                let mut exchange = Exchange::initiate(
-                    device_matter,
-                    device_crypto,
-                    accessory_fabric,
-                    active_store_identity_node(ctrl_matter, fab)?,
-                )
-                .await?;
-                exchange
-                    .send_with(|_, writer| {
-                        writer.start_struct(&TLVTag::Anonymous)?;
-                        writer.u32(
-                            &TLVTag::Context(0),
-                            subscription_id.wrapping_add(0x80000000),
-                        )?;
-                        writer.u8(
-                            &TLVTag::Context(rs_matter::im::IM_REVISION_TAG),
-                            rs_matter::im::IM_REVISION,
-                        )?;
-                        writer.end_container()?;
-                        Ok(Some(rs_matter::im::OpCode::ReportData.into()))
-                    })
+            // Accept fresh tracked values from obsolete IDs, while telling
+            // the accessory to stop that subscription. Restore the reported
+            // OnOff value afterward so subsequent notifier tests stay valid.
+            let mut early_reports = Vec::new();
+            for fresh_value in [true, false] {
+                let invalid_report = async {
+                    use rs_matter::tlv::{FromTLV, ToTLV, TLVElement};
+                    use rs_matter::im::{AttrData, AttrPath, AttrResp};
+                    let mut exchange = Exchange::initiate(
+                        device_matter,
+                        device_crypto,
+                        accessory_fabric,
+                        active_store_identity_node(ctrl_matter, fab)?,
+                    )
                     .await?;
-                let rx = exchange.recv_fetch().await?;
-                let response = rs_matter::im::StatusResp::from_tlv(
-                    &rs_matter::tlv::TLVElement::new(rx.payload()),
-                )?;
-                assert_eq!(
-                    response.status,
-                    rs_matter::im::IMStatusCode::InvalidSubscription
-                );
-                Ok::<_, Error>(())
-            };
-            let report_pump = std::future::poll_fn(|context| {
-                manager.poll(true, false, std::time::Instant::now(), context);
-                std::task::Poll::<()>::Pending
-            });
-            match embassy_time::with_timeout(
-                Duration::from_secs(5),
-                select(invalid_report, report_pump),
-            )
-            .await
-            .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?
-            {
-                Either::First(result) => result?,
-                Either::Second(()) => unreachable!(),
+                    exchange
+                        .send_with(|_, writer| {
+                            writer.start_struct(&TLVTag::Anonymous)?;
+                            writer.u32(
+                                &TLVTag::Context(0),
+                                subscription_id.wrapping_add(0x80000000),
+                            )?;
+                            writer.start_array(&TLVTag::Context(1))?;
+                            let mut data = [0u8; 8];
+                            let mut value = rs_matter::utils::storage::WriteBuf::new(&mut data);
+                            fresh_value.to_tlv(&TLVTag::Context(2), &mut value)?;
+                            AttrResp::from(AttrData::new(None, AttrPath {
+                                endpoint: Some(1), cluster: Some(6), attr: Some(0), ..Default::default()
+                            }, TLVElement::new(value.as_slice()))).to_tlv(&TLVTag::Anonymous, &mut *writer)?;
+                            writer.end_container()?;
+                            // The first orphan claims more chunks: use the validated
+                            // first chunk and terminate the obsolete stream now.
+                            writer.bool(&TLVTag::Context(3), fresh_value)?;
+                            writer.u8(
+                                &TLVTag::Context(rs_matter::im::IM_REVISION_TAG),
+                                rs_matter::im::IM_REVISION,
+                            )?;
+                            writer.end_container()?;
+                            Ok(Some(rs_matter::im::OpCode::ReportData.into()))
+                        })
+                        .await?;
+                    {
+                        let rx = exchange.recv_fetch().await?;
+                        let response = rs_matter::im::StatusResp::from_tlv(
+                            &rs_matter::tlv::TLVElement::new(rx.payload()),
+                        )?;
+                        assert_eq!(response.status, rs_matter::im::IMStatusCode::InvalidSubscription);
+                    }
+                    exchange.acknowledge().await?;
+                    Ok::<_, Error>(())
+                };
+                let report_pump = std::future::poll_fn(|context| {
+                    manager.poll(true, false, std::time::Instant::now(), context);
+                    std::task::Poll::<()>::Pending
+                });
+                match embassy_time::with_timeout(
+                    Duration::from_secs(5),
+                    select(invalid_report, report_pump),
+                )
+                .await
+                .map_err(|_| rs_matter::error::ErrorCode::RxTimeout)?
+                {
+                    Either::First(result) => result?,
+                    Either::Second(()) => unreachable!(),
+                }
+                let received: Vec<_> = std::iter::from_fn(|| manager.pop_report()).collect();
+                assert!(received.iter().any(|value| value.node.0 == node && value.endpoint == 1
+                    && value.cluster == 6 && matches!(value.value,
+                        micro_thread_matter_daemon::operations::Value::Bool(v) if v == fresh_value)));
+                assert_eq!(manager.subscription_id(node, 1, 6, 0), Some(subscription_id));
+                early_reports.extend(received);
             }
             println!("PASS obsolete subscription rejected with INVALID_SUBSCRIPTION over CASE");
+            println!("PASS fresh values from obsolete subscriptions accepted, including a chunked report, without replacing the current ID");
             if sensor_reports {
                 wait_manager_subscriptions(
                     &mut manager,
@@ -1610,7 +1633,7 @@ async fn run(
                     assert_ne!(manager.subscription_id(node, 1, cluster, 0), Some(environmental_id));
                 }
                 println!("PASS environmental attributes share one CASE subscription; urgent paths stay separate");
-                let priming_values: Vec<_> = std::iter::from_fn(|| manager.pop_report()).collect();
+                let priming_values: Vec<_> = early_reports.into_iter().chain(std::iter::from_fn(|| manager.pop_report())).collect();
                 assert!(priming_values.iter().any(|value| matches!(
                     value,
                     micro_thread_matter_daemon::operations::ResultValue {
@@ -1951,6 +1974,10 @@ async fn run(
                 }
             }
             println!("PASS production manager subscription and peer-correlated OnOff reports");
+            // Reports reach the manager before the final StatusResponse is
+            // acknowledged. Keep pumping before dropping its report futures,
+            // otherwise their teardown can close the CASE session used below.
+            with_report_pump(&mut manager, Timer::after_millis(500)).await?;
             if delete_device {
                 use rs_matter::dm::clusters::noc::OperationalCredentialsClient;
                 let remote_index = Exchange::initiate(ctrl_matter, ctrl_crypto, fab, node).await?

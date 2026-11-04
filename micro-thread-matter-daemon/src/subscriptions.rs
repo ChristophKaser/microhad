@@ -115,8 +115,8 @@ async fn interval_bounds<C: Crypto>(
     }
 }
 
-/// Shared with the report receiver so retired IDs are rejected before ACKing
-/// any chunk. Keys include the authenticated fabric and peer, not just the ID.
+/// Shared with the report receiver to distinguish current subscriptions from
+/// obsolete IDs. Keys include the authenticated fabric and peer, not just the ID.
 #[derive(Clone, Default)]
 pub struct ReportSubscriptions(Rc<RefCell<Vec<(u8, u64, u32)>>>);
 
@@ -130,7 +130,7 @@ impl ReportSubscriptions {
         }
     }
 
-    fn accepts(&self, fabric: u8, node: u64, id: u32) -> bool {
+    fn is_current(&self, fabric: u8, node: u64, id: u32) -> bool {
         self.0.borrow().contains(&(fabric, node, id))
     }
 }
@@ -200,9 +200,12 @@ impl<'a> ReportReceiver<'a> {
                     rs_matter::im::PROTO_ID_INTERACTION_MODEL,
                     rs_matter::im::OpCode::ReportData as u8).await?;
                 output.borrow_mut().accepted = true;
+                let membership = active.clone();
                 receive_report_exchange_progress(exchange, active, |identity, report| {
                     let mut progress = output.borrow_mut();
-                    progress.heartbeat = Some(identity);
+                    if membership.is_current(identity.0, identity.1, identity.2) {
+                        progress.heartbeat = Some(identity);
+                    }
                     if report.is_some() { progress.report = report; }
                 }).await.map(|_| ())
             }) }
@@ -837,7 +840,18 @@ async fn receive_report_exchange_progress(
         {
             return Err(ErrorCode::InvalidData.into());
         }
-        if !active.accepts(fabric, node, received_id) {
+        if !active.is_current(fabric, node, received_id) {
+            // An old subscription may still carry fresh measurements. Deliver
+            // validated attribute values, but never its events or liveness.
+            // Abort a chunked stream after the current validated chunk rather
+            // than acknowledging it as a subscription we intend to retain.
+            values.append(&mut chunk_values);
+            log::debug!("Matter inactive report: fabric={} node={:016x} id={} values={} more_chunks={} reply=InvalidSubscription",
+                fabric, node, received_id, values.len(), more_chunks);
+            progress((fabric, node, received_id), Some(ReceivedReport {
+                fabric, node, subscription_id: received_id, values,
+                buttons: Vec::new(), clock_events: Vec::new(),
+            }));
             exchange
                 .send_with(|_, writer| {
                     rs_matter::im::StatusResp::write(
@@ -847,7 +861,7 @@ async fn receive_report_exchange_progress(
                     Ok(Some(rs_matter::im::OpCode::StatusResponse.into()))
                 })
                 .await?;
-            return Err(ErrorCode::InvalidData.into());
+            return Ok(());
         }
         subscription_id = Some(received_id);
         values.append(&mut chunk_values);
@@ -892,8 +906,8 @@ mod tests {
         let registry = ReportSubscriptions::default();
         registry.replace(1, [(2,77), (2,77), (3,77)].into_iter());
         assert_eq!(registry.0.borrow().len(), 2);
-        assert!(registry.accepts(1,2,77));
-        assert!(!registry.accepts(2,2,77));
+        assert!(registry.is_current(1,2,77));
+        assert!(!registry.is_current(2,2,77));
     }
     #[test]
     fn report_exchanges_are_lazy_bounded_and_polled_on_the_calling_thread() {
@@ -1082,20 +1096,20 @@ mod tests {
     }
 
     #[test]
-    fn retired_ids_and_wrong_peers_are_rejected_by_the_running_receiver() {
+    fn current_membership_is_scoped_to_fabric_peer_and_subscription_id() {
         let active = ReportSubscriptions::default();
         let receiver = active.clone();
         active.replace(1, [(2, 77), (3, 77), (2, 78)].into_iter());
-        assert!(receiver.accepts(1, 2, 77));
-        assert!(receiver.accepts(1, 3, 77));
-        assert!(!receiver.accepts(2, 2, 77));
-        assert!(!receiver.accepts(1, 4, 77));
+        assert!(receiver.is_current(1, 2, 77));
+        assert!(receiver.is_current(1, 3, 77));
+        assert!(!receiver.is_current(2, 2, 77));
+        assert!(!receiver.is_current(1, 4, 77));
         active.replace(1, [(2, 79), (3, 77), (2, 78)].into_iter());
-        assert!(!receiver.accepts(1, 2, 77));
-        assert!(receiver.accepts(1, 2, 79));
-        assert!(receiver.accepts(1, 2, 78));
+        assert!(!receiver.is_current(1, 2, 77));
+        assert!(receiver.is_current(1, 2, 79));
+        assert!(receiver.is_current(1, 2, 78));
         active.replace(1, core::iter::empty());
-        assert!(!receiver.accepts(1, 2, 79));
+        assert!(!receiver.is_current(1, 2, 79));
     }
 }
 

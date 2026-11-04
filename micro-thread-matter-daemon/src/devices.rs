@@ -1779,7 +1779,13 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
         let Some(index) = self.subscriptions.iter().position(|subscription| {
             subscription.key.node == report.node && subscription.id == Some(report.subscription_id)
-        }) else { return; };
+        }) else {
+            // Values from a known authenticated peer can be useful during
+            // recovery. Keep subscription IDs, watchdogs, reachability and
+            // event-driven actions untouched for an inactive subscription.
+            self.record_attribute_values(report, false);
+            return;
+        };
         let became_online = self.snapshots.iter_mut().find(|snapshot| snapshot.node == report.node)
             .is_some_and(|snapshot| {
                 let changed = !snapshot.online;
@@ -1816,9 +1822,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             }
             return;
         }
+        self.record_attribute_values(report, true);
+    }
+    fn record_attribute_values(&mut self, report: crate::subscriptions::ReceivedReport, current_only: bool) {
         for mut value in report.values {
             let Some(subscription) = self.subscriptions.iter_mut().find(|entry|
-                entry.key.node == report.node && entry.id == Some(report.subscription_id)
+                entry.key.node == report.node && (!current_only || entry.id == Some(report.subscription_id))
                 && value.node.0 == entry.key.node && value.endpoint == entry.key.endpoint
                 && value.cluster == entry.key.cluster
                 && (entry.key.attribute == u32::MAX || value.attribute == entry.key.attribute)) else { continue; };
@@ -1973,6 +1982,69 @@ pub async fn discover<C: Crypto>(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn inactive_values_are_scoped_and_never_refresh_subscription_health() {
+        use crate::{entropy::OsEntropy, store::PrivateStore, operations::{Value, ResultValue}};
+        use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET}, utils::init::InitMaybeUninit};
+        let directory = std::env::temp_dir().join(format!("matter-inactive-values-{}", std::process::id()));
+        let catalog = Catalog::open(PrivateStore::open(&directory).unwrap(), 1, 2).unwrap();
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
+        let mut manager = Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+        let now = Instant::now();
+        let previous = now - Duration::from_secs(120);
+        let deadline = now - Duration::from_secs(1);
+        for (cluster, unit) in [(1026,"celsius"),(1037,"ppm")] {
+            manager.subscriptions.push(SubscriptionState {
+                key: SubscriptionKey { node: 2, endpoint: 1, cluster, attribute: 0 },
+                id: Some(77), next_retry: deadline, max_interval: 60, failures: 7,
+                unit: Some(unit), last_report: None, last_received: Some(previous),
+            });
+        }
+        manager.snapshots.push(Snapshot { node: 2, endpoints: vec![], manufacturer: String::new(),
+            model: String::new(), rssi_dbm: None, online: false, next: Some(deadline), failures: 9 });
+        let value = |node, endpoint, cluster, attribute, number| ResultValue {
+            node: crate::control::Id(node), endpoint, cluster, attribute, value: Value::RawMeasurement(Some(number)) };
+        let report = |fabric, node, values| crate::subscriptions::ReceivedReport {
+            fabric, node, subscription_id: 88, values,
+            buttons: vec![crate::subscriptions::MatterButtonEvent { node: crate::control::Id(node), endpoint: 1,
+                event: 1, position: Some(1), press_count: None }],
+            clock_events: vec![crate::subscriptions::ClockEvent { endpoint: 0, cluster: 40, number: 42 }],
+        };
+        let values = vec![value(2,1,1026,0,22.0), value(2,1,1037,0,800.0),
+            value(2,1,1029,0,50.0), value(2,2,1026,0,99.0),
+            value(2,1,1026,1,99.0), value(3,1,1026,0,99.0)];
+        manager.record_report_at(report(2,2,values.clone()), false, now);
+        manager.record_report_at(report(1,3,vec![value(3,1,1026,0,99.0)]), false, now);
+        assert!(manager.reports.is_empty());
+        manager.record_report_at(report(1,2,values.clone()), false, now);
+        assert_eq!(manager.reports.len(), 2);
+        for (entry, unit) in manager.reports.iter().zip(["celsius","ppm"]) {
+            assert!(matches!(&entry.value, Value::Measurement(v) if v.unit==unit));
+        }
+        assert!(manager.button_events.is_empty());
+        assert!(manager.time_preferences.entries.is_empty());
+        assert!(!manager.snapshots[0].online);
+        assert_eq!((manager.snapshots[0].failures,manager.snapshots[0].next),(9,Some(deadline)));
+        assert!(manager.subscriptions.iter().all(|s| s.id==Some(77) && s.next_retry==deadline
+            && s.last_received==Some(previous) && s.failures==7));
+        manager.reports.clear();
+        manager.record_report_at(report(1,2,values), false, now);
+        assert!(manager.reports.is_empty(), "deduplicate inactive values too");
+        // The current subscription still deduplicates values accepted from the old ID.
+        manager.record_report_at(crate::subscriptions::ReceivedReport { fabric:1,node:2,subscription_id:77,
+            values:vec![value(2,1,1026,0,22.0)],buttons:vec![],clock_events:vec![] }, false, now);
+        assert!(manager.reports.is_empty());
+        assert!(manager.subscriptions.iter().all(|s| s.last_received==Some(now) && s.next_retry>now && s.failures==0));
+        // Explicit recovery may temporarily have no current ID; tracked values remain usable.
+        manager.subscriptions[0].id=None;
+        manager.record_report_at(report(1,2,vec![value(2,1,1026,0,23.0)]), false, now);
+        assert_eq!(manager.reports.len(),1);
+        assert!(manager.subscriptions[0].id.is_none());
+        drop(manager);std::fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
     fn environmental_group_routes_all_paths_and_recovers_as_one_subscription() {
         use crate::{entropy::OsEntropy, store::PrivateStore, operations::{Value, ResultValue}};
         use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
@@ -2025,7 +2097,10 @@ mod tests {
         assert!(manager.subscriptions[..5].iter().all(|entry| entry.last_received == Some(heartbeat) && entry.next_retry > heartbeat));
         assert!(manager.subscriptions[5..].iter().all(|entry| entry.last_received.is_none()));
         manager.record_report_at(report(10, vec![value(keys[0], Value::RawMeasurement(Some(99.0)))]), false, heartbeat);
-        assert!(manager.reports.is_empty()); // Retired ID cannot overwrite values.
+        assert_eq!(manager.reports.len(), 1); // Old ID may carry a fresh tracked value.
+        assert!(matches!(&manager.reports.front().unwrap().value, Value::Measurement(m) if m.value == Some(99.0)));
+        assert!(manager.subscriptions[..5].iter().all(|entry| entry.last_received == Some(heartbeat)));
+        manager.reports.clear();
         // A publisher rejecting a batch falls back once, preserving urgent subscriptions.
         manager.subscription_members = keys[..5].to_vec();
         manager.subscription_work = Some((keys[0], heartbeat + Duration::from_secs(30),

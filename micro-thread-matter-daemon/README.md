@@ -252,7 +252,15 @@ continue to show one row per path, but environmental rows share a subscription
 ID, liveness timestamp and recovery deadline. An empty report or valid chunk
 refreshes the whole group; unchanged values are not republished to the native
 service. Establishment logs show paths, requested intervals and the negotiated
-maximum. Retired IDs are rejected before their data can replace current values.
+maximum. Authenticated reports under inactive subscription IDs can still update
+attributes currently tracked for that peer, using the same unit normalization
+and value deduplication. They do not refresh subscription health, recovery
+deadlines or reachability, and their button/clock events are ignored. The daemon
+replies InvalidSubscription to stop the obsolete subscription; for chunked
+reports it accepts the validated prefix and stops without requesting more
+chunks. This expected case is logged at debug level with the peer and
+subscription ID. Malformed reports remain failures; an inactive ID is not used
+as a proxy for measurement age.
 A publisher explicitly rejecting a multi-path request with InvalidAction or
 ResourceExhausted falls back to separate environmental subscriptions at the same
 requested cadence until rediscovery or restart. Transport errors use ordinary
