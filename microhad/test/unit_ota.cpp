@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <sstream>
 void runOtaGatewayPageTests();
+void runOtaNotificationProfileTest(unsigned short profile, const std::string& image);
 class OtaTestPeer {
 public:
     static void temporaryStorage() {
@@ -98,6 +99,11 @@ void runOtaUnitTests(){
     OtaStore& ota=OtaStore::instance();std::string error;
     assert(!ota.upload("begin","{\"size\":16777217,\"protocol\":\"zigbee\"}",&error));
     std::string image;put(&image,0x0beef11e,4);put(&image,0x100,2);put(&image,56,2);put(&image,0,2);put(&image,0x1234,2);put(&image,0x5678,2);put(&image,2,4);put(&image,2,2);image.append(32,'\0');put(&image,162,4);put(&image,0,2);put(&image,100,4);image.append(100,'x');assert(image.size()==162);
+    for (unsigned i=0;i<2;++i) {
+        std::string selected=upload(image);
+        runOtaNotificationProfileTest(i==0 ? 0xc05e : 0x0104, selected);
+        assert(ota.cancel(selected,true,&error));
+    }
     std::string id=upload(image);assert(!ota.startZigbee("stale","device",&error));assert(ota.startZigbee(id,"device",&error));assert(!ota.startZigbee(id,"other",&error));assert(!ota.upload("begin","{\"size\":162,\"protocol\":\"zigbee\"}",&error));
     std::vector<unsigned char> r,q=args(1);assert(ota.zigbee("other",1,q,&r)&&r.size()==2&&r[1]==0x98);assert(ota.zigbee("device",1,q,&r)&&r.size()==14&&r[1]==0);
     q=args(2);std::string offset;put(&offset,160,4);q.insert(q.end(),offset.begin(),offset.end());q.push_back(48);assert(ota.zigbee("device",3,q,&r)&&r[1]==0&&r.back()=='x');

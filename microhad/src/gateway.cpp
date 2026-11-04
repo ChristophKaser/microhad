@@ -6240,7 +6240,7 @@ bool Gateway::startOta(const std::string& address,const std::string& image,std::
         if(std::find(ep.outputClusters.begin(),ep.outputClusters.end(),0x0019)==ep.outputClusters.end())continue;
         if(!OtaStore::instance().startZigbee(image,found->first,error))return false;
         std::vector<unsigned char> notify;notify.push_back(0x19);notify.push_back(++zclTransactionSequence_);notify.push_back(0);notify.push_back(0);notify.push_back(100);
-        sendApsUnicast(z.networkAddress,ep.profileId,0x0019,kCoordinatorEndpoint,ep.endpoint,notify);
+        sendApsUnicast(z.networkAddress,0x0104,0x0019,kCoordinatorEndpoint,ep.endpoint,notify);
         return true;
     }
     *error="Device has no OTA requestor endpoint";return false;

@@ -1862,6 +1862,22 @@ public:
                gateway.logsJson().find("action=on") != std::string::npos &&
                gateway.logsJson().find("action=move") != std::string::npos;
     }
+    static void otaNotificationProfile(unsigned short profile, const std::string& image) {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        gateway.online_ = true; gateway.networkFormed_ = true; gateway.coordinatorInitializationStep_ = 0;
+        const std::string address = "0x00124b0000000010";
+        Device& device = gateway.devices_[address]; device.ieeeAddress = address;
+        device.zigbee.ensure().networkAddress = 0x1234;
+        EndpointDescriptor endpoint; endpoint.endpoint = 3; endpoint.profileId = profile;
+        endpoint.outputClusters.push_back(0x0019); device.zigbee.ensure().endpoints.push_back(endpoint);
+        gateway.nodeAddresses_[0x1234] = address;
+        std::string error;
+        assert(gateway.startOta(address, image, &error));
+        const std::string logs = gateway.logsJson();
+        assert(logs.find("profile=0x104 cluster=0x19") != std::string::npos);
+        assert(logs.find("src_ep=1 dst_ep=3") != std::string::npos);
+        assert(logs.find("payload=1901000064") != std::string::npos);
+    }
     static void otaPageTransfers() {
         Gateway gateway("/dev/null",115200,"/tmp","","","");
         gateway.nodeAddresses_[0x1234]="device";
@@ -4178,3 +4194,5 @@ void runUnitTests() {
 }
 
 void runOtaGatewayPageTests(){GatewayTestPeer::otaPageTransfers();}
+
+void runOtaNotificationProfileTest(unsigned short profile, const std::string& image) { GatewayTestPeer::otaNotificationProfile(profile, image); }
