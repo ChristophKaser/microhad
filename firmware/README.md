@@ -60,6 +60,7 @@ receive buffer and queues these ASCII records through `SPINEL_PROP_STREAM_DEBUG`
 
 ```text
 Framing error 6: id=1 len=113 captured=113 residue=1234
+UART_RX_STATS drop=0 err=0 queue=0 ovf=0 count=0 high=256 pause=0
 HDLC_RX_FRAME id=1 offset=0 len=32 hex=...
 HDLC_RX_FRAME id=1 offset=32 len=32 hex=...
 HDLC_RX_FRAME id=1 offset=64 len=32 hex=...
@@ -83,6 +84,23 @@ pending preserves the first snapshot and increments `dropped_total`; sequence
 gaps and the end marker make missing data detectable. There is no normal-frame
 byte copying or per-packet diagnostic output.
 
+The UART transport separately uses a 512-byte software FIFO (511 usable bytes)
+and two 128-byte DMA buffers. The FIFO was increased from 128 bytes; DMA buffer
+sizes are unchanged. The build-copy patch
+[`uart-rx-buffering.patch`](patches/uart-rx-buffering.patch) handles writes across
+the FIFO boundary, checks available capacity, and resets DMA progress on every
+completion. RTS pauses the sender before the FIFO fills and resumes it after
+the backlog drains. This requires the existing hardware flow control on both
+ends. It reduces buffering risks; it does not establish the cause of a previous
+missing byte.
+
+Each error snapshot also records cumulative UART counters: `drop` counts bytes
+discarded for lack of FIFO space; `err` counts DMA receive errors; `queue` counts
+receive-queue or flow-control failures; `ovf` counts observed hardware overrun
+flags; `count` counts inconsistent DMA progress. `high` is FIFO high-water usage
+and `pause` counts RTS pauses. Hardware flags can combine multiple overruns, so
+`ovf` is not an exact lost-byte count. Counters reset when the radio reboots.
+
 Existing Ziggurat software packet capture records these messages as IID 0,
 property `0x70`, in `SPINEL_RX` payloads. Decode the property's ASCII bytes after
 reassembling syslog fragments to read the records. This diagnostic does not
@@ -92,6 +110,7 @@ Run the host regression test and build/package a candidate with:
 
 ```sh
 python3 firmware/scripts/test-hdlc-diagnostics.py
+python3 firmware/scripts/test-uart-rx.py
 bash firmware/scripts/build-hdlc-firmware.sh
 bash firmware/scripts/package-hdlc-gbl.sh
 ```

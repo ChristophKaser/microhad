@@ -1,0 +1,235 @@
+--- a/uartdrv_uart.c
++++ b/uartdrv_uart.c
+@@ -43,6 +43,7 @@
+ #include <openthread-core-config.h>
+ #include <openthread-system.h>
+ #include <stddef.h>
++#include <stdio.h>
+ #include <string.h>
+ #include "utils/code_utils.h"
+ #include "utils/uart.h"
+@@ -73,45 +74,113 @@
+ 
+ enum
+ {
+-    kReceiveFifoSize = 128,
++    kReceiveFifoSize = 512,
+ };
+ 
+-// In order to reduce the probability of data loss due to disabled interrupts, we use
+-// two duplicate receive buffers so we can always have one "active" receive request.
+-#define RECEIVE_BUFFER_SIZE 128
+-static uint8_t       sReceiveBuffer1[RECEIVE_BUFFER_SIZE];
+-static uint8_t       sReceiveBuffer2[RECEIVE_BUFFER_SIZE];
+-static uint8_t       lastCount   = 0;
++// Keep two receives queued and leave space for both when restraining the peer.
++#define RECEIVE_BUFFER_SIZE 128
++static uint8_t sReceiveBuffer1[RECEIVE_BUFFER_SIZE];
++static uint8_t sReceiveBuffer2[RECEIVE_BUFFER_SIZE];
++static UARTDRV_Count_t lastCount = 0;
+ static volatile bool sTxComplete = false;
+ 
+ typedef struct ReceiveFifo_t
+ {
+-    // The data buffer
+     uint8_t mBuffer[kReceiveFifoSize];
+-    // The offset of the first item written to the list.
+     volatile uint16_t mHead;
+-    // The offset of the next item to be written to the list.
+     volatile uint16_t mTail;
+ } ReceiveFifo_t;
+ 
+ static ReceiveFifo_t sReceiveFifo;
++static volatile uint32_t sRxDroppedBytes;
++static volatile uint32_t sRxTransferErrors;
++static volatile uint32_t sRxQueueErrors;
++static volatile uint32_t sRxOverruns;
++static volatile uint32_t sRxCountErrors;
++static volatile uint32_t sRxPauseCount;
++static volatile uint16_t sRxHighWater;
++static bool sRxRestrained;
+ 
+ static void processReceive(void);
+ static void processTransmit(void);
+ 
+-static void receiveDone(UARTDRV_Handle_t aHandle, Ecode_t aStatus, uint8_t *aData, UARTDRV_Count_t aCount)
+-{
+-    OT_UNUSED_VARIABLE(aStatus);
+-
+-    // We can only write if incrementing mTail doesn't equal mHead
+-    if (sReceiveFifo.mHead != (sReceiveFifo.mTail + aCount - lastCount) % kReceiveFifoSize)
+-    {
+-        memcpy(sReceiveFifo.mBuffer + sReceiveFifo.mTail, aData + lastCount, aCount - lastCount);
+-        sReceiveFifo.mTail = (sReceiveFifo.mTail + aCount - lastCount) % kReceiveFifoSize;
+-        lastCount          = 0;
+-    }
+-
+-    UARTDRV_Receive(aHandle, aData, aCount, receiveDone);
++static unsigned receiveUsed(void)
++{
++    return (sReceiveFifo.mTail + kReceiveFifoSize - sReceiveFifo.mHead) % kReceiveFifoSize;
++}
++
++static void checkReceiveOverrun(void)
++{
++#if defined(USART_IF_RXOF)
++    if (USART_IntGet(SL_UARTDRV_USART_VCOM_PERIPHERAL) & USART_IF_RXOF)
++    {
++        USART_IntClear(SL_UARTDRV_USART_VCOM_PERIPHERAL, USART_IF_RXOF);
++        ++sRxOverruns;
++    }
++#endif
++}
++
++// Called with interrupts disabled by the caller (or the UARTDRV callback).
++static void updateReceiveFlowControl(void)
++{
++    unsigned used = receiveUsed();
++    if (used > sRxHighWater) sRxHighWater = used;
++    if (!sRxRestrained && used >= kReceiveFifoSize - 1 - 2 * RECEIVE_BUFFER_SIZE)
++    {
++        if (UARTDRV_FlowControlSet(sl_uartdrv_usart_vcom_handle, uartdrvFlowControlOff) == ECODE_EMDRV_UARTDRV_OK)
++        {
++            sRxRestrained = true;
++            ++sRxPauseCount;
++        }
++        else ++sRxQueueErrors;
++    }
++    else if (sRxRestrained && used <= RECEIVE_BUFFER_SIZE)
++    {
++        if (UARTDRV_FlowControlSet(sl_uartdrv_usart_vcom_handle, uartdrvFlowControlOn) == ECODE_EMDRV_UARTDRV_OK && UARTDRV_FlowControlSet(sl_uartdrv_usart_vcom_handle, uartdrvFlowControlAuto) == ECODE_EMDRV_UARTDRV_OK)
++            sRxRestrained = false;
++        else ++sRxQueueErrors;
++    }
++}
++
++static unsigned copyReceiveBytes(const uint8_t *bytes, unsigned count)
++{
++    unsigned free = kReceiveFifoSize - 1 - receiveUsed();
++    unsigned copied = count < free ? count : free;
++    unsigned first = kReceiveFifoSize - sReceiveFifo.mTail;
++    if (first > copied) first = copied;
++    if (first) memcpy(sReceiveFifo.mBuffer + sReceiveFifo.mTail, bytes, first);
++    if (copied > first) memcpy(sReceiveFifo.mBuffer, bytes + first, copied - first);
++    sReceiveFifo.mTail = (sReceiveFifo.mTail + copied) % kReceiveFifoSize;
++    updateReceiveFlowControl();
++    return copied;
++}
++
++static void resetReceiveState(void)
++{
++    sReceiveFifo.mHead = 0;
++    sReceiveFifo.mTail = 0;
++    lastCount = 0;
++    sRxRestrained = false;
++    if (UARTDRV_FlowControlSet(sl_uartdrv_usart_vcom_handle, uartdrvFlowControlOn) != ECODE_EMDRV_UARTDRV_OK || UARTDRV_FlowControlSet(sl_uartdrv_usart_vcom_handle, uartdrvFlowControlAuto) != ECODE_EMDRV_UARTDRV_OK)
++        ++sRxQueueErrors;
++}
++
++static void receiveDone(UARTDRV_Handle_t handle, Ecode_t status, uint8_t *data, UARTDRV_Count_t count)
++{
++    checkReceiveOverrun();
++    if (status != ECODE_EMDRV_UARTDRV_OK) ++sRxTransferErrors;
++    if (count >= lastCount && count <= RECEIVE_BUFFER_SIZE)
++    {
++        unsigned pending = count - lastCount;
++        unsigned copied = copyReceiveBytes(data + lastCount, pending);
++        sRxDroppedBytes += pending - copied;
++    }
++    else ++sRxCountErrors;
++    // Completion always switches the DMA buffer, including zero-copy and full
++    // FIFO cases. Never carry the old buffer's progress into the next receive.
++    lastCount = 0;
++    if (UARTDRV_Receive(handle, data, RECEIVE_BUFFER_SIZE, receiveDone) != ECODE_EMDRV_UARTDRV_OK)
++        ++sRxQueueErrors;
+     otSysEventSignalPending();
+ }
+ 
+@@ -121,44 +190,56 @@
+     OT_UNUSED_VARIABLE(aStatus);
+     OT_UNUSED_VARIABLE(aData);
+     OT_UNUSED_VARIABLE(aCount);
+-
+-    // This value will be used later in processTransmit() to call otPlatUartSendDone()
+     sTxComplete = true;
+     otSysEventSignalPending();
+ }
+ 
+ static void processReceive(void)
+ {
+-    uint8_t        *aData;
+-    UARTDRV_Count_t aCount, remaining;
+-
+-    CORE_ATOMIC_SECTION(UARTDRV_GetReceiveStatus(sl_uartdrv_usart_vcom_handle, &aData, &aCount, &remaining);
+-                        if (aCount > lastCount) {
+-                            memcpy(sReceiveFifo.mBuffer + sReceiveFifo.mTail, aData + lastCount, aCount - lastCount);
+-                            sReceiveFifo.mTail = (sReceiveFifo.mTail + aCount - lastCount) % kReceiveFifoSize;
+-                            lastCount          = aCount;
+-                        })
+-
+-    // Copy tail to prevent multiple reads
++    uint8_t *data;
++    UARTDRV_Count_t count, remaining;
++    bool pending = false;
++    CORE_ATOMIC_SECTION(
++        checkReceiveOverrun();
++        UARTDRV_GetReceiveStatus(sl_uartdrv_usart_vcom_handle, &data, &count, &remaining);
++        if (data != NULL && count >= lastCount && count <= RECEIVE_BUFFER_SIZE)
++        {
++            unsigned copied = copyReceiveBytes(data + lastCount, count - lastCount);
++            lastCount += copied;
++            pending = lastCount != count;
++        }
++        else if (count != 0) ++sRxCountErrors;
++    )
+     uint16_t tail = sReceiveFifo.mTail;
+-
+-    // If the data wraps around, process the first part
+     if (sReceiveFifo.mHead > tail)
+     {
+         otPlatUartReceived(sReceiveFifo.mBuffer + sReceiveFifo.mHead, kReceiveFifoSize - sReceiveFifo.mHead);
+-
+-        // Reset the buffer mHead back to zero.
+         sReceiveFifo.mHead = 0;
+     }
+-
+-    // For any data remaining, process it
+     if (sReceiveFifo.mHead != tail)
+     {
+         otPlatUartReceived(sReceiveFifo.mBuffer + sReceiveFifo.mHead, tail - sReceiveFifo.mHead);
+-
+-        // Set mHead to the local tail we have cached
+         sReceiveFifo.mHead = tail;
+     }
++    CORE_ATOMIC_SECTION(updateReceiveFlowControl();)
++    // A partial DMA buffer can still contain uncopied bytes after draining.
++    // Revisit it even if the restrained sender produces no further interrupt.
++    if (pending) otSysEventSignalPending();
++}
++
++unsigned efr32UartRxDiagnostics(char *buffer, unsigned capacity)
++{
++    uint32_t dropped, errors, queues, overruns, counts, pauses;
++    unsigned high;
++    CORE_ATOMIC_SECTION(
++        dropped = sRxDroppedBytes; errors = sRxTransferErrors; queues = sRxQueueErrors;
++        overruns = sRxOverruns; counts = sRxCountErrors; pauses = sRxPauseCount; high = sRxHighWater;
++    )
++    int length = snprintf(buffer, capacity,
++        "UART_RX_STATS drop=%lu err=%lu queue=%lu ovf=%lu count=%lu high=%u pause=%lu\n",
++        (unsigned long)dropped, (unsigned long)errors, (unsigned long)queues,
++        (unsigned long)overruns, (unsigned long)counts, high, (unsigned long)pauses);
++    return length > 0 && (unsigned)length < capacity ? (unsigned)length : 0;
+ }
+ 
+ static void processTransmit(void)
+@@ -196,8 +277,7 @@
+     GPIO_ExtIntConfig(SL_UARTDRV_USART_VCOM_RX_PORT, SL_UARTDRV_USART_VCOM_RX_PIN, intNo, false, true, true);
+ #endif
+ 
+-    sReceiveFifo.mHead = 0;
+-    sReceiveFifo.mTail = 0;
++    resetReceiveState();
+ 
+     // When one receive request is completed, the other buffer is used for a separate receive request, issued
+     // immediately.

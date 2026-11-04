@@ -1,9 +1,11 @@
 --- a/ncp_hdlc.cpp
 +++ b/ncp_hdlc.cpp
-@@ -60,6 +60,12 @@
+@@ -60,6 +60,14 @@
  namespace ot {
  namespace Ncp {
  
++extern "C" unsigned efr32UartRxDiagnostics(char *aText, unsigned aCapacity);
++
 +static bool WriteRxErrorLog(const char *aText, unsigned aLength)
 +{
 +    return otNcpStreamWrite(0, reinterpret_cast<const uint8_t *>(aText), aLength) == OT_ERROR_NONE;
@@ -13,7 +15,7 @@
  #if OPENTHREAD_ENABLE_NCP_VENDOR_HOOK == 0
  
  static OT_DEFINE_ALIGNED_VAR(sNcpRaw, sizeof(NcpHdlc), uint64_t);
-@@ -171,6 +177,7 @@
+@@ -171,6 +179,7 @@
  // sub-sequent calls, it restarts encoding the bytes from where it left of in the frame .
  void NcpHdlc::EncodeAndSend(void)
  {
@@ -21,7 +23,7 @@
      uint16_t len;
      bool     prevHostPowerState;
  #if OPENTHREAD_ENABLE_NCP_SPINEL_ENCRYPTER
-@@ -213,6 +220,7 @@
+@@ -213,6 +222,7 @@
              prevHostPowerState = mHostPowerStateInProgress;
  
              IgnoreError(txFrameBuffer.OutFrameRemove());
@@ -29,7 +31,7 @@
  
              if (prevHostPowerState && !mHostPowerStateInProgress)
              {
-@@ -314,30 +322,9 @@
+@@ -314,30 +324,11 @@
  
  void NcpHdlc::HandleError(otError aError, uint8_t *aBuf, uint16_t aBufLength)
  {
@@ -57,7 +59,9 @@
 -    // Write out the second part of our log message.
 -    // We skip the first byte since it has a space in it.
 -    IgnoreError(otNcpStreamWrite(0, reinterpret_cast<uint8_t *>(hexbuf + 1), static_cast<int>(strlen(hexbuf) - 1)));
-+    mRxErrorLog.Record(aError, aBuf, aBufLength);
++    char diagnostics[128] = {0};
++    efr32UartRxDiagnostics(diagnostics, sizeof(diagnostics));
++    mRxErrorLog.Record(aError, aBuf, aBufLength, diagnostics);
 +    mRxErrorLog.Pump(WriteRxErrorLog);
  }
  

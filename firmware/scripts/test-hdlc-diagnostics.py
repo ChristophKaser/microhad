@@ -52,6 +52,8 @@ int main() {
     assert(lines[0].find("residue=f0b8")!=std::string::npos);
     lines.clear();HdlcRxErrorLog<4> small;small.Record(3,check,sizeof(check));drain(small);
     assert(lines[0].find("len=11 captured=4")!=std::string::npos);
+    lines.clear();log.Record(6,check,sizeof(check),"UART_RX_STATS drop=1\n");drain(log);
+    assert(lines[1]=="UART_RX_STATS drop=1\n");
     puts("PASS full 512-byte recovery, snapshot ownership, CRC residue, backpressure, skipped errors, empty and oversized input");
 }
 '''
@@ -69,13 +71,14 @@ def main():
         module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
         project = directory/'ot-rcp-multipan.project.mak'
         original='$(SDK_PATH)/util/third_party/openthread/src/ncp/ncp_hdlc.cpp'
-        project.write_text('source='+original+'\n')
+        uart='$(SDK_PATH)/protocol/openthread/platform-abstraction/efr32/uartdrv_uart.c'
+        project.write_text('source='+original+'\nuart='+uart+'\n')
         sdk = ROOT/'firmware/dependencies/gecko-sdk'
         before=(sdk/'util/third_party/openthread/src/ncp/ncp_hdlc.cpp').read_bytes()
         module.prepare(sdk, directory)
-        assert project.read_text()=='source=diagnostics/ncp_hdlc.cpp\n'
+        assert project.read_text()=='source=diagnostics/ncp_hdlc.cpp\nuart=diagnostics/uartdrv_uart.c\n'
         patched=(directory/'diagnostics/ncp_hdlc.cpp').read_text()
-        assert 'mRxErrorLog.Record(aError, aBuf, aBufLength)' in patched
+        assert 'mRxErrorLog.Record(aError, aBuf, aBufLength, diagnostics)' in patched
         assert patched.count('mRxErrorLog.Pump(WriteRxErrorLog)')==3
         assert (sdk/'util/third_party/openthread/src/ncp/ncp_hdlc.cpp').read_bytes()==before
         print('PASS pinned SDK patch applied only to build copies and generated source rule')
