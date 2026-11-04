@@ -45,8 +45,8 @@ class Peer:
 
     def notify(self,command,payload):self.send(bytes([command,3,0])+payload)
 
-    def aps(self,cluster,data,profile=0x0104):
-        payload=struct.pack("<HHBHHHBBBbH",0x1234,0,0,0,profile,cluster,1,1,190,-42,len(data))+data
+    def aps(self,cluster,data,profile=0x0104,destination=0):
+        payload=struct.pack("<HHBHHHBBBbH",0x1234,destination,0,0,profile,cluster,1,1,190,-42,len(data))+data
         self.notify(0x10,payload)
 
     def handle(self,raw):
@@ -147,6 +147,20 @@ class NativeTests(unittest.TestCase):
             except subprocess.TimeoutExpired:self.process.kill();self.process.wait()
         self.peer.close();self.log.close();self.tmp.cleanup()
         self.assertIsNone(self.peer.error)
+
+    def test_ota_match_descriptor_broadcast(self):
+        request=bytes.fromhex("04fdff040101190000")
+        self.peer.aps(0x0006,request,profile=0,destination=0xfffd)
+        def responses():
+            return [body for command,body in self.peer.commands if command==0x30 and
+                    int.from_bytes(body[11:13],"little")==0 and int.from_bytes(body[13:15],"little")==0x8006]
+        wait_for(responses)
+        self.assertEqual(responses()[-1][23:],bytes.fromhex("040000000101"))
+        previous=len(responses())
+        for malformed in (request[:-1], bytes.fromhex("05fdff040101060000"), bytes.fromhex("06fdff5ec001190000")):
+            self.peer.aps(0x0006,malformed,profile=0,destination=0xfffd)
+        time.sleep(.3)
+        self.assertEqual(len(responses()),previous)
 
     def test_fragmented_startup_and_join(self):
         self.assertEqual(self.status()["coordinator_backend"],"ziggurat")

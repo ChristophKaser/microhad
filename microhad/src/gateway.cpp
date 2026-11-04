@@ -1360,6 +1360,22 @@ void Gateway::pollZiggurat() {
             unsigned short cluster=static_cast<unsigned short>(b[9] | (static_cast<unsigned short>(b[10])<<8));
             ZigguratWire::Bytes message(b.begin()+17,b.end());
             // Ziggurat does not loop back coordinator ZDO. Answer its discovery queries here.
+            // Match Descriptor request for the coordinator's OTA server. The
+            // target may be the coordinator or the receiver-on broadcast.
+            if (profile==0 && cluster==0x0006) {
+                if (message.size()==9 && ((message[1]==0 && message[2]==0) ||
+                    (message[1]==0xfd && message[2]==0xff) || (message[1]==0xff && message[2]==0xff)) &&
+                    message[3]==0x04 && message[4]==0x01 && message[5]==1 &&
+                    message[6]==0x19 && message[7]==0 && message[8]==0) {
+                    ZigguratWire::Bytes response;
+                    response.push_back(message[0]); response.push_back(0); // sequence and success
+                    response.push_back(0); response.push_back(0); // coordinator address
+                    response.push_back(1); response.push_back(kCoordinatorEndpoint);
+                    sendApsUnicast(sender,0,0x8006,0,0,response);
+                    addLog("Answered OTA server discovery request");
+                }
+                continue;
+            }
             if (profile==0 && message.size()>=3 && cluster==0x0002 && message[1]==0 && message[2]==0) {
                 ZigguratWire::Bytes response; response.push_back(message[0]); response.push_back(0);
                 response.push_back(0); response.push_back(0);
