@@ -11,6 +11,27 @@
 #include <cstdio>
 #include <sstream>
 void runOtaGatewayPageTests();
+class OtaTestPeer {
+public:
+    static void temporaryStorage() {
+        const unsigned long ramfs = 0x858458f6UL, tmpfs = 0x01021994UL;
+        const uint64_t size = 210 * 1024;
+        // Stock gateway: ramfs reports zero blocks and the old kernel has no MemAvailable.
+        assert(OtaStore::hasTemporarySpace(size, ramfs, 0, "MemFree: 3716 kB\nCached: 10968 kB\n"));
+        assert(!OtaStore::hasTemporarySpace(size, ramfs, 0, "MemFree: 1024 kB\nCached: 10968 kB\n"));
+        // Keep a full MiB reserve, including at the exact boundary.
+        assert(OtaStore::hasTemporarySpace(size, ramfs, 0, "MemFree: 1234 kB\n"));
+        assert(!OtaStore::hasTemporarySpace(size, ramfs, 0, "MemFree: 1233 kB\n"));
+        assert(OtaStore::hasTemporarySpace(size, ramfs, 0, "MemAvailable: 2048 kB\nMemFree: 64 kB\n"));
+        assert(!OtaStore::hasTemporarySpace(size, ramfs, 0, "MemAvailable: 64 kB\nMemFree: 2048 kB\n"));
+        assert(!OtaStore::hasTemporarySpace(size, ramfs, 0, "Cached: 99999 kB\n"));
+        assert(!OtaStore::hasTemporarySpace(size, ramfs, 0, "MemFree: -1 kB\n"));
+        assert(!OtaStore::hasTemporarySpace(size, ramfs, 0, "MemFree: 18446744073709551615 kB\n"));
+        assert(!OtaStore::hasTemporarySpace(size, tmpfs, 0, "MemAvailable: 99999 kB\n"));
+        assert(OtaStore::hasTemporarySpace(size, tmpfs, 2 * 1024 * 1024, ""));
+    }
+};
+
 namespace {
 void put(std::string* s,unsigned long n,unsigned bytes){for(unsigned i=0;i<bytes;++i)s->push_back(static_cast<char>(n>>(i*8)));}
 std::string hex(const std::string& s){const char* digits="0123456789abcdef";std::string out;for(unsigned long i=0;i<s.size();++i){unsigned char b=s[i];out+=digits[b>>4];out+=digits[b&15];}return out;}
@@ -73,7 +94,7 @@ void otaIdentityTests() {
 }
 }
 void runOtaUnitTests(){
-    catalogTests(); otaIdentityTests();
+    OtaTestPeer::temporaryStorage(); catalogTests(); otaIdentityTests();
     OtaStore& ota=OtaStore::instance();std::string error;
     assert(!ota.upload("begin","{\"size\":16777217,\"protocol\":\"zigbee\"}",&error));
     std::string image;put(&image,0x0beef11e,4);put(&image,0x100,2);put(&image,56,2);put(&image,0,2);put(&image,0x1234,2);put(&image,0x5678,2);put(&image,2,4);put(&image,2,2);image.append(32,'\0');put(&image,162,4);put(&image,0,2);put(&image,100,4);image.append(100,'x');assert(image.size()==162);

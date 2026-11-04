@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <sys/statvfs.h>
+#include <sys/vfs.h>
 
 namespace {
 struct Lock {
@@ -43,13 +43,48 @@ OtaStore::~OtaStore(){clear();pthread_mutex_destroy(&mutex_);}
 void OtaStore::clear(){if(fd_>=0)close(fd_);fd_=-1;if(!path_.empty())unlink(path_.c_str());path_.clear();id_.clear();protocol_.clear();state_="empty";target_.clear();error_.clear();matterSocket_.clear();size_=received_=progress_=0;manufacturer_=type_=minHardware_=maxHardware_=0;version_=0;hardwareRange_=false;zigbeeOffered_=false;touched_=0;}
 bool OtaStore::active() const{return state_=="starting"||state_=="cancelling"||state_=="waiting"||state_=="transferring"||state_=="awaiting_confirmation";}
 void OtaStore::expire(){if(!matterSocket_.empty())return;if(touched_&&time(0)-touched_>3600&&(active()||state_=="uploading")){state_="failed";error_="Update timed out; wake the device and start again";}}
+bool OtaStore::hasTemporarySpace(uint64_t size, unsigned long filesystemType,
+                                 uint64_t filesystemBytes, const std::string& memoryInfo) {
+    const uint64_t reserve = 1024 * 1024;
+    if (size > static_cast<uint64_t>(-1) - reserve) return false;
+    const uint64_t required = size + reserve;
+    /* ramfs has no block limit and reports zero capacity. Its allocations
+       consume RAM; filesystem counters cannot answer the admission check. */
+    if (filesystemType != 0x858458f6UL) return filesystemBytes >= required;
+    std::istringstream lines(memoryInfo);
+    std::string line;
+    uint64_t freeBytes = 0, availableBytes = 0;
+    bool hasFree = false, hasAvailable = false;
+    while (std::getline(lines, line)) {
+        std::istringstream fields(line);
+        std::string key, number, unit;
+        fields >> key;
+        if (key != "MemAvailable:" && key != "MemFree:") continue;
+        if (!(fields >> number >> unit) || unit != "kB" || number.empty() ||
+            number.find_first_not_of("0123456789") != std::string::npos) return false;
+        std::istringstream value(number); uint64_t kib = 0;
+        if (!(value >> kib) || kib > static_cast<uint64_t>(-1) / 1024) return false;
+        if (key == "MemAvailable:") { hasAvailable = true; availableBytes = kib * 1024; }
+        else { hasFree = true; freeBytes = kib * 1024; }
+    }
+    /* Old gateway kernels lack MemAvailable. Do not add Cached: ramfs pages
+       themselves can appear there and cannot be reclaimed like disk cache. */
+    return hasAvailable ? availableBytes >= required : hasFree && freeBytes >= required;
+}
 bool OtaStore::upload(const std::string& action,const std::string& body,std::string* error){
     Lock lock(&mutex_);expire();std::string image;jsonStringField(body,"image",&image);
     if(action=="begin"){
         long size=0;std::string protocol;
         if(active()||state_=="uploading"){*error="An upload or installation is already active";return false;}
         if(!jsonLongField(body,"size",&size)||size<56||size>16*1024*1024||!jsonStringField(body,"protocol",&protocol)||(protocol!="zigbee"&&protocol!="matter")){*error="Invalid firmware size or protocol (maximum 16 MiB)";return false;}
-        struct statvfs fs;if(statvfs("/tmp",&fs)!=0||static_cast<uint64_t>(fs.f_bavail)*fs.f_frsize<static_cast<uint64_t>(size)+1024*1024){*error="Insufficient temporary storage";return false;}
+        struct statfs fs;
+        if (statfs("/tmp", &fs) != 0) { *error = "Cannot inspect temporary storage"; return false; }
+        std::string memoryInfo;
+        if (static_cast<unsigned long>(fs.f_type) == 0x858458f6UL) readTextFile("/proc/meminfo", &memoryInfo);
+        if (!hasTemporarySpace(size, static_cast<unsigned long>(fs.f_type),
+                static_cast<uint64_t>(fs.f_bavail) * fs.f_bsize, memoryInfo)) {
+            *error = "Insufficient temporary storage"; return false;
+        }
         clear();char path[]="/tmp/microhad-ota-XXXXXX";fd_=mkstemp(path);if(fd_<0){*error="Cannot create temporary firmware file";return false;}
         fcntl(fd_,F_SETFD,FD_CLOEXEC);path_=path;id_=path_.substr(path_.size()-6);protocol_=protocol;size_=size;state_="uploading";touched_=time(0);return true;
     }

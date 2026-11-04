@@ -18,6 +18,9 @@ public:
     bool matterControl(const std::string& action, const std::string& image,
                        const std::string& node, const std::string& socket, std::string* error, unsigned short endpoint = 0);
 private:
+    friend class OtaTestPeer;
+    static bool hasTemporarySpace(uint64_t size, unsigned long filesystemType,
+                                  uint64_t filesystemBytes, const std::string& memoryInfo);
     OtaStore();
     ~OtaStore();
     OtaStore(const OtaStore&);
