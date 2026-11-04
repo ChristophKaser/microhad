@@ -11,7 +11,8 @@
     "test:clock": "node test/gateway-clock-browser.cjs",
     "test:thermostat": "node test/thermostat-browser.cjs",
     "test:history": "node --test test/history-chart.test.mjs && python3 ../scripts/test_history_webui.py",
-    "test:automation": "node --test test/automation-editor.test.mjs && node test/automation-editor-browser.cjs && python3 ../scripts/test_automation_webui.py"
+    "test:automation": "node --test test/automation-editor.test.mjs && node test/automation-editor-browser.cjs && python3 ../scripts/test_automation_webui.py",
+    "test:firmware": "node --test test/firmware-catalog.test.mjs && node test/firmware-browser.cjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "6.20.4",

@@ -1,3 +1,4 @@
+#include "firmware_catalog.h"
 #include "gateway.h"
 #include "gateway_runner.h"
 #include "notification_worker.h"
@@ -145,6 +146,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 #endif
+    configureFirmwareCatalogs(config.firmwareCatalogs, config.caBundle);
     server = new HttpServer(httpPort, gatewayRunner, runtimeDirectory + "/webui", "", "", shellyIntegration, notificationWorker, &matterWorker, config.companionJson(), automations);
     if (!server->start(&error)) {
         fprintf(stderr, "web startup failed: %s\n", error.c_str());

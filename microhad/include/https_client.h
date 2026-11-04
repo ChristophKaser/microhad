@@ -45,4 +45,12 @@ bool httpsPost(const std::string& host, const std::string& path, const std::stri
 bool httpsPostUrl(const std::string& url, const std::string& headers, const std::string& body,
                   const std::string& caBundle, std::string* response, std::string* error);
 
+class HttpsCatalogHook {
+public:
+    virtual ~HttpsCatalogHook() {}
+    virtual bool get(const std::string& host, const std::string& path, const std::string& ca,
+                     std::string* response, std::string* error) = 0;
+};
+void setHttpsCatalogHook(HttpsCatalogHook* hook);
+bool httpsCatalogGet(const std::string& host, const std::string& path, const std::string& caBundle, std::string* response, std::string* error);
 #endif

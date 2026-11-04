@@ -71,3 +71,9 @@ CACHE_NUMBER("pm25_micrograms_m3", pm25.read().microgramsM3, pm25.ensure().micro
 CACHE_NUMBER("power_watts", power.read().watts, power.ensure().watts=value, d->power.present(), 0, 6553.5)
 CACHE_NUMBER("low_temperature_alert", lowTemperatureAlert, lowTemperatureAlert=value, true, -100, 200)
 CACHE_NUMBER("high_temperature_alert", highTemperatureAlert, highTemperatureAlert=value, true, -100, 200)
+
+CACHE_NUMBER("ota_endpoint", zigbee.read().otaEndpoint, zigbee.ensure().otaEndpoint=static_cast<int64_t>(value), d->source=="zigbee", -1, 254.0)
+CACHE_NUMBER("ota_manufacturer", zigbee.read().otaManufacturer, zigbee.ensure().otaManufacturer=static_cast<int64_t>(value), d->source=="zigbee", -1, 65535.0)
+CACHE_NUMBER("ota_image_type", zigbee.read().otaImageType, zigbee.ensure().otaImageType=static_cast<int64_t>(value), d->source=="zigbee", -1, 65535.0)
+CACHE_NUMBER("ota_file_version", zigbee.read().otaVersion, zigbee.ensure().otaVersion=static_cast<int64_t>(value), d->source=="zigbee", -1, 4294967295.0)
+CACHE_NUMBER("hardware_version", zigbee.read().hardwareVersion, zigbee.ensure().hardwareVersion=static_cast<int64_t>(value), d->source=="zigbee", -1, 65535.0)

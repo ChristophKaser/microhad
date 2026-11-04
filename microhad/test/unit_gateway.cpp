@@ -1907,6 +1907,13 @@ public:
         gateway.logs_.clear();
         gateway.handleIncomingMessage(incoming);
         assert(gateway.logsJson().find("payload=190e0298") != std::string::npos);
+        assert(device.zigbee.read().otaEndpoint == 1);
+        assert(device.zigbee.read().otaManufacturer == 4476);
+        assert(device.zigbee.read().otaImageType == 4549);
+        assert(device.zigbee.read().otaVersion == 0x22010631);
+        assert(device.zigbee.read().hardwareVersion == 1);
+        assert(gateway.statusJson().find("\"ota_image_type\":4549") != std::string::npos);
+
         EndpointDescriptor endpoint;
         endpoint.endpoint = 1;
         endpoint.outputClusters.push_back(6);

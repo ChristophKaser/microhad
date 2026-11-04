@@ -145,6 +145,16 @@ typedef struct _microhad_CachedDevice {
     double low_temperature_alert;
     bool has_high_temperature_alert;
     double high_temperature_alert;
+    bool has_ota_endpoint;
+    double ota_endpoint;
+    bool has_ota_manufacturer;
+    double ota_manufacturer;
+    bool has_ota_image_type;
+    double ota_image_type;
+    bool has_ota_file_version;
+    double ota_file_version;
+    bool has_hardware_version;
+    double hardware_version;
     pb_callback_t endpoint_descriptors;
     pb_callback_t node_descriptor;
     pb_callback_t matter_servers;
@@ -188,11 +198,11 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define microhad_DeviceCache_init_default        {false, 0, {{NULL}, NULL}}
-#define microhad_CachedDevice_init_default       {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
+#define microhad_CachedDevice_init_default       {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define microhad_CachedEndpoint_init_default     {false, 0, false, 0, false, 0, {{NULL}, NULL}, {{NULL}, NULL}, false, 0}
 #define microhad_CachedAlert_init_default        {{{NULL}, NULL}, false, 0, false, 0, false, 0, false, 0, false, 0, {{NULL}, NULL}}
 #define microhad_DeviceCache_init_zero           {false, 0, {{NULL}, NULL}}
-#define microhad_CachedDevice_init_zero          {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
+#define microhad_CachedDevice_init_zero          {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define microhad_CachedEndpoint_init_zero        {false, 0, false, 0, false, 0, {{NULL}, NULL}, {{NULL}, NULL}, false, 0}
 #define microhad_CachedAlert_init_zero           {{{NULL}, NULL}, false, 0, false, 0, false, 0, false, 0, false, 0, {{NULL}, NULL}}
 
@@ -271,6 +281,11 @@ extern "C" {
 #define microhad_CachedDevice_power_watts_tag    70
 #define microhad_CachedDevice_low_temperature_alert_tag 71
 #define microhad_CachedDevice_high_temperature_alert_tag 72
+#define microhad_CachedDevice_ota_endpoint_tag   73
+#define microhad_CachedDevice_ota_manufacturer_tag 74
+#define microhad_CachedDevice_ota_image_type_tag 75
+#define microhad_CachedDevice_ota_file_version_tag 76
+#define microhad_CachedDevice_hardware_version_tag 77
 #define microhad_CachedDevice_endpoint_descriptors_tag 100
 #define microhad_CachedDevice_node_descriptor_tag 101
 #define microhad_CachedDevice_matter_servers_tag 102
@@ -372,6 +387,11 @@ X(a, STATIC,   OPTIONAL, DOUBLE,   pm25_micrograms_m3,  69) \
 X(a, STATIC,   OPTIONAL, DOUBLE,   power_watts,      70) \
 X(a, STATIC,   OPTIONAL, DOUBLE,   low_temperature_alert,  71) \
 X(a, STATIC,   OPTIONAL, DOUBLE,   high_temperature_alert,  72) \
+X(a, STATIC,   OPTIONAL, DOUBLE,   ota_endpoint,     73) \
+X(a, STATIC,   OPTIONAL, DOUBLE,   ota_manufacturer,  74) \
+X(a, STATIC,   OPTIONAL, DOUBLE,   ota_image_type,   75) \
+X(a, STATIC,   OPTIONAL, DOUBLE,   ota_file_version,  76) \
+X(a, STATIC,   OPTIONAL, DOUBLE,   hardware_version,  77) \
 X(a, CALLBACK, REPEATED, MESSAGE,  endpoint_descriptors, 100) \
 X(a, CALLBACK, OPTIONAL, BYTES,    node_descriptor, 101) \
 X(a, CALLBACK, REPEATED, UINT32,   matter_servers,  102) \

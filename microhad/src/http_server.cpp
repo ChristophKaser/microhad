@@ -1,3 +1,4 @@
+#include "firmware_catalog.h"
 #include "ota.h"
 #include <psa/crypto.h>
 extern "C" int microhad_crypto_init(void);
@@ -931,6 +932,18 @@ bool HttpServer::handleClient(Connection* connection) {
 
 void HttpServer::handleRequest(int clientFd, const std::string& request) {
     const std::string route = request.substr(0, request.find("\r\n"));
+    if (route == "GET /api/ota/catalogs HTTP/1.1" || route == "GET /api/ota/catalogs HTTP/1.0") {
+        const std::string catalogs = firmwareCatalogsJson();
+        writeResponse(clientFd, catalogs == "null" ? 503 : 200, "application/json", catalogs); return;
+    }
+    if (request.find("GET /api/ota/catalog/") == 0) {
+        const std::string prefix = "GET /api/ota/catalog/";
+        std::string id = route.substr(prefix.size(), route.find(' ', prefix.size()) - prefix.size());
+        std::string body, error;
+        if (fetchFirmwareCatalog(id, &body, &error)) writeResponse(clientFd, 200, "application/json", body);
+        else writeResponse(clientFd, 502, "application/json", "{\"error\":\"" + jsonEscape(error) + "\"}");
+        return;
+    }
     if(request.find("GET /api/ota/status ")==0) {
         writeResponse(clientFd,200,"application/json",OtaStore::instance().status());return;
     }

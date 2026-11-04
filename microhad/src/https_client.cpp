@@ -7,6 +7,7 @@
 namespace {
 pthread_mutex_t httpsHookMutex = PTHREAD_MUTEX_INITIALIZER;
 HttpsPostHook* httpsPostHook = 0;
+HttpsCatalogHook* catalogHook = 0;
 HttpsSessionHook* httpsSessionHook = 0;
 
 bool decodeChunkedResponse(std::string* response, std::string* error) {
@@ -172,4 +173,32 @@ bool httpsPostUrl(const std::string& url, const std::string& headers, const std:
     if (pathAt == std::string::npos) return httpsPost(host, "/", headers, body, caBundle, response, error);
     if (url[pathAt] == '?') return httpsPost(host, "/" + url.substr(pathAt), headers, body, caBundle, response, error);
     return httpsPost(host, url.substr(pathAt), headers, body, caBundle, response, error);
+}
+
+#ifdef MICROHAD_MBEDTLS_ENABLED
+extern "C" int microhad_https_catalog_get(const char*, const char*, const char*, char*, unsigned long, unsigned long*);
+#endif
+void setHttpsCatalogHook(HttpsCatalogHook* hook) {
+    pthread_mutex_lock(&httpsHookMutex); catalogHook = hook; pthread_mutex_unlock(&httpsHookMutex);
+}
+bool httpsCatalogGet(const std::string& host, const std::string& path, const std::string& caBundle,
+                     std::string* response, std::string* error) {
+#ifdef MICROHAD_MBEDTLS_ENABLED
+    pthread_mutex_lock(&httpsHookMutex); HttpsCatalogHook* hook = catalogHook; pthread_mutex_unlock(&httpsHookMutex);
+    if (hook) {
+        if (!hook->get(host, path, caBundle, response, error)) return false;
+        return decodeChunkedResponse(response, error);
+    }
+    if (caBundle.empty()) { *error = "Catalog CA bundle is not configured"; return false; }
+    std::string buffer(4 * 1024 * 1024 + 128 * 1024, '\0');
+    unsigned long length = 0;
+    if (microhad_https_catalog_get(host.c_str(), path.c_str(), caBundle.c_str(), &buffer[0], buffer.size(), &length) != 0) {
+        *error = "Catalog HTTPS request failed"; return false;
+    }
+    response->assign(buffer.data(), length);
+    return decodeChunkedResponse(response, error);
+#else
+    (void)host; (void)path; (void)caBundle; (void)response;
+    *error = "Catalog HTTPS transport unavailable"; return false;
+#endif
 }

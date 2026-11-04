@@ -26,6 +26,7 @@ struct GatewayConfig {
     std::string firebaseSenderId;
     std::string companionJson() const;
     std::string caBundle;
+    std::string firmwareCatalogs;
     std::string tlsCertificate;
     std::string tlsPrivateKey;
     GatewayConfig();

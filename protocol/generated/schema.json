@@ -2411,6 +2411,46 @@
       "oneof": false
     },
     {
+      "name": "ota_endpoint",
+      "tag": 73,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "ota_manufacturer",
+      "tag": 74,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "ota_image_type",
+      "tag": 75,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "ota_file_version",
+      "tag": 76,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "hardware_version",
+      "tag": 77,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
       "name": "endpoint_descriptors",
       "tag": 100,
       "type": 11,

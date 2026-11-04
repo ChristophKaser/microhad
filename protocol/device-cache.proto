@@ -75,6 +75,11 @@ message CachedDevice {
   optional double power_watts = 70;
   optional double low_temperature_alert = 71;
   optional double high_temperature_alert = 72;
+  optional double ota_endpoint = 73;
+  optional double ota_manufacturer = 74;
+  optional double ota_image_type = 75;
+  optional double ota_file_version = 76;
+  optional double hardware_version = 77;
   repeated CachedEndpoint endpoint_descriptors = 100;
   optional bytes node_descriptor = 101;
   repeated uint32 matter_servers = 102;

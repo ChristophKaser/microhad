@@ -374,6 +374,16 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                    << ",\"alert_" << alert->first << "_unit\":\"" << jsonEscape(alert->second.unit) << '"';
         }
         output << ",\"initial_interview_complete\":" << (device.zigbee.read().initialInterviewComplete ? "true" : "false");
+        output << ",\"ota_endpoint\":";
+        if (device.zigbee.read().otaEndpoint < 0) output << "null"; else output << device.zigbee.read().otaEndpoint;
+        output << ",\"ota_manufacturer\":";
+        if (device.zigbee.read().otaManufacturer < 0) output << "null"; else output << device.zigbee.read().otaManufacturer;
+        output << ",\"ota_image_type\":";
+        if (device.zigbee.read().otaImageType < 0) output << "null"; else output << device.zigbee.read().otaImageType;
+        output << ",\"ota_file_version\":";
+        if (device.zigbee.read().otaVersion < 0) output << "null"; else output << device.zigbee.read().otaVersion;
+        output << ",\"hardware_version\":";
+        if (device.zigbee.read().hardwareVersion < 0) output << "null"; else output << device.zigbee.read().hardwareVersion;
         output << ",\"manufacturer_name\":\""
                << jsonEscape(device.manufacturerName) << "\",\"model_id\":\"" << jsonEscape(device.modelId)
                << "\",\"software_build_id\":\"" << jsonEscape(device.softwareBuildId)
@@ -469,6 +479,21 @@ bool loadDevices(const std::string& filename, std::vector<Device>* devices, std:
             for (index = 0; index < 5; ++index) {
                 jsonStringField(line, fields[index], destinations[index]);
             }
+            { const std::string marker = "\"ota_endpoint\":"; std::string::size_type at = line.find(marker);
+               if (at != std::string::npos) { std::istringstream number(line.substr(at + marker.size())); int64_t value;
+                   if ((number >> value) && value >= 0 && value <= 254LL) device.zigbee.ensure().otaEndpoint = value; } }
+            { const std::string marker = "\"ota_manufacturer\":"; std::string::size_type at = line.find(marker);
+               if (at != std::string::npos) { std::istringstream number(line.substr(at + marker.size())); int64_t value;
+                   if ((number >> value) && value >= 0 && value <= 65535LL) device.zigbee.ensure().otaManufacturer = value; } }
+            { const std::string marker = "\"ota_image_type\":"; std::string::size_type at = line.find(marker);
+               if (at != std::string::npos) { std::istringstream number(line.substr(at + marker.size())); int64_t value;
+                   if ((number >> value) && value >= 0 && value <= 65535LL) device.zigbee.ensure().otaImageType = value; } }
+            { const std::string marker = "\"ota_file_version\":"; std::string::size_type at = line.find(marker);
+               if (at != std::string::npos) { std::istringstream number(line.substr(at + marker.size())); int64_t value;
+                   if ((number >> value) && value >= 0 && value <= 4294967295LL) device.zigbee.ensure().otaVersion = value; } }
+            { const std::string marker = "\"hardware_version\":"; std::string::size_type at = line.find(marker);
+               if (at != std::string::npos) { std::istringstream number(line.substr(at + marker.size())); int64_t value;
+                   if ((number >> value) && value >= 0 && value <= 65535LL) device.zigbee.ensure().hardwareVersion = value; } }
             jsonStringField(line, "configured_signature", &device.zigbee.ensure().configuredSignature);
             jsonStringField(line, "thermostat_source_id", &device.thermostatSourceId);
             long staleMinutes = 90;

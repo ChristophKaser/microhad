@@ -48,6 +48,8 @@ bool applyXiaomiMeasurementData(Device* device, const std::vector<unsigned char>
 }
 
 bool expectedAttributeType(const Device* device, unsigned short cluster, unsigned short attribute, unsigned char type) {
+    if (cluster == 0x0019) return (attribute == 2 && type == 0x23) || ((attribute == 7 || attribute == 8) && type == 0x21);
+    if (cluster == 0 && attribute == 3) return type == 0x20;
     if (isThermostat(*device) && (cluster == 0x0201 || (isTrvzb(*device) && cluster == 0xfc11))) {
         unsigned long count; const ThermostatAttribute* list = thermostatAttributes(&count);
         for (unsigned long i=0;i<count;++i) if (list[i].cluster == cluster && list[i].attribute == attribute) return type == list[i].type;
@@ -70,6 +72,17 @@ bool expectedAttributeType(const Device* device, unsigned short cluster, unsigne
 
 bool applyZclAttribute(Device* device, unsigned short cluster, unsigned short attribute,
                        const std::vector<unsigned char>& value, long observedAt, unsigned* observed) {
+    if ((cluster == 0x0019 && ((attribute == 2 && value.size() == 4) ||
+        ((attribute == 7 || attribute == 8) && value.size() == 2))) ||
+        (cluster == 0 && attribute == 3 && value.size() == 1)) {
+        int64_t number = 0;
+        for (unsigned i=0;i<value.size();++i) number |= static_cast<int64_t>(value[i]) << (8*i);
+        if (cluster == 0) device->zigbee.ensure().hardwareVersion = number;
+        else if (attribute == 2) device->zigbee.ensure().otaVersion = number;
+        else if (attribute == 7) device->zigbee.ensure().otaManufacturer = number;
+        else device->zigbee.ensure().otaImageType = number;
+        return true;
+    }
     if (isThermostat(*device) && (cluster == 0x0201 || (isTrvzb(*device) && cluster == 0xfc11))) {
         unsigned long count; const ThermostatAttribute* list = thermostatAttributes(&count);
         for (unsigned long i=0;i<count;++i) if (list[i].cluster == cluster && list[i].attribute == attribute) {

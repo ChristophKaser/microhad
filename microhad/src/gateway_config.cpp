@@ -159,6 +159,7 @@ bool loadGatewayConfig(const std::string& path, GatewayConfig* config, std::stri
         !stringSetting(strings, numbers, "firebase_api_key", &config->firebaseApiKey, error) ||
         !stringSetting(strings, numbers, "firebase_project_id", &config->firebaseProjectId, error) ||
         !stringSetting(strings, numbers, "firebase_sender_id", &config->firebaseSenderId, error) ||
+        !stringSetting(strings, numbers, "firmware_catalogs", &config->firmwareCatalogs, error) ||
         !stringSetting(strings, numbers, "ca_bundle", &config->caBundle, error) ||
         !stringSetting(strings, numbers, "tls_certificate", &config->tlsCertificate, error) ||
         !stringSetting(strings, numbers, "tls_private_key", &config->tlsPrivateKey, error)) return false;

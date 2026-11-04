@@ -3386,7 +3386,18 @@ std::string GatewayView::statusJson() const {
                  << ",\"high\":" << alert->second.high << ",\"hysteresis\":" << alert->second.hysteresis
                  << ",\"unit\":\"" << jsonEscape(alert->second.unit) << "\"}";
         }
-        json << "},\"last_seen\":" << device.lastSeen
+        json << "}";
+        json << ",\"ota_endpoint\":";
+        if (device.zigbee.read().otaEndpoint < 0) json << "null"; else json << device.zigbee.read().otaEndpoint;
+        json << ",\"ota_manufacturer\":";
+        if (device.zigbee.read().otaManufacturer < 0) json << "null"; else json << device.zigbee.read().otaManufacturer;
+        json << ",\"ota_image_type\":";
+        if (device.zigbee.read().otaImageType < 0) json << "null"; else json << device.zigbee.read().otaImageType;
+        json << ",\"ota_file_version\":";
+        if (device.zigbee.read().otaVersion < 0) json << "null"; else json << device.zigbee.read().otaVersion;
+        json << ",\"hardware_version\":";
+        if (device.zigbee.read().hardwareVersion < 0) json << "null"; else json << device.zigbee.read().hardwareVersion;
+        json << ",\"last_seen\":" << device.lastSeen
              << ",\"manufacturer_name\":\"" << jsonEscape(device.manufacturerName)
              << "\",\"model_id\":\"" << jsonEscape(device.modelId)
              << '\"';
@@ -5162,6 +5173,8 @@ std::string Gateway::deviceConfigurationSignature(const Device& device) const {
         for (unsigned long c = 0; c < endpoint.inputClusters.size(); ++c) signature << ':' << endpoint.inputClusters[c];
         signature << ":out";
         for (unsigned long c = 0; c < endpoint.outputClusters.size(); ++c) signature << ':' << endpoint.outputClusters[c];
+        if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0019) != endpoint.outputClusters.end())
+            signature << ":ota-identification-v1";
     }
     return signature.str();
 }
@@ -5251,12 +5264,19 @@ void Gateway::buildDescriptorOperations(unsigned short destination, const std::v
 
 void Gateway::buildRefreshOperations(unsigned short destination) {
     InterviewState& state = interviews_[destination];
-    const Device& device = devices_[state.ieeeAddress];
+    Device& device = devices_[state.ieeeAddress];
     state.operations.clear();
     state.operationIndex = 0;
     if (isThermostat(device)) queueThermostatReadings(device);
     for (unsigned long i = 0; i < device.zigbee.read().endpoints.size(); ++i) {
         const EndpointDescriptor& endpoint = device.zigbee.read().endpoints[i];
+        if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0019) != endpoint.outputClusters.end()) {
+            device.zigbee.ensure().otaEndpoint = endpoint.endpoint;
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0019, 2);
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0019, 7);
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0019, 8);
+            if (endpointSupports(endpoint, 0)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0, 3);
+        }
         if (endpointSupports(endpoint, 0x0402)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0402, 0x0000);
         if (endpointSupports(endpoint, 0x0405)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0405, 0x0000);
         if (!isThermostat(device) && endpointSupports(endpoint, 0x0006)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0006, 0x0000);
@@ -5293,6 +5313,17 @@ void Gateway::buildConfigurationOperations(unsigned short destination) {
     if (isThermostat(device)) { classifyDevice(&device); queueThermostatReadings(device); }
     const bool herdsmanTh01 = device.manufacturerName == "eWeLink" && device.modelId == "TH01";
     state.operations.clear();
+    for (unsigned long i=0;i<device.zigbee.read().endpoints.size();++i) {
+        const EndpointDescriptor& endpoint = device.zigbee.read().endpoints[i];
+        if (std::find(endpoint.outputClusters.begin(), endpoint.outputClusters.end(), 0x0019) != endpoint.outputClusters.end()) {
+            device.zigbee.ensure().otaEndpoint = endpoint.endpoint;
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0019, 2);
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0019, 7);
+            queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0x0019, 8);
+            if (endpointSupports(endpoint, 0)) queueInterviewOperation(destination, InterviewAttributeRead, endpoint.endpoint, 0, 3);
+        }
+    }
+
     state.operationIndex = 0;
     for (unsigned long i = 0; i < device.zigbee.read().endpoints.size(); ++i) {
         const EndpointDescriptor& endpoint = device.zigbee.read().endpoints[i];
@@ -5668,7 +5699,7 @@ void Gateway::sendZdoBindRequest(unsigned short destination, unsigned char endpo
 void Gateway::sendZclReadAttribute(unsigned short destination, unsigned char endpoint, unsigned short cluster,
                                    unsigned short attribute, unsigned char transactionSequence, unsigned char messageTag) {
     std::vector<unsigned char> request;
-    request.push_back(0x10); /* global command, client-to-server, disable default response */
+    request.push_back(cluster == 0x0019 ? 0x18 : 0x10); /* OTA attributes belong to the client. */
     request.push_back(transactionSequence);
     request.push_back(0x00); /* Read Attributes */
     request.push_back(static_cast<unsigned char>(attribute));
@@ -6069,6 +6100,16 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
     }
     if (cluster == 0x0019 && (frameControl & 0x0b) == 0x01) {
         std::vector<unsigned char> args(message.begin()+zclOffset,message.end()), payload;
+        if (command == 1 && args.size() >= 9 && (args[0] & ~1) == 0 && (!(args[0] & 1) || args.size() >= 11)) {
+            ZigbeeDeviceState& z = devices_[address->second].zigbee.ensure();
+            z.otaEndpoint = sourceEndpoint;
+            z.otaManufacturer = args[1] | (static_cast<unsigned>(args[2]) << 8);
+            z.otaImageType = args[3] | (static_cast<unsigned>(args[4]) << 8);
+            z.otaVersion = 0;
+            for (unsigned i=0;i<4;++i) z.otaVersion |= static_cast<int64_t>(args[5+i]) << (8*i);
+            if (args[0] & 1) z.hardwareVersion = args[9] | (static_cast<unsigned>(args[10]) << 8);
+            saveState(address->second); markViewDirty();
+        }
         if(OtaStore::instance().zigbee(address->second,command,args,&payload)) {
             if(otaPage_.address==address->second)otaPage_.remaining=0;
             if(command==4 && payload.size()>=15 && payload[1]==0) {
@@ -6129,6 +6170,7 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
                 interview->second.persistentDirty = true;
         }
         if (applyZclReadAttributeResponse(&devices_[address->second], cluster, records, time(0), &observed)) {
+            if (cluster == 0x0019) devices_[address->second].zigbee.ensure().otaEndpoint = sourceEndpoint;
             const Device& accepted=devices_[address->second];
             if(observed&ZclObservedTemperature)automationReport(accepted,"temperature_celsius");
             if(observed&ZclObservedHumidity)automationReport(accepted,"humidity_percent");

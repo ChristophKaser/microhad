@@ -779,6 +779,16 @@ pub power_watts: Option<f64>,
 pub low_temperature_alert: Option<f64>,
 #[prost(double, optional, tag="72")]
 pub high_temperature_alert: Option<f64>,
+#[prost(double, optional, tag="73")]
+pub ota_endpoint: Option<f64>,
+#[prost(double, optional, tag="74")]
+pub ota_manufacturer: Option<f64>,
+#[prost(double, optional, tag="75")]
+pub ota_image_type: Option<f64>,
+#[prost(double, optional, tag="76")]
+pub ota_file_version: Option<f64>,
+#[prost(double, optional, tag="77")]
+pub hardware_version: Option<f64>,
 #[prost(message, repeated, tag="100")]
 pub endpoint_descriptors: Vec<CachedEndpoint>,
 #[prost(bytes="vec", optional, tag="101")]

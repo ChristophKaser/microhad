@@ -781,6 +781,16 @@ pub power_watts: Option<f64>,
 pub low_temperature_alert: Option<f64>,
 #[prost(double, optional, tag="72")]
 pub high_temperature_alert: Option<f64>,
+#[prost(double, optional, tag="73")]
+pub ota_endpoint: Option<f64>,
+#[prost(double, optional, tag="74")]
+pub ota_manufacturer: Option<f64>,
+#[prost(double, optional, tag="75")]
+pub ota_image_type: Option<f64>,
+#[prost(double, optional, tag="76")]
+pub ota_file_version: Option<f64>,
+#[prost(double, optional, tag="77")]
+pub hardware_version: Option<f64>,
 #[prost(message, repeated, tag="100")]
 pub endpoint_descriptors: Vec<CachedEndpoint>,
 #[prost(bytes="vec", optional, tag="101")]
@@ -1859,6 +1869,11 @@ if let Some(v)=lookup(fields,"pm25_micrograms_m3") { m.pm25_micrograms_m3=Some(f
 if let Some(v)=lookup(fields,"power_watts") { m.power_watts=Some(float(v)?); }
 if let Some(v)=lookup(fields,"low_temperature_alert") { m.low_temperature_alert=Some(float(v)?); }
 if let Some(v)=lookup(fields,"high_temperature_alert") { m.high_temperature_alert=Some(float(v)?); }
+if let Some(v)=lookup(fields,"ota_endpoint") { m.ota_endpoint=Some(float(v)?); }
+if let Some(v)=lookup(fields,"ota_manufacturer") { m.ota_manufacturer=Some(float(v)?); }
+if let Some(v)=lookup(fields,"ota_image_type") { m.ota_image_type=Some(float(v)?); }
+if let Some(v)=lookup(fields,"ota_file_version") { m.ota_file_version=Some(float(v)?); }
+if let Some(v)=lookup(fields,"hardware_version") { m.hardware_version=Some(float(v)?); }
 if let Some(v)=lookup(fields,"endpoint_descriptors") { m.endpoint_descriptors=array(v)?.iter().map(|v| Ok(to_CachedEndpoint(v)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
 if let Some(v)=lookup(fields,"node_descriptor") { m.node_descriptor=Some(binary(v)?); }
 if let Some(v)=lookup(fields,"matter_servers") { m.matter_servers=array(v)?.iter().map(|v| Ok(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
@@ -1941,6 +1956,11 @@ if let Some(v)=m.pm25_micrograms_m3 { fields.push((Value::Text("pm25_micrograms_
 if let Some(v)=m.power_watts { fields.push((Value::Text("power_watts".into()), Value::Float(v))); }
 if let Some(v)=m.low_temperature_alert { fields.push((Value::Text("low_temperature_alert".into()), Value::Float(v))); }
 if let Some(v)=m.high_temperature_alert { fields.push((Value::Text("high_temperature_alert".into()), Value::Float(v))); }
+if let Some(v)=m.ota_endpoint { fields.push((Value::Text("ota_endpoint".into()), Value::Float(v))); }
+if let Some(v)=m.ota_manufacturer { fields.push((Value::Text("ota_manufacturer".into()), Value::Float(v))); }
+if let Some(v)=m.ota_image_type { fields.push((Value::Text("ota_image_type".into()), Value::Float(v))); }
+if let Some(v)=m.ota_file_version { fields.push((Value::Text("ota_file_version".into()), Value::Float(v))); }
+if let Some(v)=m.hardware_version { fields.push((Value::Text("hardware_version".into()), Value::Float(v))); }
 if !m.endpoint_descriptors.is_empty() { fields.push((Value::Text("endpoint_descriptors".into()),Value::Array(m.endpoint_descriptors.into_iter().map(|v| from_CachedEndpoint(v)).collect()))); }
 if let Some(v)=m.node_descriptor { fields.push((Value::Text("node_descriptor".into()), Value::Bytes(v))); }
 if !m.matter_servers.is_empty() { fields.push((Value::Text("matter_servers".into()),Value::Array(m.matter_servers.into_iter().map(|v| Value::Integer(i128::from(v))).collect()))); }
@@ -2424,6 +2444,11 @@ Field { name:"pm25_micrograms_m3", tag:69, kind:1, message:"", repeated:false, o
 Field { name:"power_watts", tag:70, kind:1, message:"", repeated:false, oneof:false },
 Field { name:"low_temperature_alert", tag:71, kind:1, message:"", repeated:false, oneof:false },
 Field { name:"high_temperature_alert", tag:72, kind:1, message:"", repeated:false, oneof:false },
+Field { name:"ota_endpoint", tag:73, kind:1, message:"", repeated:false, oneof:false },
+Field { name:"ota_manufacturer", tag:74, kind:1, message:"", repeated:false, oneof:false },
+Field { name:"ota_image_type", tag:75, kind:1, message:"", repeated:false, oneof:false },
+Field { name:"ota_file_version", tag:76, kind:1, message:"", repeated:false, oneof:false },
+Field { name:"hardware_version", tag:77, kind:1, message:"", repeated:false, oneof:false },
 Field { name:"endpoint_descriptors", tag:100, kind:11, message:"CachedEndpoint", repeated:true, oneof:false },
 Field { name:"node_descriptor", tag:101, kind:12, message:"", repeated:false, oneof:false },
 Field { name:"matter_servers", tag:102, kind:13, message:"", repeated:true, oneof:false },

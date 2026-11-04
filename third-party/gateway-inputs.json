@@ -20,6 +20,7 @@
     "micro-thread-matter-daemon/patches/rs-matter-commissioning-region.patch": "0e09adf08490a482eb24029d15964e46a797a78b98368036ef7944dc81476373",
     "micro-thread-matter-daemon/patches/rs-matter-icd-capture.patch": "3a70e06caf74e9c9786ba74d1a45618cfb626c00dc1967e05ef339ccadf7841a",
     "micro-thread-matter-daemon/patches/rs-matter-peer-identity.patch": "215026c502ef770dbd4f7e6720da9c68b8352086037a545b731ca69aa551c276",
+    "micro-thread-matter-daemon/patches/rs-matter-session-key-capture.patch": "0343326b3883504296b82bf79164150e2e09192a257df5908b57c08e3a117897",
     "micro-thread-matter-daemon/patches/rs-matter-sessionless-icd.patch": "3313ae7829de9e6d520467339b8b896b35037145afb34c994d45b31931e9e303",
     "micro-thread-matter-daemon/patches/rs-matter-spake2p.patch": "e8e6357352fe600fa4241a9e806afa0ea8806a5cb0ff5bd03ad5d20f95bc8788",
     "micro-thread-matter-daemon/scripts/build.sh": "0bda2019c2a011a4d309b3c9c9929f9b47231ad2cfde97346ebaf0525d96891b",
