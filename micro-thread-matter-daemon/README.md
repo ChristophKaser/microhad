@@ -233,6 +233,34 @@ are opt-in via `--rollback-dir DIR`; existing backups are preserved.
 
 ## Sleepy-device traffic and subscription recovery
 
+Temperature, humidity, air quality, CO₂ and PM2.5 paths share one environmental
+subscription per device, including paths on different endpoints. Groups are
+bounded to 128 paths; larger devices split into deterministic groups. These groups
+request a 60-second minimum report interval. On/off, level, contact/water,
+battery, thermostat, switch events and clock events keep their existing timing
+and separate subscriptions. This policy is compiled into the service; it does
+not depend on whether a dashboard is connected.
+
+Existing maximum intervals remain authoritative: Alpstuga requests 900 seconds,
+other continuously available devices request 3600, and ICDs use their idle
+interval. If that interval is below 60 seconds, the environmental minimum is
+lowered to fit and the exception is logged. Publishers may split reports into
+chunks, and retries can still produce multiple packets within a minute.
+
+Each attribute retains its own unit and last value. Subscription diagnostics
+continue to show one row per path, but environmental rows share a subscription
+ID, liveness timestamp and recovery deadline. An empty report or valid chunk
+refreshes the whole group; unchanged values are not republished to the native
+service. Establishment logs show paths, requested intervals and the negotiated
+maximum. Retired IDs are rejected before their data can replace current values.
+A publisher explicitly rejecting a multi-path request with InvalidAction or
+ResourceExhausted falls back to separate environmental subscriptions at the same
+requested cadence until rediscovery or restart. Transport errors use ordinary
+backoff rather than triggering this fallback.
+
+The sensor CASE fixture exercises real 60-second publisher intervals, so its
+sequential environmental updates can take approximately five minutes.
+
 Incoming subscription reports use at most 256 concurrent asynchronous exchanges,
 polled on the existing service thread. No report worker threads are created.
 Exchange futures and their bounded payload buffers are allocated as reports

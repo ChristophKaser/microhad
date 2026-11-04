@@ -49,7 +49,8 @@ int main(int argc, char **argv)
     remote.sin_port = htons((unsigned short)port);
     if (argc == 5) {
         lifetime = strtol(argv[4], &end, 10);
-        if (*end || lifetime < 10 || lifetime > 300) return 2;
+        /* Sensor fixtures exercise five real 60-second reporting intervals. */
+        if (*end || lifetime < 10 || lifetime > 600) return 2;
     }
     alarm((unsigned int)lifetime);
     printf("RELAY_META clk_tck=%ld\n", sysconf(_SC_CLK_TCK));

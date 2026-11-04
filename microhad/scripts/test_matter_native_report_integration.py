@@ -36,7 +36,7 @@ def main():
             directory = Path(temp)
             radio_socket = directory / 'radio.sock'
             relay = subprocess.Popen([str(RUST_ROOT / 'build/openthread-unix/sim-relay-host'),
-                                      str(radio_socket), radio.address, str(radio.port), '105'],
+                                      str(radio_socket), radio.address, str(radio.port), '425'],
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             try:
                 wait_for(lambda: radio_socket.exists() or relay.poll() is not None, timeout=5)
@@ -77,7 +77,9 @@ def main():
             fixture.setUp()
             assert fixture.status()['coordinator_backend'] == 'ziggurat'
             release.touch()
-            wait_for(lambda: reports_sent.exists(), timeout=15)
+            wait_for(lambda: reports_sent.exists() or probe.poll() is not None, timeout=360)
+            if not reports_sent.exists():
+                raise RuntimeError('Rust Matter producer exited before changed reports: ' + probe.stdout.read())
             # Inventory is now pushed independently of the browser. Release
             # reports and verify the ordinary status cache consumes both.
             release.touch()

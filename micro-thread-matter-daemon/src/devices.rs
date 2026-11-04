@@ -221,6 +221,8 @@ pub struct Manager<'a, C: Crypto> {
     subscriptions: Vec<SubscriptionState>,
     report_subscriptions: crate::subscriptions::ReportSubscriptions,
     subscription_work: Option<(SubscriptionKey, Instant, SubscriptionWork<'a>)>,
+    subscription_members: Vec<SubscriptionKey>,
+    environmental_fallback: Vec<u64>,
     report_receiver: crate::subscriptions::ReportReceiver<'a>,
     icd_intervals: crate::subscriptions::IcdIntervalCache,
     #[cfg(feature = "controller-service-test-hooks")]
@@ -321,6 +323,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             subscriptions: Vec::new(),
             report_subscriptions: crate::subscriptions::ReportSubscriptions::default(),
             subscription_work: None,
+            subscription_members: Vec::new(),
+            environmental_fallback: Vec::new(),
             report_receiver: crate::subscriptions::ReportReceiver::default(),
             icd_intervals: crate::subscriptions::IcdIntervalCache::default(),
             #[cfg(feature = "controller-service-test-hooks")]
@@ -765,6 +769,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         self.icd_retry_after.retain(|((id, _), _)| *id != node);
         self.awake_until.retain(|(id, _)| *id != node);
         self.subscriptions.retain(|entry| entry.key.node != node);
+        self.environmental_fallback.retain(|entry| *entry != node);
         if self.subscription_work.as_ref().is_some_and(|(key, _, _)| key.node == node) { self.subscription_work = None; }
         self.report_subscriptions.replace(self.fabric.get(), self.subscriptions.iter().filter_map(|entry| entry.id.map(|id| (entry.key.node, id))),
         );
@@ -1176,7 +1181,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             }) { 900 } else { crate::subscriptions::MAX_REPORT_INTERVAL_SECONDS };
             // Stop acknowledging this ID before asking for its replacement.
             // KeepSubscriptions must stay true to preserve other attributes.
-            if let Some(subscription) = self.subscriptions.iter_mut().find(|entry| entry.key == key) {
+            let members = self.subscription_members_for(key);
+            for subscription in self.subscriptions.iter_mut().filter(|entry| members.contains(&entry.key)) {
                 subscription.id = None;
             }
             self.sync_report_subscriptions();
@@ -1194,17 +1200,19 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 let matter = self.matter;
                 let crypto = self.crypto;
                 let fabric = self.fabric;
+                let paths = members.iter().map(|key| (key.endpoint, key.cluster, key.attribute)).collect();
                 Box::pin(async move {
                     if key.cluster == 59 && key.attribute == SWITCH_EVENT_ATTRIBUTE {
                         crate::subscriptions::establish_switch_events_for_device_cached(
                             matter, crypto, fabric, key.node, key.endpoint, icd_endpoint, intervals).await.map(Some)
                     } else {
-                        crate::subscriptions::establish_device_attribute_with_interval_cached(
-                            matter, crypto, fabric, key.node, key.endpoint, key.cluster, key.attribute,
+                        crate::subscriptions::establish_device_paths_cached(
+                            matter, crypto, fabric, key.node, paths,
                             max_interval, icd_endpoint, intervals).await.map(Some)
                     }
                 })
             };
+            self.subscription_members = members;
             self.subscription_work = Some((key, now + Duration::from_secs(30), work));
         }
     }
@@ -1224,6 +1232,18 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             if let Some(result) = result {
                 let key = *key;
                 self.subscription_work = None;
+                let mut members = std::mem::take(&mut self.subscription_members);
+                if members.is_empty() { members.push(key); }
+                if members.len() > 1 && result.as_ref().err().is_some_and(|error|
+                    matches!(error.code(), ErrorCode::InvalidAction | ErrorCode::ResourceExhausted)) {
+                    log::warn!("Matter environmental grouping rejected: node={:016x} paths={} error={:?}; using individual subscriptions", key.node, members.len(), result.as_ref().err());
+                    if !self.environmental_fallback.contains(&key.node) { self.environmental_fallback.push(key.node); }
+                    for entry in self.subscriptions.iter_mut().filter(|entry| members.contains(&entry.key)) {
+                        entry.id = None; entry.next_retry = now; entry.failures = 0;
+                    }
+                    self.sync_report_subscriptions();
+                    return true;
+                }
                 if matches!(result, Ok(None)) {
                     // The accessory explicitly advertises neither recovery event.
                     // Keep return/daily syncs, without retrying unsupported paths.
@@ -1239,32 +1259,28 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     .is_some_and(|error| error.code() == ErrorCode::RxTimeout);
                 let mut priming_report = None;
                 let mut clock_resumed = false;
-                if let Some(subscription) = self
-                    .subscriptions
-                    .iter_mut()
-                    .find(|subscription| subscription.key == key)
-                {
-                    match result {
-                        Ok(Some(established)) => {
-                            clock_resumed = key.attribute == CLOCK_EVENT_ATTRIBUTE && subscription.last_received.is_some();
-                            let subscription_id = established.established.subscription_id;
+                match result {
+                    Ok(Some(established)) => {
+                        let subscription_id = established.established.subscription_id;
+                        log::info!("Matter subscription active: node={:016x} id={} paths={} maximum={}s", key.node, subscription_id, members.len(), established.established.max_int);
+                        for subscription in self.subscriptions.iter_mut().filter(|entry| members.contains(&entry.key)) {
+                            clock_resumed |= subscription.key.attribute == CLOCK_EVENT_ATTRIBUTE && subscription.last_received.is_some();
                             subscription.id = Some(subscription_id);
                             subscription.failures = 0;
                             subscription.max_interval = established.established.max_int.max(1);
-                            subscription.next_retry = now
-                                + crate::subscriptions::report_timeout(self.matter, subscription.max_interval);
-                            subscription.unit = established.unit;
-                            priming_report = Some(crate::subscriptions::ReceivedReport {
-                                fabric: self.fabric.get(),
-                                node: key.node,
-                                subscription_id,
-                                values: established.priming_values,
-                                buttons: Vec::new(),
-                                clock_events: established.clock_events,
-                            });
+                            subscription.next_retry = now + crate::subscriptions::report_timeout(self.matter, subscription.max_interval);
+                            subscription.unit = established.path_units.iter().find(|(endpoint, cluster, _)|
+                                *endpoint == subscription.key.endpoint && *cluster == subscription.key.cluster)
+                                .map(|entry| entry.2).or(established.unit);
                         }
-                        Ok(None) => unreachable!(),
-                        Err(_) => {
+                        priming_report = Some(crate::subscriptions::ReceivedReport {
+                            fabric: self.fabric.get(), node: key.node, subscription_id,
+                            values: established.priming_values, buttons: Vec::new(), clock_events: established.clock_events,
+                        });
+                    }
+                    Ok(None) => unreachable!(),
+                    Err(_) => {
+                        for subscription in self.subscriptions.iter_mut().filter(|entry| members.contains(&entry.key)) {
                             subscription.id = None;
                             subscription.failures = subscription.failures.saturating_add(1);
                             subscription.next_retry = now + retry_delay(subscription.failures);
@@ -1320,6 +1336,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 }
                 match result {
                     Ok(discovery) => {
+                        self.environmental_fallback.retain(|entry| *entry != node);
                         if snapshot.endpoints != discovery.endpoints
                             || snapshot.manufacturer != discovery.manufacturer || snapshot.model != discovery.model {
                             self.icd_intervals.invalidate(node);
@@ -1610,7 +1627,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if start > entries.len() { return Err(Failure::Malformed); }
         let end = (start + 6).min(entries.len());
         let subscriptions: Vec<_> = entries[start..end].iter().map(|entry| {
-            let establishing = self.subscription_work.as_ref().is_some_and(|(key, _, _)| *key == entry.key);
+            let establishing = self.subscription_work.as_ref().is_some_and(|(key, _, _)| *key == entry.key || self.subscription_members.contains(&entry.key));
                 crate::protobuf::Subscription {
                     endpoint: Some(entry.key.endpoint.into()),
                     cluster: Some(entry.key.cluster),
@@ -1713,6 +1730,15 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
         self.sync_report_subscriptions();
     }
+    fn subscription_members_for(&self, key: SubscriptionKey) -> Vec<SubscriptionKey> {
+        if key.attribute != 0 || !crate::subscriptions::is_environmental_cluster(key.cluster)
+            || self.environmental_fallback.contains(&key.node) { return vec![key]; }
+        let environmental: Vec<_> = self.subscriptions.iter().filter(|entry| entry.key.node == key.node
+            && entry.key.attribute == 0 && crate::subscriptions::is_environmental_cluster(entry.key.cluster))
+            .map(|entry| entry.key).collect();
+        environmental.chunks(crate::subscriptions::MAX_REPORT_VALUES)
+            .find(|members| members.contains(&key)).map(|members| members.to_vec()).unwrap_or_else(|| vec![key])
+    }
     fn sync_report_subscriptions(&self) {
         self.report_subscriptions.replace(
             self.fabric.get(),
@@ -1721,10 +1747,14 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
     }
     fn record_heartbeat(&mut self, fabric: u8, node: u64, id: u32, now: Instant) {
         if fabric != self.fabric.get() { return; }
-        let Some(entry) = self.subscriptions.iter_mut().find(|entry| entry.key.node == node && entry.id == Some(id)) else { return; };
-        entry.last_received = Some(now);
-        entry.next_retry = now + crate::subscriptions::report_timeout(self.matter, entry.max_interval);
-        entry.failures = 0;
+        let mut accepted = false;
+        for entry in self.subscriptions.iter_mut().filter(|entry| entry.key.node == node && entry.id == Some(id)) {
+            accepted = true;
+            entry.last_received = Some(now);
+            entry.next_retry = now + crate::subscriptions::report_timeout(self.matter, entry.max_interval);
+            entry.failures = 0;
+        }
+        if !accepted { return; }
         if let Some(snapshot) = self.snapshots.iter_mut().find(|snapshot| snapshot.node == node) {
             let returned = !snapshot.online;
             snapshot.online = true;
@@ -1777,30 +1807,21 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 }
             }
         }
-        let subscription = &mut self.subscriptions[index];
-        subscription.failures = 0;
-        subscription.last_received = Some(now);
-        // max_int is the publisher's report/keepalive cadence, not a lease
-        // that requires periodic re-subscription. Only re-establish after
-        // reports actually stop arriving.
-        subscription.next_retry = now
-            + crate::subscriptions::report_timeout(self.matter, subscription.max_interval);
-        if subscription.key.cluster == 59 && subscription.key.attribute == SWITCH_EVENT_ATTRIBUTE {
+        self.record_heartbeat(report.fabric, report.node, report.subscription_id, now);
+        if key.cluster == 59 && key.attribute == SWITCH_EVENT_ATTRIBUTE {
             for button in report.buttons {
-                if button.node.0 != subscription.key.node || button.endpoint != subscription.key.endpoint { continue; }
+                if button.node.0 != key.node || button.endpoint != key.endpoint { continue; }
                 if self.button_events.len() == MAX_QUEUED_REPORT_VALUES { self.button_events.pop_front(); }
                 self.button_events.push_back(button);
             }
             return;
         }
         for mut value in report.values {
-            if value.node.0 != subscription.key.node
-                || value.endpoint != subscription.key.endpoint
-                || value.cluster != subscription.key.cluster
-                || (subscription.key.attribute != u32::MAX && value.attribute != subscription.key.attribute)
-            {
-                continue;
-            }
+            let Some(subscription) = self.subscriptions.iter_mut().find(|entry|
+                entry.key.node == report.node && entry.id == Some(report.subscription_id)
+                && value.node.0 == entry.key.node && value.endpoint == entry.key.endpoint
+                && value.cluster == entry.key.cluster
+                && (entry.key.attribute == u32::MAX || value.attribute == entry.key.attribute)) else { continue; };
             if let crate::operations::Value::RawMeasurement(measured) = &value.value {
                 let Some(unit) = subscription.unit else {
                     continue;
@@ -1951,6 +1972,94 @@ pub async fn discover<C: Crypto>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn environmental_group_routes_all_paths_and_recovers_as_one_subscription() {
+        use crate::{entropy::OsEntropy, store::PrivateStore, operations::{Value, ResultValue}};
+        use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET}, utils::init::InitMaybeUninit};
+        let directory = std::env::temp_dir().join(format!("matter-environmental-group-{}", std::process::id()));
+        let store = PrivateStore::open(&directory).unwrap();
+        let catalog = Catalog::open(store, 1, 2).unwrap();
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
+        let mut manager = Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+        let now = Instant::now();
+        let keys: Vec<_> = [(1, 1026), (2, 1029), (3, 1037), (4, 1066), (1, 91), (1, 6), (2, 69), (0, 47)]
+            .into_iter().map(|(endpoint, cluster)| SubscriptionKey { node: 2, endpoint, cluster,
+                attribute: if cluster == 47 { 12 } else { 0 } }).collect();
+        for (index, key) in keys.iter().enumerate() {
+            manager.subscriptions.push(SubscriptionState { key: *key, id: Some(index as u32 + 10),
+                next_retry: now, max_interval: 900, failures: 0, unit: None, last_report: None, last_received: None });
+        }
+        assert_eq!(manager.subscription_members_for(keys[0]), keys[..5]);
+        for key in &keys[5..] { assert_eq!(manager.subscription_members_for(*key), vec![*key]); }
+        let value = |key: SubscriptionKey, v| ResultValue { node: crate::control::Id(key.node),
+            endpoint: key.endpoint, cluster: key.cluster, attribute: key.attribute, value: v };
+        let values = vec![value(keys[0], Value::RawMeasurement(Some(20.0))),
+            value(keys[2], Value::RawMeasurement(Some(800.0))),
+            value(keys[3], Value::RawMeasurement(Some(12.0))), value(keys[5], Value::Bool(true))];
+        manager.subscription_members = keys[..5].to_vec();
+        manager.subscription_work = Some((keys[0], now + Duration::from_secs(30), Box::pin(std::future::ready(Ok(Some(
+            crate::subscriptions::DeviceSubscription {
+                established: rs_matter::im::client::SubscribeEstablished { subscription_id: 77, max_int: 900 },
+                unit: None, path_units: vec![(1,1026,"celsius"),(3,1037,"ppm"),(4,1066,"ug/m3")],
+                priming_values: values.clone(), clock_events: vec![],
+            }))))));
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        assert!(manager.poll_background(now, &mut context));
+        assert!(manager.subscriptions[..5].iter().all(|entry| entry.id == Some(77)));
+        assert_eq!(manager.reports.len(), 3); // Urgent on/off was not in this subscription.
+        for (report, expected) in manager.reports.iter().zip(["celsius","ppm","ug/m3"]) {
+            assert!(matches!(&report.value, Value::Measurement(m) if m.unit == expected));
+        }
+        manager.reports.clear();
+        let report = |id, values| crate::subscriptions::ReceivedReport { fabric: 1, node: 2,
+            subscription_id: id, values, buttons: vec![], clock_events: vec![] };
+        let later = now + Duration::from_secs(600);
+        manager.record_report_at(report(77, values), false, later);
+        assert!(manager.reports.is_empty()); // Per-path deduplication survives batching.
+        assert!(manager.subscriptions[..5].iter().all(|entry| entry.last_received == Some(later)));
+        let heartbeat = later + Duration::from_secs(60);
+        manager.record_report_at(report(77, vec![]), false, heartbeat);
+        assert!(manager.subscriptions[..5].iter().all(|entry| entry.last_received == Some(heartbeat) && entry.next_retry > heartbeat));
+        assert!(manager.subscriptions[5..].iter().all(|entry| entry.last_received.is_none()));
+        manager.record_report_at(report(10, vec![value(keys[0], Value::RawMeasurement(Some(99.0)))]), false, heartbeat);
+        assert!(manager.reports.is_empty()); // Retired ID cannot overwrite values.
+        // A publisher rejecting a batch falls back once, preserving urgent subscriptions.
+        manager.subscription_members = keys[..5].to_vec();
+        manager.subscription_work = Some((keys[0], heartbeat + Duration::from_secs(30),
+            Box::pin(std::future::ready(Err(ErrorCode::InvalidAction.into())))));
+        assert!(manager.poll_background(heartbeat, &mut context));
+        assert_eq!(manager.subscription_members_for(keys[0]), vec![keys[0]]);
+        assert!(manager.subscriptions[..5].iter().all(|entry| entry.id.is_none() && entry.next_retry == heartbeat));
+        assert_eq!(manager.subscriptions[5].id, Some(15));
+        // A timeout uses group backoff, not compatibility fallback.
+        manager.environmental_fallback.clear();
+        manager.subscription_members = keys[..5].to_vec();
+        manager.subscription_work = Some((keys[0], heartbeat + Duration::from_secs(30),
+            Box::pin(std::future::ready(Err(ErrorCode::Busy.into())))));
+        assert!(manager.poll_background(heartbeat, &mut context));
+        assert!(manager.environmental_fallback.is_empty());
+        assert!(manager.subscriptions[..5].iter().all(|entry| entry.next_retry > heartbeat && entry.failures == 1));
+        // Bound a large bridged device's groups by the priming-value capacity.
+        for endpoint in 10..42 {
+            for cluster in [91,1026,1029,1037,1066] {
+                manager.subscriptions.push(SubscriptionState {
+                    key: SubscriptionKey { node: 2, endpoint, cluster, attribute: 0 },
+                    id: None, next_retry: now, max_interval: 900, failures: 0,
+                    unit: None, last_report: None, last_received: None,
+                });
+            }
+        }
+        let first = manager.subscription_members_for(keys[0]);
+        let last = manager.subscription_members_for(manager.subscriptions.last().unwrap().key);
+        assert_eq!(first.len(), crate::subscriptions::MAX_REPORT_VALUES);
+        assert!(last.len() <= crate::subscriptions::MAX_REPORT_VALUES);
+        assert!(first.iter().all(|key| !last.contains(key)));
+        assert_eq!(first.len() + last.len(), 165);
+        drop(manager); std::fs::remove_dir_all(directory).unwrap();
+    }
     #[test]
     fn inventory_maximum_endpoint_fits_wire_and_round_trips() {
         let record = super::InventoryRecord {
@@ -2589,7 +2698,7 @@ mod tests {
         assert!(manager.time_preferences.entries[0].next < daily, "replacement priming must replay missed TimeFailure");
         manager.time_preferences.entries[0].next = daily;
         manager.subscription_work = Some((key, now + Duration::from_secs(30), Box::pin(std::future::ready(Ok(Some(
-            crate::subscriptions::DeviceSubscription { clock_events: Vec::new(),
+            crate::subscriptions::DeviceSubscription { path_units: Vec::new(), clock_events: Vec::new(),
                 established: rs_matter::im::client::SubscribeEstablished { subscription_id: 101, max_int: 300 },
                 unit: None, priming_values: Vec::new(),
             }
@@ -2698,7 +2807,7 @@ mod tests {
             manager.subscription_work = Some((key, deadline, Box::pin(std::future::poll_fn(move |_| {
                 counted.set(counted.get() + 1);
                 if !available.get() { return Poll::Pending; }
-                Poll::Ready(Ok(Some(crate::subscriptions::DeviceSubscription { clock_events: Vec::new(),
+                Poll::Ready(Ok(Some(crate::subscriptions::DeviceSubscription { path_units: Vec::new(), clock_events: Vec::new(),
                     established: rs_matter::im::client::SubscribeEstablished { subscription_id: 77, max_int: 60,
                         },
                         unit: None,

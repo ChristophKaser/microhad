@@ -44,7 +44,7 @@ def main():
         parser.error('--service-owner requires --ble')
     if args.ble and not args.commissioning:
         parser.error('--ble requires --commissioning')
-    timeout = 160 if args.icd else 100 if args.commissioning else 22
+    timeout = 420 if args.sensor_reports else 160 if args.icd else 100 if args.commissioning else 22
     name = 'ot-matter-commissioning-probe' if args.commissioning else 'ot-matter-transport-probe'
     marker = 'PASS commissioning complete' if args.commissioning else 'PASS transport complete'
     radio = sim.ThreadRcp('127.0.0.1', tcp_nodelay=True)
@@ -282,7 +282,7 @@ def run_native_bridge(command, working_directory, timeout):
                        observed.get(key, {}).get('unit') == unit and
                        observed.get(key, {}).get('quality') == 'measured'
                        for key, (value, unit) in expected.items())
-        wait_for(reports_applied, timeout=15)
+        wait_for(reports_applied, timeout=360)
 
         output, _ = probe.communicate(timeout=max(1, deadline - time.monotonic()))
         if probe.returncode != 0:

@@ -1602,6 +1602,14 @@ async fn run(
                     &[6, 8, 69, 91, 1026, 1029, 1037, 1066],
                 )
                 .await?;
+                let environmental_id = manager.subscription_id(node, 1, 91, 0).unwrap();
+                for cluster in [1026, 1029, 1037, 1066] {
+                    assert_eq!(manager.subscription_id(node, 1, cluster, 0), Some(environmental_id));
+                }
+                for cluster in [6, 8, 69] {
+                    assert_ne!(manager.subscription_id(node, 1, cluster, 0), Some(environmental_id));
+                }
+                println!("PASS environmental attributes share one CASE subscription; urgent paths stay separate");
                 let priming_values: Vec<_> = std::iter::from_fn(|| manager.pop_report()).collect();
                 assert!(priming_values.iter().any(|value| matches!(
                     value,
@@ -1827,7 +1835,7 @@ async fn run(
                         None
                     };
                     let payload = embassy_time::with_timeout(
-                        Duration::from_secs(5),
+                        Duration::from_secs(if micro_thread_matter_daemon::subscriptions::is_environmental_cluster(cluster) { 65 } else { 5 }),
                         std::future::poll_fn(|context| {
                             if let Some((ipc, _)) = &mut report_ipc {
                                 if native_ipc {
@@ -2450,7 +2458,7 @@ fn main() {
         }
         let _ = pump.as_mut().poll(&mut context);
         assert!(
-            started.elapsed().as_secs() < if icd { 150 } else { 90 },
+            started.elapsed().as_secs() < if sensor_reports { 400 } else if icd { 150 } else { 90 },
             "transport smoke test timeout"
         );
         std::thread::sleep(std::time::Duration::from_millis(1));

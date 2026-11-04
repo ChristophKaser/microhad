@@ -45,6 +45,15 @@ impl IcdIntervalCache {
 
 pub const MIN_REPORT_INTERVAL_SECONDS: u16 = 1;
 pub const MAX_REPORT_INTERVAL_SECONDS: u16 = 3600;
+pub const ENVIRONMENTAL_MIN_INTERVAL_SECONDS: u16 = 60;
+
+pub fn is_environmental_cluster(cluster: u32) -> bool {
+    matches!(cluster, 91 | 1026 | 1029 | 1037 | 1066)
+}
+
+fn environmental_interval(maximum: u16) -> u16 {
+    ENVIRONMENTAL_MIN_INTERVAL_SECONDS.min(maximum.max(1))
+}
 
 /// ICD publishers must not be forced to wake to satisfy a nonzero floor.
 pub fn minimum_report_interval(is_icd: bool) -> u16 {
@@ -115,7 +124,10 @@ impl ReportSubscriptions {
     pub fn replace(&self, fabric: u8, identities: impl Iterator<Item = (u64, u32)>) {
         let mut active = self.0.borrow_mut();
         active.clear();
-        active.extend(identities.map(|(node, id)| (fabric, node, id)));
+        for (node, id) in identities {
+            let identity = (fabric, node, id);
+            if !active.contains(&identity) { active.push(identity); }
+        }
     }
 
     fn accepts(&self, fabric: u8, node: u64, id: u32) -> bool {
@@ -249,6 +261,7 @@ pub struct DeviceSubscription {
     pub clock_events: Vec<ClockEvent>,
     pub established: SubscribeEstablished,
     pub unit: Option<&'static str>,
+    pub path_units: Vec<(u16, u32, &'static str)>,
     pub priming_values: Vec<crate::operations::ResultValue>,
 }
 
@@ -346,27 +359,43 @@ pub async fn establish_device_attribute_with_interval_cached<C: Crypto>(
     icd_endpoint: Option<u16>,
     cache: Option<IcdIntervalCache>,
 ) -> Result<DeviceSubscription, Error> {
-    let (min_interval, max_interval) =
+    establish_device_paths_cached(matter, crypto, fabric, node,
+        vec![(endpoint, cluster, attribute)], max_interval, icd_endpoint, cache).await
+}
+
+/// Paths belong to one device and one timing class. Environmental paths may
+/// span endpoints; urgent attributes and events retain their own subscriptions.
+pub async fn establish_device_paths_cached<C: Crypto>(
+    matter: &Matter<'_>, crypto: &C, fabric: NonZeroU8, node: u64,
+    requested: Vec<(u16, u32, u32)>, max_interval: u16,
+    icd_endpoint: Option<u16>, cache: Option<IcdIntervalCache>,
+) -> Result<DeviceSubscription, Error> {
+    if requested.is_empty() || requested.len() > MAX_REPORT_VALUES {
+        return Err(ErrorCode::InvalidAction.into());
+    }
+    let environmental = requested.iter().all(|(_, cluster, _)| is_environmental_cluster(*cluster));
+    if requested.len() > 1 && !environmental { return Err(ErrorCode::InvalidAction.into()); }
+    let (mut min_interval, mut max_interval) =
         interval_bounds(matter, crypto, fabric, node, icd_endpoint, max_interval, cache.as_ref()).await?;
-    let unit = match cluster {
-        1037 | 1066 => Some(
-            crate::operations::read_measurement_unit(
-                matter, crypto, fabric, node, endpoint, cluster,
-            )
-            .await?,
-        ),
-        _ => None,
-    };
-    let path = AttrPath {
-        endpoint: Some(endpoint),
-        cluster: Some(cluster),
-        attr: if cluster == 513 && attribute == u32::MAX {
-            None
-        } else {
-            Some(attribute)
-        },
-        ..AttrPath::default()
-    };
+    if environmental {
+        max_interval = max_interval.max(1);
+        min_interval = environmental_interval(max_interval);
+        if min_interval < ENVIRONMENTAL_MIN_INTERVAL_SECONDS {
+            log::info!("Matter environmental interval capped by device: node={:016x} minimum={}s maximum={}s", node, min_interval, max_interval);
+        }
+    }
+    let mut path_units = Vec::new();
+    let mut paths = Vec::with_capacity(requested.len());
+    for &(endpoint, cluster, attribute) in &requested {
+        if matches!(cluster, 1037 | 1066) {
+            path_units.push((endpoint, cluster, crate::operations::read_measurement_unit(
+                matter, crypto, fabric, node, endpoint, cluster).await?));
+        }
+        paths.push(AttrPath { endpoint: Some(endpoint), cluster: Some(cluster),
+            attr: if cluster == 513 && attribute == u32::MAX { None } else { Some(attribute) },
+            ..AttrPath::default() });
+    }
+    log::debug!("Matter subscribe: node={:016x} paths={:?} minimum={}s maximum={}s", node, requested, min_interval, max_interval);
     let mut chunk = Exchange::initiate(matter, crypto, fabric, node)
         .await?
         .subscribe_with(|builder| {
@@ -374,7 +403,7 @@ pub async fn establish_device_attribute_with_interval_cached<C: Crypto>(
                 .keep_subs(true)?
                 .min_int_floor(min_interval)?
                 .max_int_ceil(max_interval)?
-                .attr_requests_from(core::slice::from_ref(&path))?
+                .attr_requests_from(&paths)?
                 .fabric_filtered(true)?
                 .end()
         })
@@ -395,7 +424,8 @@ pub async fn establish_device_attribute_with_interval_cached<C: Crypto>(
     Ok(DeviceSubscription {
         clock_events: Vec::new(),
         established,
-        unit,
+        unit: (requested.len() == 1).then(|| path_units.first().map(|entry| entry.2)).flatten(),
+        path_units,
         priming_values,
     })
 }
@@ -467,6 +497,7 @@ pub async fn establish_switch_events_for_device_cached<C: Crypto>(
                     clock_events: Vec::new(),
                     established,
                     unit: None,
+                    path_units: Vec::new(),
                     priming_values: Vec::new(),
                 })
             }
@@ -684,6 +715,7 @@ pub async fn establish_clock_events_cached<C: Crypto>(
     Ok(Some(DeviceSubscription {
         established,
         unit: None,
+        path_units: Vec::new(),
         priming_values: Vec::new(),
         clock_events: events,
     }))
@@ -848,6 +880,21 @@ async fn receive_report_exchange_progress(
 mod tests {
     use super::*;
 
+    #[test]
+    fn environmental_floor_is_bounded_by_publisher_and_excludes_urgent_clusters() {
+        for maximum in [120, 300, 900, 3600] { assert_eq!(environmental_interval(maximum), 60); }
+        assert_eq!(environmental_interval(30), 30);
+        assert_eq!(environmental_interval(0), 1);
+        for cluster in [91, 1026, 1029, 1037, 1066] { assert!(is_environmental_cluster(cluster)); }
+        for cluster in [6, 8, 47, 59, 69, 513] { assert!(!is_environmental_cluster(cluster)); }
+        assert_eq!(minimum_report_interval(true), 0);
+        assert_eq!(minimum_report_interval(false), 1);
+        let registry = ReportSubscriptions::default();
+        registry.replace(1, [(2,77), (2,77), (3,77)].into_iter());
+        assert_eq!(registry.0.borrow().len(), 2);
+        assert!(registry.accepts(1,2,77));
+        assert!(!registry.accepts(2,2,77));
+    }
     #[test]
     fn report_exchanges_are_lazy_bounded_and_polled_on_the_calling_thread() {
         use std::cell::Cell;
