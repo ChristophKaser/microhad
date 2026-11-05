@@ -19,12 +19,13 @@ from workspace_config import setting
 FIXTURE = r'''
 #define _GNU_SOURCE
 #include <signal.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <unistd.h>
-int main(int argc, char **argv) {
+int fault_body(int argc, char **argv) {
     struct rlimit limit = {0, 0};
     void *page;
     volatile unsigned char value;
@@ -37,6 +38,17 @@ int main(int argc, char **argv) {
     value = *(volatile unsigned char *)page;
     (void)value;
     return 5;
+}
+static void *worker(void *arg) { return (void *)(long)fault_body(2, arg); }
+int main(int argc, char **argv) {
+    struct sigaction action;
+    pthread_t thread;
+    if (sigaction(SIGSEGV, 0, &action) || action.sa_handler == SIG_DFL) return 90;
+    if (getenv("FAULT_WORKER")) {
+        if (pthread_create(&thread, 0, worker, argv) || pthread_join(thread, 0)) return 91;
+        return 92;
+    }
+    return fault_body(argc, argv);
 }
 '''
 
@@ -63,10 +75,10 @@ def main():
         source = root/'probe.c'; source.write_text(FIXTURE)
         binary = root/'fault-probe'
         compiler = settings()['TARGET_CC'] if args.device else 'cc'
-        flags = ['-static', '-msoft-float'] if args.device else []
+        flags = ['-msoft-float', '-L'+str(settings()['STOCK_ROOTFS']/'link'), '-Wl,-rpath-link,'+str(settings()['STOCK_ROOTFS']/'lib'), str(ROOT/'ziggurat/stock-uclibc-compat/native/sigaction.c'), '-Wl,--wrap=sigaction'] if args.device else []
         subprocess.run([str(compiler), '-O0', '-g', '-std=gnu99', '-Wall', '-Wextra', '-Werror', *flags,
                         str(source), str(ROOT/'ziggurat/stock-uclibc-compat/native/fault_report.c'),
-                        '-o', str(binary)], check=True)
+                        '-pthread', '-o', str(binary)], check=True)
         if not args.device:
             for number in (signal.SIGSEGV, signal.SIGILL):
                 check(subprocess.run([str(binary), str(number)], capture_output=True, text=True, timeout=5), number)
@@ -80,6 +92,8 @@ def main():
                 subprocess.run(ssh + [f'cat > {shlex.quote(remote)}/fault-probe; chmod 700 {shlex.quote(remote)}/fault-probe'], stdin=stream, check=True)
             for number in (signal.SIGSEGV, signal.SIGILL):
                 result = subprocess.run(ssh + [f'cd {shlex.quote(remote)}; ulimit -c 0; ./fault-probe {number}'], capture_output=True, text=True, timeout=15)
+                check(result, number, remote=True)
+                result = subprocess.run(ssh + [f'cd {shlex.quote(remote)}; ulimit -c 0; FAULT_WORKER=1 ./fault-probe {number}'], capture_output=True, text=True, timeout=15)
                 check(result, number, remote=True)
         finally:
             subprocess.run(ssh + [f'rm -rf {shlex.quote(remote)}'], check=True)

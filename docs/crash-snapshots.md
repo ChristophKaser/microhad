@@ -40,6 +40,16 @@ application handler. Handler writes (including the collector notification) use
 both main-thread and worker-thread faults with a dynamically linked disposable
 probe against the stock runtime; a static-only probe does not cover this path.
 
+Stock LinuxThreads also keeps a private `sigaction` handler table. Direct libc
+registration leaves that table stale: Rust startup can query it, see `SIG_DFL`,
+and replace the snapshot handler with a pthread wrapper. Both Rust services
+therefore link with `--wrap=sigaction`. The compatibility wrapper routes
+SIGSEGV, SIGILL and SIGBUS queries and registrations through `__libc_sigaction`,
+keeping the kernel state authoritative; other signals retain pthread behavior.
+This applies even when snapshots are disabled so ordinary fatal reporting
+remains safe on alternate stacks. Dynamic stock-runtime tests must verify the
+handler query as well as main-thread and worker-thread faults.
+
 The watchdog launches a separate collector, which stops the application's other
 tasks and reads their registers and memory through `ptrace` and `/proc`. This
 includes the stock LinuxThreads manager and workers, which have separate process

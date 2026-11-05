@@ -24,7 +24,7 @@ fi
 export CARGO_TARGET_DIR="$output_root/target"
 args=(--locked --release --manifest-path micro-thread-matter-daemon/Cargo.toml --features "$feature" --bin "$binary")
 if [ "$mode" = mips ]; then
-    export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static --cfg sha2_backend_soft="compact" --cfg aes_backend_soft="compact"'
+    export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static -C link-arg=-Wl,--wrap=sigaction --cfg sha2_backend_soft="compact" --cfg aes_backend_soft="compact"'
     if [[ "$LINK_MODE" == dynamic ]]; then
         RUSTFLAGS="${RUSTFLAGS/+crt-static/-crt-static} -L native=$STOCK_ROOTFS/link"
     fi

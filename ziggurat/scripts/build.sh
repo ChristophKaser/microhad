@@ -68,7 +68,7 @@ crate_patches=(
 # Resolve the generated worktree lock with the same patches as the locked build.
 # Host tests otherwise switch these packages back to registry sources.
 cargo +$RUST_TOOLCHAIN fetch --manifest-path ${build_worktree}/Cargo.toml "${crate_patches[@]}"
-export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static'
+export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static -C link-arg=-Wl,--wrap=sigaction'
 if [[ "$LINK_MODE" == dynamic ]]; then
     RUSTFLAGS="${RUSTFLAGS/+crt-static/-crt-static} -L native=$STOCK_ROOTFS/link"
 fi

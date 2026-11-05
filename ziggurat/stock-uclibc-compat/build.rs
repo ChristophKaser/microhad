@@ -5,6 +5,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=native/stock_compat.c");
     println!("cargo:rerun-if-changed=native/fault_report.c");
+    println!("cargo:rerun-if-changed=native/sigaction.c");
     assert_eq!(env::var("CARGO_CFG_TARGET_ENV").unwrap(), "uclibc");
     assert_eq!(env::var("CARGO_CFG_TARGET_ARCH").unwrap(), "mips");
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
@@ -84,6 +85,14 @@ fn main() {
         .expect("cannot compile the fatal-signal reporter");
     assert!(status.success(), "fatal-signal reporter did not compile");
     let mut extra_objects = Vec::new();
+    let signal_object = object.with_file_name("sigaction.o");
+    let status = Command::new(&compiler)
+        .args(["-O2", "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-c"])
+        .arg(manifest.join("native/sigaction.c"))
+        .arg("-o").arg(&signal_object).status()
+        .expect("cannot compile signal compatibility wrapper");
+    assert!(status.success(), "signal compatibility wrapper did not compile");
+    extra_objects.push(signal_object);
     if snapshots {
         for source in ["snapshot-client", "snapshot-writer"] {
             let target = object.with_file_name(format!("{source}.o"));
