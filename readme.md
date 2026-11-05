@@ -71,6 +71,7 @@ changing the radio firmware.
    or [build from source](docs/building.md). Binary bundles support MicroHAD-only
    with compatible stock EZSP firmware or the separately prepared Ziggurat/Matter stack.
    Follow the installation guide for root access, backups and radio prerequisites.
+   Fresh-checkout dynamic builds also need the [stock-library bootstrap](docs/building.md#bootstrap-stock-libraries-for-dynamic-builds).
 3. Open `http://<gateway-ip>/`, pair a device, and check its readings or controls.
 
 Components:

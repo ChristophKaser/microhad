@@ -59,7 +59,63 @@ export TOOLCHAIN=crosstool-ng
 See [toolchain selection](../config/TOOLCHAINS.md) for compiler prerequisites,
 cache isolation, overrides and runtime limits. RSDK remains the production
 default. Radio firmware uses separate ARM tools regardless of `TOOLCHAIN`.
-RSDK OpenThread builds additionally require Clang/LLVM 18.
+Install the pinned LLVM host tools used by the build scripts (including RSDK
+OpenThread's Clang compiler):
+
+```sh
+python3 scripts/install-llvm.py
+```
+
+## Bootstrap stock libraries for dynamic builds
+
+A fresh checkout does not contain `build/stock-runtime/`: it is ignored build
+input, not source. **Static builds do not need this step.** Dynamic builds with
+either compiler backend need verified copies of the gateway's stock shared
+libraries for linking and symbol-version checks.
+
+After configuring SSH credentials in `workspace.local.env`, read only the
+manifest-listed library files from an explicitly selected gateway. Replace the
+example address with your gateway:
+
+```sh
+python3 scripts/bootstrap-stock-runtime.py --host 192.168.1.50
+python3 scripts/bootstrap-stock-runtime.py --verify-only
+```
+
+No compiler is needed for this bootstrap. It reads `/lib` over SSH, follows the
+library symlinks, and copies regular files into the host's `STOCK_ROOTFS`
+(default `build/stock-runtime`). It does not read device configuration/userdata,
+write to the gateway, or restart services. `--password-file PATH` is an optional
+credential-file override; credentials themselves are never command arguments.
+Every file must match `config/stock-runtime.json`. A complete staged directory
+is published only after all hashes pass. A matching existing extraction is
+reused; a mismatched one is preserved and rejected.
+
+For offline setup, use a previously extracted stock root filesystem or a
+previously bootstrapped runtime directory:
+
+```sh
+python3 scripts/bootstrap-stock-runtime.py --from-root /path/to/stock-root
+# A different destination is supported; set STOCK_ROOTFS to it for later builds.
+python3 scripts/bootstrap-stock-runtime.py --from-root /path/to/stock-root --output /path/to/runtime
+```
+
+The source directory must contain `lib/`. The flash-dump extraction alternative
+is documented in [toolchain selection](../config/TOOLCHAINS.md#experimental-dynamic-linkage-using-stock-libraries).
+A different firmware's libraries fail verification; do not change the manifest
+to bypass that compatibility check. Generated backend link directories are
+created automatically by build preparation after bootstrap.
+
+For an RSDK-free dynamic build after installing crosstool-NG and LLVM:
+
+```sh
+TOOLCHAIN=crosstool-ng LINK_MODE=dynamic make -C microhad mips
+TOOLCHAIN=crosstool-ng LINK_MODE=dynamic bash ziggurat/scripts/build.sh
+TOOLCHAIN=crosstool-ng LINK_MODE=dynamic bash micro-thread-matter-daemon/scripts/build.sh mips service
+```
+
+Deleting `build/` requires repeating the bootstrap; deployed gateways do not
+depend on these host files.
 
 ## Build applications
 

@@ -18,7 +18,7 @@ def resolve(values, name):
     root = values['STOCK_ROOTFS'].resolve()
     path = (root / 'lib' / name).resolve()
     if not path.is_file() or not path.is_relative_to(root):
-        raise ValueError('stock runtime library missing; extract stock /lib into STOCK_ROOTFS: ' + name)
+        raise ValueError('stock runtime library missing; run scripts/bootstrap-stock-runtime.py with --host HOST or --from-root DIR: ' + name)
     if hashlib.sha256(path.read_bytes()).hexdigest() != entries[name]['sha256']:
         raise ValueError('runtime library does not match recorded stock image: ' + name)
     return path
