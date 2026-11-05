@@ -4,9 +4,18 @@
 #include <sys/wait.h>
 extern int unsafe_test(unsigned *);
 extern int safe_test(unsigned *);
+extern int branch_test(unsigned *);
+extern int safe_branch_test(unsigned *);
 extern int crash_test(unsigned *);
 __asm__(
 ".text\n.set noreorder\n"
+".globl branch_test\nbranch_test:\n"
+"addiu $a1,$zero,1\naddiu $a2,$zero,1\n"
+"beqz $a2,zero_path\nlw $a1,0($a0)\n"
+"beqz $a1,zero_path\nnop\naddiu $v0,$zero,1\njr $ra\nnop\n"
+".globl safe_branch_test\nsafe_branch_test:\n"
+"addiu $a1,$zero,1\naddiu $a2,$zero,1\nlw $a1,0($a0)\nnop\n"
+"beqz $a2,zero_path\nnop\nbeqz $a1,zero_path\nnop\naddiu $v0,$zero,1\njr $ra\nnop\n"
 ".globl unsafe_test\nunsafe_test:\n"
 "addiu $sp,$sp,-24\nsw $ra,20($sp)\naddiu $a1,$zero,1\n"
 "jal delay_target\nlw $a1,0($a0)\n"
@@ -30,9 +39,12 @@ int main(void)
     unsigned zero = 0;
     int unsafe = unsafe_test(&zero);
     int safe = safe_test(&zero);
+    int branch = branch_test(&zero);
+    int safe_branch = safe_branch_test(&zero);
     int status;
     pid_t child;
     printf("null-pointer branch: call-slot-load=%d separated-load=%d (correct result=0)\n", unsafe, safe);
+    printf("branch-slot fallthrough: observed=%d separated-load=%d (correct result=0)\n", branch, safe_branch);
     fflush(stdout);
     child = fork();
     if (child < 0) return 2;
@@ -45,5 +57,5 @@ int main(void)
     if (waitpid(child, &status, 0) != child) return 2;
     printf("isolated exact-read child status=%d (77=SIGSEGV caught)\n",
            WIFEXITED(status) ? WEXITSTATUS(status) : -1);
-    return unsafe != 1 || safe != 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 77;
+    return branch != 0 || safe_branch != 0 || unsafe != 1 || safe != 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 77;
 }

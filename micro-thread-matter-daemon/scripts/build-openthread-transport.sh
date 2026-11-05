@@ -16,3 +16,7 @@ cmake -S "$source_copy" -B "$output/$mode" \
     -DCMAKE_C_FLAGS_RELEASE='-Os -DNDEBUG -ffunction-sections -fdata-sections' \
     -DCMAKE_CXX_FLAGS_RELEASE='-Os -DNDEBUG -ffunction-sections -fdata-sections'
 cmake --build "$output/$mode" --target gateway-thread-transport gateway-thread-discovery-fixture --parallel "${BUILD_JOBS:-4}"
+
+if [[ "$mode" == mips && "$TOOLCHAIN" == rsdk ]]; then
+    python3 scripts/check-mips-load-delay.py "$output/$mode"
+fi
