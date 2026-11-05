@@ -214,6 +214,19 @@ class Paired(unittest.TestCase):
         self.assertIn('-R 192.0.2.10:7878 -m 0', (self.root/'syslogd.running').read_text())
         self.quiesce();self.stop()
 
+    def test_ftp_collector_is_supervised_independently(self):
+        collector=self.root/'ftp-log-collector'
+        collector.write_text(FAKE);collector.chmod(0o700)
+        (self.root/'ftp-log-collector.conf').write_text('fixture')
+        self.start();self.ready()
+        wait(lambda:'ftp-log-collector start' in self.events.read_text())
+        first=int(next(line.rsplit(' ',1)[1] for line in self.events.read_text().splitlines()
+                       if line.startswith('ftp-log-collector start ')))
+        os.kill(first,signal.SIGKILL)
+        wait(lambda:self.events.read_text().count('ftp-log-collector start ')>=2)
+        self.assertEqual(self.events.read_text().count('native start '),1)
+        self.quiesce();self.stop()
+
     def test_bad_logging_config_leaves_processes_and_control_untouched(self):
         (self.root/'config.json').write_text('{broken')
         self.start();self.process.wait(timeout=5)

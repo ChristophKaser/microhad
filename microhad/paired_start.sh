@@ -89,6 +89,9 @@ fi
 ulimit -c 0
 zig_pid=;native_pid=;matter_pid=;zig_logger_pid=;matter_logger_pid=
 snapshot_pid=;snapshot_enabled=false
+ftp_collector_pid=
+ftp_collector_bin="${NATIVE_BIN%/*}/ftp-log-collector"
+ftp_collector_config="${NATIVE_BIN%/*}/ftp-log-collector.conf"
 snapshot_bin="${NATIVE_BIN%/*}/gateway-snapshot"
 snapshot_transport="${NATIVE_BIN%/*}/gateway-core"
 if [ -x "$snapshot_bin" ] && [ -x "$snapshot_transport" ] &&
@@ -141,6 +144,7 @@ start_snapshot() {
         sleep 1;snapshot_wait=$((snapshot_wait+1))
     done
     stop_child "$snapshot_pid";snapshot_pid=
+    stop_child "$ftp_collector_pid";ftp_collector_pid=
     echo 'Crash snapshot collector unavailable; services continue without snapshots' >&2
     return 1
 }
@@ -308,6 +312,12 @@ poll_matter() {
 }
 while :; do
     [ ! -e "$control/stop" ] || exit 0
+    if [ -x "$ftp_collector_bin" ] && [ -s "$ftp_collector_config" ] &&
+       { [ -z "$ftp_collector_pid" ] || ! kill -0 "$ftp_collector_pid" 2>/dev/null; }; then
+        [ -z "$ftp_collector_pid" ] || wait "$ftp_collector_pid" 2>/dev/null || true
+        "$ftp_collector_bin" "$ftp_collector_config" </dev/null >/dev/null 2>&1 &
+        ftp_collector_pid=$!
+    fi
     if [ "$snapshot_enabled" = true ] && { [ -z "$snapshot_pid" ] || ! kill -0 "$snapshot_pid" 2>/dev/null; }; then
         if [ -n "$snapshot_pid" ]; then
             wait "$snapshot_pid" 2>/dev/null || true
