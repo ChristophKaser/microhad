@@ -21,3 +21,6 @@ __pycache__/
 
 # Retired dependency checkout; protobuf replaces this submodule.
 /microhad/dependencies/tinycbor/
+
+# Private repository-local gateway diagnostic skill.
+/.agents/skills/gateway-diagnostics/
