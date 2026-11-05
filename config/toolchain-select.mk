@@ -61,3 +61,9 @@ ifneq ($(filter true false,$(CRASH_SNAPSHOTS)),$(CRASH_SNAPSHOTS))
 $(error CRASH_SNAPSHOTS must be true or false)
 endif
 export CRASH_SNAPSHOTS
+
+# Resolve local LLVM defaults and workspace overrides consistently with Python.
+override CLANG := $(call workspace_config_get,CLANG)
+override CLANGXX := $(call workspace_config_get,CLANGXX)
+override LLVM_AR := $(call workspace_config_get,LLVM_AR)
+override LLVM_STRIP := $(call workspace_config_get,LLVM_STRIP)

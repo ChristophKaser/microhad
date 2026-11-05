@@ -23,6 +23,18 @@ def ensure(directory):
     for key in ('TARGET_CC', 'TARGET_CXX', 'TARGET_AR', 'TARGET_NM', 'TARGET_STRIP', 'TARGET_READELF'):
         tool = Path(values[key]).resolve()
         evidence[key + '_identity'] = [str(tool), tool.stat().st_mtime_ns, tool.stat().st_size]
+    # LLVM also compiles/archives OpenThread in the RSDK backend. Its identity
+    # must invalidate caches when the selected installation changes.
+    if values['TOOLCHAIN'] == 'rsdk':
+        evidence['llvm'] = {}
+        for key in ('CLANG', 'CLANGXX', 'LLVM_AR', 'LLVM_STRIP'):
+            selected = str(values[key])
+            resolved = shutil.which(selected)
+            if resolved is None:
+                raise ValueError('Missing ' + key + ': ' + selected + '; run python3 scripts/install-llvm.py')
+            tool = Path(resolved).resolve()
+            evidence['llvm'][key] = [str(tool), tool.stat().st_mtime_ns, tool.stat().st_size,
+                                    subprocess.check_output([tool, '--version'], text=True)]
     evidence['compiler_version'] = subprocess.check_output([values['TARGET_CC'], '--version'], text=True)
     evidence['sysroot'] = subprocess.check_output([values['TARGET_CC'], '-print-sysroot'], text=True).strip()
     libraries = ('libc.a', 'libpthread.a', 'libstdc++.a')

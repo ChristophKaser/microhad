@@ -17,6 +17,8 @@ def settings():
         if line and not line.startswith('#'):
             key, value = line.split('=', 1)
             values[key] = environment.get(key, value)
+    for key in ('CLANG', 'CLANGXX', 'LLVM_AR', 'LLVM_STRIP'):
+        values[key] = environment[key]
     snapshots = environment.get('CRASH_SNAPSHOTS', 'false')
     if snapshots not in ('true', 'false'):
         raise ValueError('CRASH_SNAPSHOTS must be true or false')

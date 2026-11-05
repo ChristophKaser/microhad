@@ -19,7 +19,7 @@ def main():
     with tempfile.TemporaryDirectory() as temporary:
         for backend, prefix in [('rsdk', 'mips-linux-'), ('crosstool-ng', 'mips-lexra-linux-uclibc-')]:
             env = dict(base, TOOLCHAIN=backend, RSDK_ROOT=temporary + '/missing-rsdk', CROSSTOOL_NG_ROOT=temporary + '/candidate')
-            for key in ('TARGET_CC', 'TARGET_CXX', 'TARGET_AR', 'TARGET_NM', 'TARGET_STRIP', 'TARGET_READELF', 'TARGET_PREFIX', 'TARGET_BUILD_SUBDIR'):
+            for key in ('TARGET_CC', 'TARGET_CXX', 'TARGET_AR', 'TARGET_NM', 'TARGET_STRIP', 'TARGET_READELF', 'TARGET_PREFIX', 'TARGET_BUILD_SUBDIR', 'CLANG', 'CLANGXX', 'LLVM_AR', 'LLVM_STRIP'):
                 python = run(['python3', 'scripts/toolchain_config.py', key], env).strip()
                 shell = run(['bash', '-c', 'source scripts/toolchains.sh; printf "%s" "$' + key + '"'], env).strip()
                 recipe = 'include microhad/Makefile\n.PHONY: print-setting\nprint-setting:\n\t@echo $(' + key + ')\n'
@@ -30,6 +30,13 @@ def main():
             env['TARGET_CC'] = temporary + '/custom-gcc'
             assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_CC'], env).strip() == env['TARGET_CC']
             assert run(['bash', '-c', 'source scripts/toolchains.sh; echo "$TARGET_CC"'], env).strip() == env['TARGET_CC']
+        for llvm_key in ('CLANG', 'CLANGXX', 'LLVM_AR', 'LLVM_STRIP'):
+            env = dict(base, **{llvm_key: 'custom-llvm-tool'})
+            assert run(['python3', 'scripts/toolchain_config.py', llvm_key], env).strip() == 'custom-llvm-tool'
+            recipe = 'include microhad/Makefile\n.PHONY: print-setting\nprint-setting:\n\t@echo $(' + llvm_key + ')\n'
+            result = subprocess.run(['make', '--no-print-directory', '-f', '-', 'print-setting'], input=recipe,
+                                    env=env, cwd=ROOT, text=True, capture_output=True, check=True)
+            assert result.stdout.strip() == 'custom-llvm-tool', (llvm_key, result.stdout)
         env = dict(base, TOOLCHAIN='rsdk', LINK_MODE='dynamic', STOCK_ROOTFS='build/stock-runtime')
         for key in ('LINK_MODE', 'TARGET_BUILD_SUBDIR', 'STOCK_ROOTFS'):
             python = run(['python3', 'scripts/toolchain_config.py', key], env).strip()
@@ -67,11 +74,17 @@ def main():
         base_path = Path(temporary)
         tool = base_path / 'compiler'
         tool.write_text('compiler identity')
+        tool.chmod(0o700)
         archive = base_path / 'runtime.a'
         archive.write_text('library identity')
         values = dict(TOOLCHAIN='rsdk', LINK_MODE='static', TARGET_TOOLCHAIN_ROOT=base_path, TARGET_PREFIX='fake-')
         for name in ('CC', 'CXX', 'AR', 'NM', 'STRIP', 'READELF'):
             values['TARGET_' + name] = tool
+        llvm_tool = base_path / 'llvm-tool'
+        llvm_tool.write_text('LLVM identity')
+        llvm_tool.chmod(0o700)
+        for key in ('CLANG', 'CLANGXX', 'LLVM_AR', 'LLVM_STRIP'):
+            values[key] = llvm_tool
         def output(args, **kwargs):
             if args[1] == '--version':
                 return 'fake compiler version\n'
@@ -88,6 +101,10 @@ def main():
             stamp = (directory / '.toolchain').stat().st_mtime_ns
             guard.ensure(directory)
             assert sentinel.exists() and (directory / '.toolchain').stat().st_mtime_ns == stamp
+            llvm_tool.write_text('changed LLVM compiler identity')
+            guard.ensure(directory)
+            assert not sentinel.exists()
+            sentinel.write_text('cached object')
             archive.write_text('changed library identity')
             guard.ensure(directory)
             assert not sentinel.exists() and host.read_text() == 'preserve'

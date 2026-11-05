@@ -1,7 +1,7 @@
 #!/bin/sh
 # Source this file, then call workspace_load /absolute/workspace/root.
 # workspace.local.env is trusted shell code, not a dotenv data format.
-workspace_keys='CRASH_SNAPSHOTS GATEWAY_IP LAN_INTERFACE TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT STOCK_ROOTFS SSH_PASSWORD_FILE SSH_PASSWORD SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT API_ADMIN_PASSWORD_FILE'
+workspace_keys='CLANG CLANGXX LLVM_AR LLVM_STRIP CRASH_SNAPSHOTS GATEWAY_IP LAN_INTERFACE TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT STOCK_ROOTFS SSH_PASSWORD_FILE SSH_PASSWORD SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT API_ADMIN_PASSWORD_FILE'
 workspace_quote() {
     printf "'"
     printf '%s' "$1" | sed "s/'/'\\\\''/g"
@@ -33,6 +33,13 @@ $workspace_key=$(workspace_quote "$workspace_value")"
     : "${CRASH_SNAPSHOTS=false}"
     case "$CRASH_SNAPSHOTS" in true|false) ;; *) echo 'CRASH_SNAPSHOTS must be true or false' >&2; return 2 ;; esac
     : "${GATEWAY_IP=}" "${LAN_INTERFACE=}" "${TOOLCHAIN=rsdk}" "${LINK_MODE=static}"
+    for workspace_key in CLANG CLANGXX LLVM_AR LLVM_STRIP; do
+        eval 'workspace_present=${'"$workspace_key"'+x}'
+        if [ "$workspace_present" != x ]; then
+            workspace_value=$( . "$workspace_root/config/toolchains.mk"; eval 'printf "%s" "$DEFAULT_'"$workspace_key"'"' )
+            eval "$workspace_key=$(workspace_quote "$workspace_value")"
+        fi
+    done
     workspace_rsdk_default=$( . "$workspace_root/config/toolchains.mk"; printf '%s' "$RSDK_RELATIVE" )
     workspace_crosstool_default=$( . "$workspace_root/config/toolchains.mk"; printf '%s' "$CROSSTOOL_NG_RELATIVE" )
     : "${RSDK_ROOT=$workspace_root/$workspace_rsdk_default}"
@@ -44,15 +51,20 @@ $workspace_key=$(workspace_quote "$workspace_value")"
     case "$SSH_PORT" in ''|*[!0-9]*) echo 'SSH_PORT must be 1..65535' >&2; return 2 ;; esac
     [ "$SSH_PORT" -ge 1 ] && [ "$SSH_PORT" -le 65535 ] || { echo 'SSH_PORT must be 1..65535' >&2; return 2; }
     case "$SSH_CONNECT_TIMEOUT" in ''|*[!0-9]*|0) echo 'SSH_CONNECT_TIMEOUT must be positive seconds' >&2; return 2 ;; esac
-    for workspace_key in RSDK_ROOT CROSSTOOL_NG_ROOT STOCK_ROOTFS SSH_PASSWORD_FILE API_ADMIN_PASSWORD_FILE; do
+    for workspace_key in CLANG CLANGXX LLVM_AR LLVM_STRIP RSDK_ROOT CROSSTOOL_NG_ROOT STOCK_ROOTFS SSH_PASSWORD_FILE API_ADMIN_PASSWORD_FILE; do
         eval 'workspace_value=${'"$workspace_key"'}'
-        case "$workspace_value" in ''|/*) ;; *) workspace_value=$workspace_root/$workspace_value ;; esac
-        if [ -n "$workspace_value" ]; then
-            workspace_value=$(realpath -m -- "$workspace_value") || return
-        fi
+        case "$workspace_value" in ''|/*) ;; */*) workspace_value=$workspace_root/$workspace_value ;; *) case "$workspace_key" in CLANG|CLANGXX|LLVM_AR|LLVM_STRIP) ;; *) workspace_value=$workspace_root/$workspace_value ;; esac ;; esac
+        case "$workspace_key:$workspace_value" in
+            CLANG:*|CLANGXX:*|LLVM_AR:*|LLVM_STRIP:*)
+                case "$workspace_value" in */*) workspace_value=$(realpath -ms -- "$workspace_value") || return ;; esac ;;
+            *) if [ -n "$workspace_value" ]; then
+                workspace_value=$(realpath -m -- "$workspace_value") || return
+               fi ;;
+        esac
         eval "$workspace_key=$(workspace_quote "$workspace_value")"
     done
     # Password stays a shell variable; do not export it to build subprocesses.
+    export CLANG CLANGXX LLVM_AR LLVM_STRIP
     export CRASH_SNAPSHOTS
     export GATEWAY_IP LAN_INTERFACE TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT STOCK_ROOTFS
     export SSH_PASSWORD_FILE SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT API_ADMIN_PASSWORD_FILE

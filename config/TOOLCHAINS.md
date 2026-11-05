@@ -179,3 +179,43 @@ the Matter service started successfully; the dashboard, status and log APIs were
 reachable, and the existing formed Zigbee network retained its 26 devices.
 RSDK remains the default for local source builds. Crosstool-NG deployments use
 explicit artifact paths and follow the existing maintenance flow.
+
+## Pinned LLVM host tools
+
+RSDK OpenThread C/C++ builds use **Clang 23.1.5** with RSDK headers, libraries
+and linking tools. Install the official Linux x86_64 binary distribution explicitly:
+
+```sh
+python3 scripts/install-llvm.py
+```
+
+The installer verifies the pinned archive SHA-256 and installs under ignored
+`tools/llvm-23.1.5/`. It does not replace system packages. Clang, Clang++, llvm-ar
+and llvm-strip are selected together in `config/toolchains.mk`. `CLANG`,
+`CLANGXX`, `LLVM_AR` and `LLVM_STRIP` accept environment or private workspace
+settings; environment overrides take precedence. Bare executable names use PATH;
+relative paths containing `/` resolve against the repository root. Missing tools
+fail target builds with an installation hint; builds never download tools.
+Compiler identities are included in target cache provenance.
+
+The RSDK/Clang build disables the MIPS delay-slot filler with
+`-mllvm -disable-mips-delay-filler`. Clang 18.1.3 emitted a load in the call delay
+slot before `AddressResolver::UpdateCacheEntry` entered `LinkedList::PopAfter`.
+The first callee instruction tested the loaded register before the load became
+visible on the gateway CPU. A legitimate null predecessor bypassed its null
+check and the next instruction accessed address `0x12`. An isolated gateway
+probe reproduced both the wrong branch and SIGSEGV; moving the load before the
+call corrected the branch. The workaround stays enabled after the upgrade.
+
+The OpenThread target build rejects loads in control-transfer delay slots in
+its core archive. Run the checker independently with:
+
+```sh
+python3 scripts/check-mips-load-delay.py --self-test
+```
+
+The standalone reproduction source is
+`micro-thread-matter-daemon/tests/helpers/mips-load-delay-probe.c`. It uses no
+radio or application state; its child catches the deliberate SIGSEGV. This
+workaround affects C/C++ scheduling, not Rust's bundled LLVM or the ARM radio
+firmware toolchain. Host and crosstool-NG scheduling flags are unchanged.

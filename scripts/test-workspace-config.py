@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from workspace_config import ROOT, settings, ssh_command
 
-KEYS = 'CRASH_SNAPSHOTS GATEWAY_IP LAN_INTERFACE TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT STOCK_ROOTFS SSH_PASSWORD_FILE SSH_PASSWORD SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT'.split()
+KEYS = 'CLANG CLANGXX LLVM_AR LLVM_STRIP CRASH_SNAPSHOTS GATEWAY_IP LAN_INTERFACE TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT STOCK_ROOTFS SSH_PASSWORD_FILE SSH_PASSWORD SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT'.split()
 
 
 class WorkspaceSettings(unittest.TestCase):
@@ -36,6 +36,20 @@ class WorkspaceSettings(unittest.TestCase):
     def resolved(self):
         with patch.dict(os.environ, self.env, clear=True):
             return settings()
+
+    def test_llvm_paths_and_override_precedence(self):
+        self.assertEqual(self.resolved()['CLANG'], str(ROOT / 'tools/llvm-23.1.5/bin/clang'))
+        self.config.write_text('CLANG=custom/bin/clang\nCLANGXX=clang++-18\n')
+        self.assertEqual(self.resolved()['CLANG'], str(ROOT / 'custom/bin/clang'))
+        self.assertEqual(self.resolved()['CLANGXX'], 'clang++-18')
+        alias = self.directory / 'llvm-strip'
+        target = self.directory / 'llvm-objcopy'
+        target.touch()
+        alias.symlink_to(target)
+        self.env['LLVM_STRIP'] = str(alias)
+        self.assertEqual(self.resolved()['LLVM_STRIP'], str(alias))
+        self.env['CLANG'] = 'clang-23'
+        self.assertEqual(self.resolved()['CLANG'], 'clang-23')
 
     def test_snapshot_flag_default_override_and_validation(self):
         self.assertEqual(self.resolved()['CRASH_SNAPSHOTS'], 'false')

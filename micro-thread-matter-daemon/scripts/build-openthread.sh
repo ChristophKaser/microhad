@@ -48,6 +48,7 @@ cxx = rd / 'include/c++/4.4.7'
 flags = (f'--target=mips-linux-gnu -march=mips1 -msoft-float -mabi=32 '
          f'--sysroot={rd}/mips-linux-uclibc '
          f'-isystem {rd}/lib/gcc/mips-linux-uclibc/4.4.7/include-fixed '
+         '-mllvm -disable-mips-delay-filler '
          '-Os -fno-pic -mabicalls -G0 -fno-stack-protector -mllvm -mno-check-zero-division '
          '-DOPENTHREAD_POSIX_CONFIG_BACKTRACE_ENABLE=0')
 cppflags = (f'{flags} -nostdinc++ -isystem {cxx} -isystem {cxx}/mips-linux-uclibc/4181 '
@@ -92,6 +93,9 @@ if [[ "$mode" == host ]]; then
     cmake --build "$build_dir" --target ot-unix-adapter-test --parallel "${BUILD_JOBS:-4}"
     "$build_dir/src/posix/ot-unix-adapter-test"
 else
+    if [[ "$TOOLCHAIN" == rsdk ]]; then
+        python3 scripts/check-mips-load-delay.py "$build_dir/src/core/libopenthread-ftd.a"
+    fi
     "$LLVM_STRIP" --keep-section=.gnu.attributes -o "$output/ot-cli-mips" "$build_dir/src/posix/ot-cli"
     python3 scripts/verify-gateway-target.py --link-mode "$LINK_MODE" "$output/ot-cli-mips"
     file "$output/ot-cli-mips"
