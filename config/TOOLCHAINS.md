@@ -220,3 +220,12 @@ The standalone reproduction source is
 radio or application state; its child catches the deliberate SIGSEGV. This
 check covers C/C++ scheduling, not Rust's bundled LLVM or the ARM radio
 firmware toolchain. Host and crosstool-NG scheduling flags are unchanged.
+
+## RSDK-free dynamic compatibility investigation
+
+Small C/C++/Rust probes independently test GCC 15.2 against the stock gateway
+shared libraries, without changing the supported backend combinations. See
+[probe commands and compatibility results](../scripts/probes/stock-dynamic/README.md).
+C and basic C++ probes have passed on the gateway; C++ bounds checking and Rust
+standard-library threading expose missing stock symbols. This is not yet an
+application migration or permission to deploy additional runtime libraries.
