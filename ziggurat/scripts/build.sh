@@ -70,7 +70,7 @@ crate_patches=(
 cargo +$RUST_TOOLCHAIN fetch --manifest-path ${build_worktree}/Cargo.toml "${crate_patches[@]}"
 export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static -C link-arg=-Wl,--wrap=sigaction'
 if [[ "$LINK_MODE" == dynamic ]]; then
-    RUSTFLAGS="${RUSTFLAGS/+crt-static/-crt-static} -L native=$STOCK_ROOTFS/link"
+    RUSTFLAGS="${RUSTFLAGS/+crt-static/-crt-static} -L native=$STOCK_LINK_DIR"
 fi
 # Favor size on the gateway; retain upstream LTO, stripping and panic settings.
 if [[ "$CRASH_SNAPSHOTS" == true ]]; then

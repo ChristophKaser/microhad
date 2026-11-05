@@ -75,7 +75,7 @@ def main():
         source = root/'probe.c'; source.write_text(FIXTURE)
         binary = root/'fault-probe'
         compiler = settings()['TARGET_CC'] if args.device else 'cc'
-        flags = ['-msoft-float', '-L'+str(settings()['STOCK_ROOTFS']/'link'), '-Wl,-rpath-link,'+str(settings()['STOCK_ROOTFS']/'lib'), str(ROOT/'ziggurat/stock-uclibc-compat/native/sigaction.c'), '-Wl,--wrap=sigaction'] if args.device else []
+        flags = ['-msoft-float', '-L'+str(settings()['STOCK_LINK_DIR']), '-Wl,-rpath-link,'+str(settings()['STOCK_ROOTFS']/'lib'), str(ROOT/'ziggurat/stock-uclibc-compat/native/sigaction.c'), '-Wl,--wrap=sigaction'] if args.device else []
         subprocess.run([str(compiler), '-O0', '-g', '-std=gnu99', '-Wall', '-Wextra', '-Werror', *flags,
                         str(source), str(ROOT/'ziggurat/stock-uclibc-compat/native/fault_report.c'),
                         '-pthread', '-o', str(binary)], check=True)

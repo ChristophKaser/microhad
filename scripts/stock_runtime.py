@@ -27,8 +27,10 @@ def resolve(values, name):
 def prepare_link_directory(values):
     """Link against stock ELFs, bypassing the image's incomplete libc.so script."""
     import subprocess
+    import tempfile
+    import os
     root = values['STOCK_ROOTFS']
-    directory = root / 'link'
+    directory = root / ('link-crosstool-ng' if values.get('TOOLCHAIN') == 'crosstool-ng' else 'link')
     directory.mkdir(exist_ok=True)
     links = {}
     for name in inventory():
@@ -39,8 +41,25 @@ def prepare_link_directory(values):
     archive = Path(subprocess.check_output(
         [values['TARGET_CC'], '-print-file-name=libutil.a'], text=True).strip()).resolve()
     if not archive.is_file():
-        raise ValueError('selected SDK is missing libutil.a')
-    links['libutil.a'] = archive
+        raise ValueError('selected toolchain is missing libutil.a')
+    if values.get('TOOLCHAIN') == 'crosstool-ng':
+        # uClibc-ng merged libutil into libc.a; extract only these public APIs.
+        # Never link the new libc into an executable using the stock loader.
+        libc = Path(subprocess.check_output([values['TARGET_CC'], '-print-file-name=libc.a'], text=True).strip()).resolve()
+        generated = directory / 'libutil.a'
+        with tempfile.TemporaryDirectory(prefix='.libutil-', dir=directory) as temporary:
+            staging = Path(temporary)
+            objects = []
+            for member in ('forkpty.os', 'openpty.os', 'login_tty.os'):
+                obj = staging / member
+                obj.write_bytes(subprocess.check_output([values['TARGET_AR'], 'p', libc, member]))
+                objects.append(obj)
+            subprocess.run([values['TARGET_AR'], 'rcs', staging / 'libutil.a', *objects], check=True)
+            os.replace(staging / 'libutil.a', generated)
+        cxx = Path(subprocess.check_output([values['TARGET_CXX'], '-print-file-name=libstdc++.a'], text=True).strip()).resolve()
+        links['libstdc++-compat.a'] = cxx
+    else:
+        links['libutil.a'] = archive
     for name, target in links.items():
         path = directory / name
         if path.is_symlink() and path.resolve() == target:

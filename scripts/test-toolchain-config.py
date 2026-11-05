@@ -47,7 +47,17 @@ def main():
             assert python == shell == make, (key, python, shell, make)
         assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_BUILD_SUBDIR'], env).strip() == 'dynamic/'
         assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_SPEC_NAME'], env).strip() == 'lexra-stock-uclibc-dynamic'
-        for backend, mode in [('rsdk', ''), ('rsdk', 'unknown'), ('rsdk', 'static dynamic'), ('crosstool-ng', 'dynamic')]:
+        env = dict(base, TOOLCHAIN='crosstool-ng', LINK_MODE='dynamic')
+        for key in ('TARGET_BUILD_SUBDIR', 'TARGET_SPEC_NAME', 'STOCK_LINK_DIR'):
+            python = run(['python3', 'scripts/toolchain_config.py', key], env).strip()
+            shell = run(['bash', '-c', 'source scripts/toolchains.sh; printf "%s" "$' + key + '"'], env).strip()
+            recipe = 'include microhad/Makefile\n.PHONY: print-setting\nprint-setting:\n\t@echo $(' + key + ')\n'
+            make = subprocess.run(['make', '--no-print-directory', '-f', '-', 'print-setting'], input=recipe,
+                                  env=env, cwd=ROOT, text=True, capture_output=True, check=True).stdout.strip()
+            assert python == shell == make, (key, python, shell, make)
+        assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_SPEC_NAME'], env).strip() == 'lexra-crosstool-ng-uclibc-dynamic'
+        assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_BUILD_SUBDIR'], env).strip() == 'crosstool-ng/dynamic/'
+        for backend, mode in [('rsdk', ''), ('rsdk', 'unknown'), ('rsdk', 'static dynamic')]:
             env = dict(base, TOOLCHAIN=backend, LINK_MODE=mode)
             for args in (['python3', 'scripts/toolchain_config.py', 'TARGET_CC'],
                          ['bash', '-c', 'source scripts/toolchains.sh'],

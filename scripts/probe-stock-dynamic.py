@@ -26,6 +26,7 @@ def execute(command, log, **kwargs):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--cxx-compat', action='store_true', help='resolve missing old-ABI C++ helpers from GCC 15 static archive')
     parser.add_argument('--rust-compat', action='store_true', help='compile and link the existing stock-uClibc C shim with GCC 15')
     parser.add_argument('--only', action='append', choices=['c', 'cpp', 'cpp-bounds', 'rust'], help='select probes; default is all')
     parser.add_argument('--device', type=gateway_host, help='explicitly run validated probes from gateway RAM')
@@ -93,6 +94,9 @@ def main():
         ('cpp', 'probe.cpp', cxx, ['-std=gnu++11', '-D_GLIBCXX_USE_CXX11_ABI=0', '-fno-sized-deallocation']),
         ('cpp-bounds', 'probe.cpp', cxx, ['-std=gnu++11', '-D_GLIBCXX_USE_CXX11_ABI=0', '-fno-sized-deallocation', '-DPROBE_BOUNDS'])]:
         if args.only and name not in args.only: continue
+        if args.cxx_compat and name.startswith('cpp'):
+            archive = subprocess.check_output([cxx, '-print-file-name=libstdc++.a'], text=True).strip()
+            extra = [*extra, '-DPROBE_CXX_COMPAT', '-H', '-lstdc++', archive, '-Wl,--gc-sections']
         binary = output / name
         command = [compiler, *flags, SOURCES / source, *link_flags, *extra, '-Wl,-Map,' + str(output / (name + '.map')), '-o', binary]
         entry = report['probes'][name] = {'command': list(map(str, command))}

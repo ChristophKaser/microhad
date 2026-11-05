@@ -26,7 +26,10 @@ args=(--locked --release --manifest-path micro-thread-matter-daemon/Cargo.toml -
 if [ "$mode" = mips ]; then
     export RUSTFLAGS='-C target-feature=+crt-static -C relocation-model=static -C link-arg=-Wl,--wrap=sigaction --cfg sha2_backend_soft="compact" --cfg aes_backend_soft="compact"'
     if [[ "$LINK_MODE" == dynamic ]]; then
-        RUSTFLAGS="${RUSTFLAGS/+crt-static/-crt-static} -L native=$STOCK_ROOTFS/link"
+        RUSTFLAGS="${RUSTFLAGS/+crt-static/-crt-static} -L native=$STOCK_LINK_DIR"
+        if [[ "$TOOLCHAIN" == crosstool-ng ]]; then
+            RUSTFLAGS="$RUSTFLAGS -C link-arg=-static-libgcc -C link-arg=-no-pie -C link-arg=-Wl,--defsym,__gnu_local_gp=_gp"
+        fi
     fi
     args+=(--target "targets/$TARGET_SPEC_NAME.json" -Z json-target-spec -Z build-std=std,panic_abort)
 fi

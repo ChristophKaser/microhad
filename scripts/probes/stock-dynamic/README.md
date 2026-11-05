@@ -14,6 +14,8 @@ python3 scripts/probe-stock-dynamic.py --device GATEWAY_IP
 python3 scripts/probe-stock-dynamic.py --only rust
 # Link the existing production shim, compiled with GCC 15:
 python3 scripts/probe-stock-dynamic.py --only rust --rust-compat --device GATEWAY_IP
+# Validate the selective C++ archive fallback used by crosstool-NG dynamic mode:
+python3 scripts/probe-stock-dynamic.py --only cpp --only cpp-bounds --cxx-compat --device GATEWAY_IP
 ```
 
 The builder uses GCC/G++ 15.2 from `CROSSTOOL_NG_ROOT`, its headers and startup
@@ -72,3 +74,10 @@ for entire services, all C++ library operations, threading edge cases, or all
 uClibc-ng headers versus the older stock ABI. Follow-up application enablement
 must resolve these blockers, preserve the same runtime provenance checks, and
 validate real workloads before deployment.
+
+With `--cxx-compat`, the stock shared C++ runtime is linked before the GCC 15
+static C++ archive. This supplies only missing helper implementations rather than
+replacing the installed shared library. Both C++ probes passed on the gateway
+with bounds exceptions, array-allocation exception type and default string-stream
+construction tested. Application crosstool-NG dynamic mode now uses this same
+selection; full-service runtime validation remains separate from these probes.

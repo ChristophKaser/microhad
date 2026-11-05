@@ -58,10 +58,11 @@ fn main() {
     );
     println!("cargo:rerun-if-env-changed=LINK_MODE");
     let link_mode = env::var("LINK_MODE").unwrap_or_else(|_| "static".into());
-    let base = if mode == "mips" && link_mode == "dynamic" {
-        root.join("build/dynamic/openthread-unix").join(mode)
-    } else if mode == "mips" && backend == "crosstool-ng" {
-        root.join("build/crosstool-ng/openthread-unix").join(mode)
+    let base = if mode == "mips" {
+        root.join("build")
+            .join(if backend == "crosstool-ng" { "crosstool-ng" } else { "" })
+            .join(if link_mode == "dynamic" { "dynamic" } else { "" })
+            .join("openthread-unix").join(mode)
     } else {
         root.join("build/openthread-unix").join(mode)
     };
@@ -119,6 +120,11 @@ fn main() {
         }
     }
     println!("cargo:rustc-link-lib=stdc++");
+    if mode == "mips" && link_mode == "dynamic" && backend == "crosstool-ng" {
+        // Stock libstdc++ resolves old ABI symbols first; GCC 15 supplies only
+        // newer helpers still unresolved by that shared library.
+        println!("cargo:rustc-link-arg={}", PathBuf::from(env::var("STOCK_LINK_DIR").expect("missing stock link directory")).join("libstdc++-compat.a").display());
+    }
     if mode == "mips" && link_mode == "dynamic" {
         // The stock image has no libutil.so; include forkpty/openpty locally.
         println!("cargo:rustc-link-lib=static=util");

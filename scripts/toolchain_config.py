@@ -29,10 +29,9 @@ def settings():
     link_mode = environment.get('LINK_MODE', 'static')
     if link_mode not in ('static', 'dynamic'):
         raise ValueError('LINK_MODE must be static or dynamic: ' + link_mode)
-    if link_mode == 'dynamic' and backend != 'rsdk':
-        raise ValueError('LINK_MODE=dynamic requires TOOLCHAIN=rsdk')
     values['STOCK_ROOTFS'] = Path(environment.get('STOCK_ROOTFS', ROOT / 'build/stock-runtime')).resolve()
     values['LINK_MODE'] = link_mode
+    values['STOCK_LINK_DIR'] = values['STOCK_ROOTFS'] / ('link-crosstool-ng' if backend == 'crosstool-ng' else 'link')
     values['TOOLCHAIN'] = backend
     values['RSDK_ROOT'] = Path(environment.get('RSDK_ROOT', ROOT / values['RSDK_RELATIVE'])).resolve()
     values['CROSSTOOL_NG_ROOT'] = Path(environment.get('CROSSTOOL_NG_ROOT', ROOT / values['CROSSTOOL_NG_RELATIVE'])).resolve()

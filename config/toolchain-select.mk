@@ -34,15 +34,12 @@ endif
 ifneq ($(filter static dynamic,$(LINK_MODE)),$(LINK_MODE))
 $(error LINK_MODE must be static or dynamic)
 endif
-ifeq ($(LINK_MODE),dynamic)
-ifneq ($(TOOLCHAIN),rsdk)
-$(error LINK_MODE=dynamic requires TOOLCHAIN=rsdk)
-endif
-endif
 override STOCK_ROOTFS := $(call workspace_config_get,STOCK_ROOTFS)
+override STOCK_LINK_DIR := $(call workspace_config_get,STOCK_LINK_DIR)
 TARGET_PREFIX ?= $(if $(filter rsdk,$(TOOLCHAIN)),$(RSDK_PREFIX),$(CROSSTOOL_NG_PREFIX))
 TARGET_TOOLCHAIN_ROOT := $(if $(filter rsdk,$(TOOLCHAIN)),$(RSDK_ROOT),$(CROSSTOOL_NG_ROOT))
 TARGET_BUILD_SUBDIR := $(if $(filter crosstool-ng,$(TOOLCHAIN)),crosstool-ng/)$(if $(filter dynamic,$(LINK_MODE)),dynamic/)
+TARGET_SPEC_NAME := $(if $(filter crosstool-ng,$(TOOLCHAIN)),lexra-crosstool-ng-uclibc,lexra-stock-uclibc)$(if $(filter dynamic,$(LINK_MODE)),-dynamic)
 TARGET_CC ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)gcc
 TARGET_CXX ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)g++
 TARGET_AR ?= $(TARGET_TOOLCHAIN_ROOT)/bin/$(TARGET_PREFIX)ar

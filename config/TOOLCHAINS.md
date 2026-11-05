@@ -84,9 +84,11 @@ make -C microhad TOOLCHAIN=crosstool-ng mips
 
 `LINK_MODE=dynamic` builds non-PIE application executables using only shared
 libraries supplied by the stock image. `LINK_MODE=static` remains the default;
-dynamic mode requires `TOOLCHAIN=rsdk`. The compiler and headers remain RSDK,
-but dynamic linking and ELF verification use the stock uClibc 0.9.33 libraries,
-not the SDK's uClibc 0.9.30.3 runtime.
+dynamic mode supports both `TOOLCHAIN=rsdk` and `TOOLCHAIN=crosstool-ng`.
+The selected compiler supplies headers, startup objects and compiler support;
+dynamic linking and ELF verification use the stock uClibc 0.9.33 libraries.
+The crosstool-NG mode uses GCC 15.2 throughout native code and OpenThread,
+without accessing RSDK files. It does not install a replacement libc.
 
 Extract only `/lib` from a local stock flash dump before building. This gateway's
 SquashFS starts at offset `0x200000`; do not extract or commit userdata:
@@ -99,7 +101,7 @@ unsquashfs -d build/stock-runtime -o 2097152 /path/to/stock-flash.bin lib
 Make arguments, or `workspace.local.env`. The default is `build/stock-runtime`.
 `config/stock-runtime.json` records stock SONAMEs and file hashes; a missing or
 modified library fails validation. Build preparation creates a generated `link/`
-directory beside the extracted `lib/`, bypassing the stock `libc.so` script's
+directory (`link-crosstool-ng/` for crosstool-NG) beside the extracted `lib/`, bypassing the stock `libc.so` script's
 reference to an archive absent from the image. Extracted binaries and generated
 links are ignored build artifacts and must not be committed.
 
@@ -107,14 +109,35 @@ links are ignored build artifacts and must not be committed.
 make -C microhad TOOLCHAIN=rsdk LINK_MODE=dynamic mips
 TOOLCHAIN=rsdk LINK_MODE=dynamic ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 TOOLCHAIN=rsdk LINK_MODE=dynamic bash micro-thread-matter-daemon/scripts/build.sh mips service
+
+# RSDK-free GCC 15.2 builds against the same stock runtime:
+make -C microhad TOOLCHAIN=crosstool-ng LINK_MODE=dynamic mips
+TOOLCHAIN=crosstool-ng LINK_MODE=dynamic ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
+TOOLCHAIN=crosstool-ng LINK_MODE=dynamic bash micro-thread-matter-daemon/scripts/build.sh mips service
 ```
 
 Outputs and caches remain isolated under `microhad/build/dynamic/` and
 `build/dynamic/`; the Rust target is `lexra-stock-uclibc-dynamic`. MicroHAD's
 Mbed TLS and Matter's OpenThread archives remain statically incorporated.
 The stock image supplies the loader, libc, pthread, math, realtime, C++ and GCC
-runtime libraries. It has no `libutil.so`: the selected SDK's `libutil.a` supplies
-`forkpty`/`openpty` locally. The Rust compatibility shim inspects stock exports
+runtime libraries. It has no `libutil.so`: RSDK uses its `libutil.a`; crosstool-NG
+extracts only `forkpty`, `openpty` and `login_tty` from its libc archive into a
+small private `libutil.a`, retaining the internal aliases. Its new libc is never
+linked wholesale. Each backend has its own generated link directory.
+
+Crosstool-NG dynamic C++ uses `_GLIBCXX_USE_CXX11_ABI=0` and disables sized
+deallocation. The stock `libstdc++.so.6` is linked first, followed by the selected
+GCC 15 `libstdc++.a` as a fallback for newer helper symbols absent from the old
+shared runtime. Only unresolved archive members are incorporated; no new shared
+C++ library is deployed. Isolated gateway probes cover formatted bounds errors,
+`bad_array_new_length`, default string streams, and exception handling with this
+combination. OpenThread's dynamic linker script also resolves `__gnu_local_gp`
+to the executable's `_gp` rather than exporting an unresolved linker pseudo-symbol.
+
+Crosstool-NG dynamic outputs are isolated under
+`microhad/build/crosstool-ng/dynamic/` and `build/crosstool-ng/dynamic/`, with Rust
+target `lexra-crosstool-ng-uclibc-dynamic`. Existing static and RSDK caches and
+workspace selection remain separate. The Rust compatibility shim inspects stock exports
 and supplies its existing ENOSYS fallbacks for missing pthread stack-inspection
 APIs. Firmware, RNG seed, maintenance helpers and deployment defaults retain
 static linkage.
@@ -226,7 +249,7 @@ firmware toolchain. Host and crosstool-NG scheduling flags are unchanged.
 Small C/C++/Rust probes independently test GCC 15.2 against the stock gateway
 shared libraries, without changing the supported backend combinations. See
 [probe commands and compatibility results](../scripts/probes/stock-dynamic/README.md).
-C, basic C++, and Rust with the existing production compatibility shim compiled
-by GCC 15 have passed on the gateway. C++ bounds checking and unshimmed Rust
-expose missing stock symbols. This is not yet an
+C, C++ with selective compiler helper fallback, and Rust with the existing
+production compatibility shim compiled by GCC 15 have passed on the gateway.
+Unadapted C++ bounds checking and unshimmed Rust expose missing stock symbols. This is not yet an
 application migration or permission to deploy additional runtime libraries.

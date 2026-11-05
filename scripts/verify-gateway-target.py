@@ -67,8 +67,6 @@ def verify(binary, link_mode='static'):
         if 'INTERP' in read(values, binary, '-l') or 'There is no dynamic section' not in read(values, binary, '-d'):
             raise ValueError('expected static soft-float executable: ' + str(binary))
     else:
-        if values['TOOLCHAIN'] != 'rsdk':
-            raise ValueError('dynamic verification requires TOOLCHAIN=rsdk')
         if not re.search(r'Type:\s+EXEC\b', header):
             raise ValueError('expected non-PIE ET_EXEC dynamic executable: ' + str(binary))
         report.update(dynamic_dependencies(values, binary))
@@ -81,7 +79,7 @@ def verify(binary, link_mode='static'):
         parts = list(binary.parts)
         if 'dynamic' in parts:
             parts.remove('dynamic')
-            parts = [part.replace('lexra-stock-uclibc-dynamic', 'lexra-stock-uclibc') for part in parts]
+            parts = [part.removesuffix('-dynamic') for part in parts]
             static = Path(*parts)
             report['static_binary'] = str(static)
             report['static_bytes'] = static.stat().st_size if static.is_file() else None

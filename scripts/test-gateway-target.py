@@ -5,11 +5,17 @@ from pathlib import Path
 import subprocess
 import tempfile
 from toolchain_config import ROOT, settings
+from stock_runtime import prepare_link_directory
 
 
 def main():
     values = settings()
     verifier = ROOT / 'scripts/verify-gateway-target.py'
+    stock_link = prepare_link_directory(values)
+    dynamic_flags = ['-L' + str(stock_link), '-Wl,-rpath-link,' + str(values['STOCK_ROOTFS'] / 'lib'),
+                     '-Wl,--dynamic-linker=/lib/ld-uClibc.so.0']
+    if values['TOOLCHAIN'] == 'crosstool-ng':
+        dynamic_flags += ['-no-pie', '-static-libgcc']
     host_env = dict(os.environ, TARGET_READELF=values['HOST_READELF'])
     result = subprocess.run(['python3', verifier, '/bin/true'], env=host_env, capture_output=True, text=True)
     assert result.returncode != 0 and 'expected ELF32 big-endian MIPS-I/O32' in result.stderr
@@ -25,17 +31,17 @@ def main():
         assert "'rdhwr': 1" in result.stderr and "'teq': 1" in result.stderr, result.stderr
         source.write_text('#include <stdio.h>\nint main(void) { puts("linkage fixture"); return 0; }\n')
         for mode in ('static', 'dynamic'):
-            flags = ['-static'] if mode == 'static' else []
+            flags = ['-static'] if mode == 'static' else dynamic_flags
             subprocess.run([values['TARGET_CC'], *flags, '-msoft-float', source, '-o', binary], check=True)
             result = subprocess.run(['python3', verifier, '--link-mode', mode, binary], capture_output=True, text=True)
             assert result.returncode == 0, result.stderr
             other = 'dynamic' if mode == 'static' else 'static'
             result = subprocess.run(['python3', verifier, '--link-mode', other, binary], capture_output=True, text=True)
             assert result.returncode != 0, 'verifier accepted wrong linkage mode'
-        subprocess.run([values['TARGET_CC'], '-fPIC', '-pie', '-msoft-float', source, '-o', binary], check=True)
+        subprocess.run([values['TARGET_CC'], *dynamic_flags, '-fPIC', '-pie', '-msoft-float', source, '-o', binary], check=True)
         result = subprocess.run(['python3', verifier, '--link-mode', 'dynamic', binary], capture_output=True, text=True)
         assert result.returncode != 0 and 'expected non-PIE ET_EXEC' in result.stderr, result.stderr
-        subprocess.run([values['TARGET_CC'], '-msoft-float', '-Wl,--dynamic-linker=/wrong/loader', source, '-o', binary], check=True)
+        subprocess.run([values['TARGET_CC'], *dynamic_flags, '-msoft-float', '-Wl,--dynamic-linker=/wrong/loader', source, '-o', binary], check=True)
         result = subprocess.run(['python3', verifier, '--link-mode', 'dynamic', binary], capture_output=True, text=True)
         assert result.returncode != 0 and 'expected /lib/ld-uClibc.so.0' in result.stderr, result.stderr
         library = Path(temporary) / 'libgateway_missing_fixture.so'

@@ -49,9 +49,16 @@ TARGET_CXXFLAGS = -std=gnu++98 $(WARNINGS) -Wno-long-long -Iinclude -Ibuild -I$(
 HOST_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CXXFLAGS += -DMICROHAD_MATTER_ENABLED=$(MATTER)
 TARGET_CFLAGS := $(WARNINGS) $(TARGET_OPTIMIZATION) -ffunction-sections -fdata-sections
-TARGET_LINK_FLAGS := $(if $(filter dynamic,$(LINK_MODE)),-L"$(STOCK_ROOTFS)/link",-static)
+TARGET_LINK_FLAGS := $(if $(filter dynamic,$(LINK_MODE)),-L"$(STOCK_LINK_DIR)",-static)
+ifeq ($(TOOLCHAIN):$(LINK_MODE),crosstool-ng:dynamic)
+TARGET_CXXFLAGS += -D_GLIBCXX_USE_CXX11_ABI=0 -fno-sized-deallocation
+TARGET_LINK_FLAGS += -no-pie -static-libgcc -Wl,-rpath-link,"$(STOCK_ROOTFS)/lib" -Wl,--dynamic-linker=/lib/ld-uClibc.so.0
+endif
 # AceTime's offsets-only archive discards unused formatting functions.
 LDFLAGS := -Wl,--gc-sections -lpthread -lrt
+ifeq ($(TOOLCHAIN):$(LINK_MODE),crosstool-ng:dynamic)
+LDFLAGS += -lstdc++ "$(STOCK_LINK_DIR)/libstdc++-compat.a"
+endif
 SOURCES := src/main.cpp src/script_benchmark.cpp $(AUTOMATION_SOURCES) src/matter_websocket.cpp src/matter_protocol.cpp src/matter_protobuf.cpp src/matter_json.cpp src/protobuf_value.cpp src/matter_client.cpp src/matter_typed.cpp src/matter_worker.cpp src/gateway_config.cpp src/gateway_timezone.cpp src/companion_discovery.cpp src/ash.cpp src/json_util.cpp src/storage.cpp src/network_backup.cpp $(ZIGGURAT_SOURCES) src/http_server.cpp src/ota.cpp src/gateway.cpp src/gateway_runner.cpp src/notification_worker.cpp src/zcl.cpp src/thermostat.cpp src/gateway_thermostat.cpp src/sensor_history.cpp src/syslog_log_reader.cpp src/fcm.cpp src/https_client.cpp src/firmware_catalog.cpp src/web_push.cpp src/external_http_device.cpp src/device_shelly.cpp src/device_fritz_box.cpp
 HOST_BUILD := build/host$(BACKEND_SUFFIX)
 MIPS_BUILD := build/$(TARGET_BUILD_SUBDIR)mips$(BACKEND_SUFFIX)

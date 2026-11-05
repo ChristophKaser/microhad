@@ -46,6 +46,28 @@ class StockRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'stock runtime library missing'):
             stock_runtime.resolve(self.values, 'libc.so.0')
 
+    def test_backend_link_directories_do_not_share_libutil(self):
+        import subprocess
+        archive = self.root / 'libutil-toolchain.a'
+        archive.write_bytes(b'archive fixture')
+        with patch.object(subprocess, 'check_output', return_value=str(archive) + '\n'):
+            directory = stock_runtime.prepare_link_directory(dict(self.values, TOOLCHAIN='rsdk', TARGET_CC='unused'))
+        self.assertEqual(directory, self.root / 'link')
+        self.assertEqual((directory / 'libutil.a').resolve(), archive)
+        # The crosstool-NG path is separate even when preparing the same stock image.
+        values = dict(self.values, TOOLCHAIN='crosstool-ng', TARGET_CC='cc', TARGET_CXX='cxx',
+                      TARGET_AR='ar', TARGET_TOOLCHAIN_ROOT=self.root, TARGET_PREFIX='')
+        def output(args, **kwargs):
+            return b'object fixture' if args[1] == 'p' else str(archive) + '\n'
+        def run(args, **kwargs):
+            if args[1] == 'rcs': Path(args[2]).write_bytes(b'generated archive')
+        with patch.object(subprocess, 'check_output', side_effect=output), patch.object(subprocess, 'run', side_effect=run):
+            ng = stock_runtime.prepare_link_directory(values)
+        self.assertEqual(ng, self.root / 'link-crosstool-ng')
+        self.assertEqual((ng / 'libutil.a').read_bytes(), b'generated archive')
+        self.assertEqual((directory / 'libutil.a').resolve(), archive)
+        self.assertEqual((ng / 'libstdc++-compat.a').resolve(), archive)
+
     def version_check(self, version):
         binary = self.root / 'executable'
         loader = self.root / 'lib/ld-uClibc.so.0'

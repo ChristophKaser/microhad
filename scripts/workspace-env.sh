@@ -1,7 +1,7 @@
 #!/bin/sh
 # Source this file, then call workspace_load /absolute/workspace/root.
 # workspace.local.env is trusted shell code, not a dotenv data format.
-workspace_keys='CLANG CLANGXX LLVM_AR LLVM_STRIP CRASH_SNAPSHOTS GATEWAY_IP LAN_INTERFACE TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT STOCK_ROOTFS SSH_PASSWORD_FILE SSH_PASSWORD SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT API_ADMIN_PASSWORD_FILE'
+workspace_keys='CLANG CLANGXX LLVM_AR LLVM_STRIP CRASH_SNAPSHOTS GATEWAY_IP LAN_INTERFACE TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT STOCK_ROOTFS STOCK_LINK_DIR SSH_PASSWORD_FILE SSH_PASSWORD SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT API_ADMIN_PASSWORD_FILE'
 workspace_quote() {
     printf "'"
     printf '%s' "$1" | sed "s/'/'\\\\''/g"
@@ -63,6 +63,9 @@ $workspace_key=$(workspace_quote "$workspace_value")"
         esac
         eval "$workspace_key=$(workspace_quote "$workspace_value")"
     done
+    STOCK_LINK_DIR=$STOCK_ROOTFS/link
+    [ "$TOOLCHAIN" != crosstool-ng ] || STOCK_LINK_DIR=$STOCK_ROOTFS/link-crosstool-ng
+    export STOCK_LINK_DIR
     # Password stays a shell variable; do not export it to build subprocesses.
     export CLANG CLANGXX LLVM_AR LLVM_STRIP
     export CRASH_SNAPSHOTS

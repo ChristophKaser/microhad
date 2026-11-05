@@ -45,7 +45,7 @@ def ensure(directory):
         for name in inventory():
             runtime = resolve_stock_runtime(values, name)
             evidence['stock_runtime'][name] = [str(runtime), hashlib.sha256(runtime.read_bytes()).hexdigest()]
-        libraries += ('libutil.a', 'libm.so.0', 'libc.so.0', 'libpthread.so.0', 'librt.so.0', 'libstdc++.so.6', 'libgcc_s.so.1', 'ld-uClibc.so.0')
+        libraries += ('libutil.a', 'libgcc.a', 'crt1.o', 'crti.o', 'crtn.o', 'crtbegin.o', 'crtend.o')
     for name in libraries:
         archive = Path(subprocess.check_output([values['TARGET_CC'], '-print-file-name=' + name], text=True).strip()).resolve()
         evidence[name] = [str(archive), archive.stat().st_mtime_ns, archive.stat().st_size]

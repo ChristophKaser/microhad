@@ -26,6 +26,13 @@ if os.environ['TOOLCHAIN'] == 'crosstool-ng':
     cc, cxx = os.environ['TARGET_CC'], os.environ['TARGET_CXX']
     sysroot = subprocess.check_output([cc, '-print-sysroot'], text=True).strip()
     flags = f'-D_DEFAULT_SOURCE -Os -march=lx4380 -msoft-float -mabi=32 -fno-pic -mabicalls -G0 -fno-stack-protector -DOPENTHREAD_POSIX_CONFIG_BACKTRACE_ENABLE=0'
+    link_flags = '-static -Wl,--gc-sections'
+    cpp_flags = '-fno-exceptions'
+    cpp_libraries = ''
+    if os.environ['LINK_MODE'] == 'dynamic':
+        cpp_flags += ' -D_GLIBCXX_USE_CXX11_ABI=0 -fno-sized-deallocation'
+        cpp_libraries = '-lstdc++ ' + os.environ['STOCK_LINK_DIR'] + '/libstdc++-compat.a'
+        link_flags = '-no-pie -static-libgcc -Wl,--defsym,__gnu_local_gp=_gp -Wl,--gc-sections -L' + os.environ['STOCK_LINK_DIR'] + ' -Wl,-rpath-link,' + os.environ['STOCK_ROOTFS'] + '/lib -Wl,--dynamic-linker=/lib/ld-uClibc.so.0'
     (out / 'toolchain.cmake').write_text(f'''set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR mips)
 set(CMAKE_C_COMPILER {cc})
@@ -33,14 +40,17 @@ set(CMAKE_CXX_COMPILER {cxx})
 set(CMAKE_SYSROOT {sysroot})
 set(CMAKE_AR {os.environ['TARGET_AR']})
 set(CMAKE_C_FLAGS_INIT "{flags}")
-set(CMAKE_CXX_FLAGS_INIT "{flags} -fno-exceptions")
+set(CMAKE_CXX_FLAGS_INIT "{flags} {cpp_flags}")
 set(CMAKE_C_FLAGS "${{CMAKE_C_FLAGS_INIT}}" CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS "${{CMAKE_CXX_FLAGS_INIT}}" CACHE STRING "" FORCE)
-set(CMAKE_EXE_LINKER_FLAGS_INIT "-static -Wl,--gc-sections")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "{link_flags}")
+set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "{cpp_libraries}")
+set(CMAKE_EXE_LINKER_FLAGS "${{CMAKE_EXE_LINKER_FLAGS_INIT}}" CACHE STRING "" FORCE)
+set(CMAKE_CXX_STANDARD_LIBRARIES "${{CMAKE_CXX_STANDARD_LIBRARIES_INIT}}" CACHE STRING "" FORCE)
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 ''')
     raise SystemExit(0)
-link_flags = ('-L' + os.environ['STOCK_ROOTFS'] + '/link') if os.environ['LINK_MODE'] == 'dynamic' else '-static'
+link_flags = ('-L' + os.environ['STOCK_LINK_DIR']) if os.environ['LINK_MODE'] == 'dynamic' else '-static'
 rd = Path(os.environ['RSDK_ROOT'])
 cxx = rd / 'include/c++/4.4.7'
 # GCC 4.4 exception_ptr.h assumes an earlier type_info declaration.
