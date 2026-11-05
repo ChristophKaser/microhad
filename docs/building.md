@@ -74,13 +74,18 @@ either compiler backend need verified copies of the gateway's stock shared
 libraries for linking and symbol-version checks.
 
 After configuring SSH credentials in `workspace.local.env`, read only the
-manifest-listed library files from an explicitly selected gateway. Replace the
-example address with your gateway:
+manifest-listed library files from the gateway configured as `GATEWAY_IP`:
 
 ```sh
+python3 scripts/bootstrap-stock-runtime.py
+# Optional override of the configured gateway:
 python3 scripts/bootstrap-stock-runtime.py --host 192.168.1.50
 python3 scripts/bootstrap-stock-runtime.py --verify-only
 ```
+
+`--host` overrides the configured IP; `--from-root` and `--verify-only` stay
+local even when a gateway is configured. Without a configured gateway or an
+explicit source, the command reports a setup error.
 
 No compiler is needed for this bootstrap. It reads `/lib` over SSH, follows the
 library symlinks, and copies regular files into the host's `STOCK_ROOTFS`

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Populate the host-only stock runtime from an explicit gateway or local extraction."""
+"""Populate the host-only stock runtime from the configured gateway or a local extraction."""
 import argparse
 import hashlib
 import json
@@ -77,17 +77,25 @@ def remote_fetch(host, password_file=None):
     return fetch
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument('--host', type=gateway_host, help='explicit gateway to read /lib from over SSH')
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument('--host', type=gateway_host, help='gateway override; otherwise use configured GATEWAY_IP')
     source.add_argument('--from-root', type=Path, help='existing extraction containing lib/')
     source.add_argument('--verify-only', action='store_true', help='check the destination without contacting a gateway')
     parser.add_argument('--output', type=Path, help='destination; default is STOCK_ROOTFS from workspace settings')
     parser.add_argument('--password-file', type=Path, help='SSH credential pathname; default uses workspace settings')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if not args.host and args.from_root is None and not args.verify_only:
+        configured_host = settings().get('GATEWAY_IP', '')
+        if not configured_host:
+            parser.error('Configure GATEWAY_IP or pass --host, --from-root, or --verify-only')
+        try:
+            args.host = gateway_host(configured_host)
+        except ValueError as error:
+            parser.error(str(error))
     if args.password_file and not args.host:
-        parser.error('--password-file requires --host')
+        parser.error('--password-file requires a gateway source')
     os.umask(0o077)
     destination = args.output or Path(settings()['STOCK_ROOTFS'])
     try:

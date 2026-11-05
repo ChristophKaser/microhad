@@ -90,16 +90,20 @@ dynamic linking and ELF verification use the stock uClibc 0.9.33 libraries.
 The crosstool-NG mode uses GCC 15.2 throughout native code and OpenThread,
 without accessing RSDK files. It does not install a replacement libc.
 
-For a fresh checkout, bootstrap the host runtime from an explicitly selected
-gateway after configuring SSH credentials in `workspace.local.env`:
+For a fresh checkout, bootstrap the host runtime after configuring `GATEWAY_IP`
+and SSH credentials in `workspace.local.env`:
 
 ```sh
+python3 scripts/bootstrap-stock-runtime.py
+# Optional override of the configured gateway:
 python3 scripts/bootstrap-stock-runtime.py --host 192.168.1.50
 python3 scripts/bootstrap-stock-runtime.py --verify-only
 ```
 
-Replace the example address with your gateway. This reads only the manifest's
-`/lib` files; it changes no device files or services. Files are hash-checked
+Without flags, the command uses the configured gateway; `--host` overrides it.
+Without either a configured or explicit gateway, it reports a setup error.
+This reads only the manifest's `/lib` files; it changes no device files or
+services. Files are hash-checked
 before publication, and valid existing copies are reused. The command requires
 no compiler. `--output DIR` overrides the host destination; set `STOCK_ROOTFS`
 to the same directory for subsequent builds. `--from-root DIR` imports from an
