@@ -6,7 +6,8 @@ fn main() {
     let before = Instant::now();
     let state = Arc::new(Mutex::new(vec![0u8; 128]));
     let other = state.clone();
-    std::thread::spawn(move || other.lock().unwrap()[0] = 42).join().unwrap();
+    std::thread::Builder::new().name("stock-probe".into())
+        .spawn(move || other.lock().unwrap()[0] = 42).unwrap().join().unwrap();
     assert_eq!(state.lock().unwrap()[0], 42);
     let (mut left, mut right) = UnixStream::pair().unwrap();
     left.write_all(b"x").unwrap();

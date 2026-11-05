@@ -12,6 +12,8 @@ python3 scripts/probe-stock-dynamic.py
 python3 scripts/probe-stock-dynamic.py --device GATEWAY_IP
 # Repeat only the Rust investigation:
 python3 scripts/probe-stock-dynamic.py --only rust
+# Link the existing production shim, compiled with GCC 15:
+python3 scripts/probe-stock-dynamic.py --only rust --rust-compat --device GATEWAY_IP
 ```
 
 The builder uses GCC/G++ 15.2 from `CROSSTOOL_NG_ROOT`, its headers and startup
@@ -42,15 +44,27 @@ Probes use local socket pairs, not the radio or external network traffic.
 | C: allocation, pthread/mutex, clocks, sockets, interface enumeration | Pass | Pass |
 | C++: old string ABI, strings/vectors, allocation, exception unwinding | Pass | Pass |
 | C++: `vector::at()` bounds check | Link fails | Not run |
-| Rust standard library: allocation, threads/mutex, clocks, sockets | Link fails | Not run |
+| Rust standard library without compatibility shim | Link fails | Not run |
+| Rust with production compatibility shim compiled by GCC 15 | Pass | Pass |
 
 The bounds-checking probe needs `std::__throw_out_of_range_fmt`, absent from the
 stock libstdc++. Selecting `_GLIBCXX_USE_CXX11_ABI=0` and disabling sized
 allocation do not make every GCC 15 header compatible with that old runtime.
 The Rust probe needs `pthread_getattr_np`, `pthread_attr_getstack` and
 `pthread_setname_np`, absent from the stock pthread library. It intentionally
-uses no compatibility shim. Existing application shims may inform subsequent
-work, but are not silently linked into this baseline.
+uses no compatibility shim by default. `--rust-compat` explicitly compiles the
+existing `ziggurat/stock-uclibc-compat/native/stock_compat.c` with GCC 15, enabling
+only wrappers absent from the stock libc/pthread/realtime libraries. Its source
+hash, compiler command, enabled wrappers and header trace are saved in the report
+and output directory. The resulting object is linked directly into the Rust
+executable; no replacement shared library is installed.
+
+The shim-enabled Rust probe passed on the gateway, including creation of a
+named thread. The stack-inspection wrappers still return `ENOSYS`, as in the
+production build; they do not add native stack-bound inspection. The naming
+wrapper uses the kernel syscall for the current thread. This removes the three
+missing pthread symbols as blockers for the tested Rust operations, while the
+unshimmed baseline continues to expose the stock runtime limitations.
 
 The successful probes demonstrate that GCC 15 can generate working dynamic
 code for the stock runtime without RSDK. They do not establish compatibility

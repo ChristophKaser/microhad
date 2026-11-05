@@ -226,6 +226,7 @@ firmware toolchain. Host and crosstool-NG scheduling flags are unchanged.
 Small C/C++/Rust probes independently test GCC 15.2 against the stock gateway
 shared libraries, without changing the supported backend combinations. See
 [probe commands and compatibility results](../scripts/probes/stock-dynamic/README.md).
-C and basic C++ probes have passed on the gateway; C++ bounds checking and Rust
-standard-library threading expose missing stock symbols. This is not yet an
+C, basic C++, and Rust with the existing production compatibility shim compiled
+by GCC 15 have passed on the gateway. C++ bounds checking and unshimmed Rust
+expose missing stock symbols. This is not yet an
 application migration or permission to deploy additional runtime libraries.

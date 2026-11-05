@@ -26,6 +26,7 @@ def execute(command, log, **kwargs):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--rust-compat', action='store_true', help='compile and link the existing stock-uClibc C shim with GCC 15')
     parser.add_argument('--only', action='append', choices=['c', 'cpp', 'cpp-bounds', 'rust'], help='select probes; default is all')
     parser.add_argument('--device', type=gateway_host, help='explicitly run validated probes from gateway RAM')
     args = parser.parse_args()
@@ -116,8 +117,30 @@ def main():
             'has-thread-local': False, 'llvm-args': ['-mno-check-zero-division'], 'crt-static-default': False,
             'position-independent-executables': False, 'relocation-model': 'static'})
         target_path = output / 'gcc15-stock-probe.json'; target_path.write_text(json.dumps(target, indent=2))
+        compat_args = []
+        if args.rust_compat:
+            source = ROOT / 'ziggurat/stock-uclibc-compat/native/stock_compat.c'
+            nm = Path(str(prefix) + 'nm')
+            exports = set()
+            for library in ('libc.so.0', 'libpthread.so.0', 'librt.so.0'):
+                symbols = subprocess.check_output([nm, '-D', '--defined-only', libs[library]], text=True)
+                exports.update(line.split()[-1].split('@')[0] for line in symbols.splitlines() if line.split())
+            missing = [name for name in ('epoll_create1', 'eventfd', 'accept4', 'clock_nanosleep',
+                       'pthread_setname_np', 'bcmp', 'pthread_getattr_np', 'pthread_attr_getstack') if name not in exports]
+            obj = output / 'stock-compat.o'
+            compat_command = [cc, *flags, '-std=gnu99', '-Wall', '-Wextra', '-Werror', '-H',
+                              *('-DCOMPAT_NEED_' + name for name in missing), '-c', source, '-o', obj]
+            shim_exit = execute(compat_command, output / 'rust-compat.build.log')
+            report['rust_compat'] = {'source': str(source), 'sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
+                                     'missing_symbols': missing, 'command': list(map(str, compat_command)), 'build_exit': shim_exit}
+            save_report()
+            if shim_exit:
+                raise SystemExit('Existing compatibility shim failed to compile; see rust-compat.build.log')
+            if re.search(r'rsdk[-/]', (output / 'rust-compat.build.log').read_text(), re.I):
+                raise SystemExit('RSDK header detected in shim compilation')
+            compat_args = ['-C', 'link-arg=' + str(obj)]
         env['RUSTFLAGS'] = ' '.join(shlex.quote(v) for v in ['-C', 'link-arg=-static-libgcc', '-C', 'link-arg=-no-pie',
-            *[v for f in link_flags for v in ['-C','link-arg=' + f]], '-C', 'link-arg=-Wl,-Map,' + str(output / 'rust.map')])
+            *[v for f in link_flags for v in ['-C','link-arg=' + f]], '-C', 'link-arg=-Wl,-Map,' + str(output / 'rust.map'), *compat_args])
         command = [cargo, '+' + toolchain, 'build', '-Zjson-target-spec', '-Zbuild-std=std,panic_unwind', '--release', '--manifest-path', crate / 'Cargo.toml', '--target', target_path]
         entry = report['probes']['rust'] = {'command': list(map(str, command)), 'target': target, 'rustflags': env['RUSTFLAGS']}
         entry['build_exit'] = execute(command, output / 'rust.build.log', env=env)
