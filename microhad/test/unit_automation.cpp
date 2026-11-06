@@ -123,6 +123,29 @@ void sharedLuaState(){
     assert(all.fields["heap_bytes"].number<before+32768);
     printf("unit: shared Lua heap %.0f bytes after repeated reloads\n",all.fields["heap_bytes"].number);
 }
+void thermostatEventBurst(){
+    Fixture f;
+    f.save("persistent.seen=0; automation.after(.01,function()persistent.timer=1 end);"
+        "for i=1,3 do events.on({type='device.changed',field='thermostat'},function(e)"
+        "assert(e.old.values.system_mode==1 and e.value.values.system_mode==4);"
+        "assert(not pcall(function()e.value.values.system_mode=1 end));"
+        "persistent.seen=persistent.seen+1 end)end");
+    f.save("persistent.seen=0;events.on({type='device.changed',field='thermostat'},function(e)"
+        "persistent.seen=persistent.seen+1 end)","other.lua");
+    Device device;device.source="zigbee";device.ieeeAddress="thermostat";device.name="Thermostat";
+    EndpointDescriptor ep;ep.endpoint=1;ep.inputClusters.push_back(513);device.zigbee.ensure().endpoints.push_back(ep);
+    device.thermostat.ensure().values[ThermostatField::system_mode]=1;
+    const Automation::SnapshotPtr before=Automation::capture(device);
+    device.thermostat.ensure().values[ThermostatField::system_mode]=4;
+    const Automation::SnapshotPtr after=Automation::capture(device,before);
+    Automation::Event event;event.type="device.changed";event.field=Automation::Thermostat;
+    event.device=after;event.hasOld=true;event.old=Automation::fieldValue(*before,Automation::Thermostat);
+    for(unsigned i=0;i<64;++i)assert(f.worker->enqueue(event));
+    assert(f.until("seen",192,10000));assert(f.until("timer",1));assert(f.worker->waitIdle());
+    assert(f.state("other").fields["seen"].number==64);
+    assert(f.status().fields["error"].string.empty());assert(f.status("other").fields["error"].string.empty());
+    assert(f.worker->logsJson("").find("not enough memory")==std::string::npos);
+}
 void globalLuaMemoryLimit(){
     Fixture f;
     const std::string keep="held=string.rep('x',600000);events.on({type='device.value'},function()automation.sleep(.01);assert(#held==600000);persistent.done=1 end)";
@@ -291,4 +314,4 @@ void callbackBudgetAndQueues(){Fixture f;
     assert(rejected>0);assert(f.worker->waitIdle());usleep(100000);assert(f.worker->logsJson("test.lua").find("limit")!=std::string::npos);assert(f.state().fields["good"].number==1);
 }
 }
-void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();typedSnapshots();thermostatSnapshots();sharedLuaState();globalLuaMemoryLimit();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();manualTriggers();callbackBudgetAndQueues();}
+void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();typedSnapshots();thermostatSnapshots();sharedLuaState();thermostatEventBurst();globalLuaMemoryLimit();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();manualTriggers();callbackBudgetAndQueues();}

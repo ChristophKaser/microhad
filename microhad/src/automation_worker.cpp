@@ -81,6 +81,7 @@ int failure(lua_State* L,const std::string& message){lua_pushnil(L);lua_pushlstr
 struct AutomationWorker::Impl {
     struct Script;
     typedef std::tr1::shared_ptr<const Value> RecordPtr;
+    typedef std::tr1::shared_ptr<const Automation::Event> EventPtr;
     struct Request {std::string operation,name,source,error;unsigned long generation;bool done,result;Request():generation(0),done(false),result(false){}};
     struct Transaction {Value persistent,base;Transaction():persistent(Value::object()),base(Value::object()){} };
     struct Script {
@@ -103,7 +104,7 @@ struct AutomationWorker::Impl {
         ~ScriptScope(){owner->active=previous;}
     };
     AutomationWorker* api;std::string root,dir;GatewayRunner* gateway;NotificationWorker* notifications;MatterWorker* matter;
-    mutable pthread_mutex_t mutex;pthread_cond_t ready;pthread_t thread;bool running,started,busy,testScanEveryTurn;std::deque<Request*> requests;std::deque<Automation::Event> events;std::map<std::string,Script*> scripts;Value shared;std::map<std::string,RecordPtr> statuses;std::deque<RecordPtr> logs;unsigned long nextLog,dropped,nextGeneration;Automation::CatalogPtr catalogState;double testOffset;
+    mutable pthread_mutex_t mutex;pthread_cond_t ready;pthread_t thread;bool running,started,busy,testScanEveryTurn;std::deque<Request*> requests;std::deque<EventPtr> events;std::map<std::string,Script*> scripts;Value shared;std::map<std::string,RecordPtr> statuses;std::deque<RecordPtr> logs;unsigned long nextLog,dropped,nextGeneration;Automation::CatalogPtr catalogState;double testOffset;
     Impl(AutomationWorker* a,const std::string& r,GatewayRunner* g,NotificationWorker* n):lua(0),factory(LUA_NOREF),heap(0),publishedHeap(0),active(0),api(a),root(r),dir(r+"/automations"),gateway(g),notifications(n),matter(0),running(false),started(false),busy(false),testScanEveryTurn(false),shared(Value::object()),nextLog(0),dropped(0),nextGeneration(0),catalogState(new Automation::Catalog),testOffset(0){pthread_mutex_init(&mutex,0);pthread_cond_init(&ready,0);}
     ~Impl(){pthread_cond_destroy(&ready);pthread_mutex_destroy(&mutex);}
     static Script* script(lua_State* L){return static_cast<Script*>(lua_touserdata(L,lua_upvalueindex(1)));}
@@ -419,6 +420,13 @@ struct AutomationWorker::Impl {
     struct Invocation {Script* s;const char* method;const Value* argument;int results;};
     static int invoke(lua_State* L){Invocation* i=static_cast<Invocation*>(lua_touserdata(L,1));lua_rawgeti(L,LUA_REGISTRYINDEX,i->s->runtime);lua_getfield(L,-1,i->method);if(i->argument)push(L,*i->argument);lua_call(L,i->argument?1:0,i->results);return i->results;}
     bool call(Script* s,const char* method,const Value* argument=0){AUTOMATION_PROFILE("auto.runtime");ScriptScope scope(s);if(!s->L)return false;lua_State* L=s->L;int base=lua_gettop(L);Invocation i={s,method,argument,0};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&i);int rc=lua_pcall(L,1,0,0);if(rc!=LUA_OK){const char* msg=lua_tostring(L,-1);error(s,msg?msg:"runtime error",method);}lua_settop(L,base);return rc==LUA_OK;}
+    bool callbacksReady(Script* s){
+        ScriptScope scope(s);lua_State* L=s->L;const int base=lua_gettop(L);
+        Invocation i={s,"ready",0,1};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&i);
+        const int rc=lua_pcall(L,1,1,0);const bool ready=rc==LUA_OK&&lua_toboolean(L,-1);
+        if(rc!=LUA_OK){const char* msg=lua_tostring(L,-1);error(s,msg?msg:"runtime error","ready");}
+        lua_settop(L,base);return ready;
+    }
     bool initialize(Script* s,const std::string& source){ScriptScope scope(s);if(!create(s))return false;lua_State* L=s->L;lua_rawgeti(L,LUA_REGISTRYINDEX,s->runtime);lua_getfield(L,-1,"initialize");if(luaL_loadbufferx(L,source.data(),source.size(),("@"+s->name).c_str(),"t")!=LUA_OK){error(s,lua_tostring(L,-1),"syntax");lua_settop(L,0);return false;}lua_rawgeti(L,LUA_REGISTRYINDEX,s->runtime);lua_getfield(L,-1,"env");lua_remove(L,-2);lua_setupvalue(L,-2,1);bool ok=lua_pcall(L,1,1,0)==LUA_OK;if(!ok)error(s,lua_tostring(L,-1),"initialization");else ok=lua_toboolean(L,-1)!=0;lua_settop(L,0);return ok;}
     void status(Script* s,bool force=true){ScriptScope scope(s);const double now=monotonic();if(!force&&now<s->nextStatus)return;s->nextStatus=now+0.1;AUTOMATION_PROFILE("auto.status");Value v=Value::object();v.fields["triggers"]=Value::array();if(s->L&&s->enabled){lua_State* L=s->L;Invocation invocation={s,"stats",0,3};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&invocation);if(lua_pcall(L,1,3,0)==LUA_OK){s->listeners=lua_tointeger(L,-3);s->timers=lua_tointeger(L,-2);s->suspended=lua_tointeger(L,-1);}lua_settop(L,0);Invocation triggers={s,"triggers",0,1};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&triggers);if(lua_pcall(L,1,1,0)==LUA_OK){Value list;if(readValue(L,-1,&list,true)&&list.type==Value::Array)v.fields["triggers"]=list;}lua_settop(L,0);}v.fields["filename"]=Value(s->name);v.fields["id"]=Value(s->id);v.fields["enabled"]=Value(s->enabled);v.fields["loaded"]=Value(s->L!=0);v.fields["generation"]=Value(static_cast<double>(s->generation));v.fields["loaded_at"]=Value(static_cast<double>(s->loaded));v.fields["validated_at"]=Value(static_cast<double>(s->validated));v.fields["last_event_at"]=Value(static_cast<double>(s->lastEvent));v.fields["last_callback_at"]=Value(static_cast<double>(s->lastCallback));v.fields["error"]=Value(s->error);v.fields["listeners"]=Value(static_cast<double>(s->listeners));v.fields["timers"]=Value(static_cast<double>(s->timers));v.fields["coroutines"]=Value(static_cast<double>(s->suspended));v.fields["heap_shared"]=Value(true);v.fields["heap_limit_bytes"]=Value(static_cast<double>(HeapLimit));v.fields["heap_bytes"]=Value(static_cast<double>(heap));RecordPtr published(new Value(v)),retired;pthread_mutex_lock(&mutex);publishedHeap=heap;retired.swap(statuses[s->id]);statuses[s->id]=published;pthread_mutex_unlock(&mutex);}
     void catalog(){AUTOMATION_PROFILE("auto.catalog");if(gateway)catalogState=gateway->acquireAutomationCatalog();}
@@ -475,15 +483,26 @@ struct AutomationWorker::Impl {
         }
     }
     static void* main(void* opaque){setCurrentThreadName("automation");static_cast<Impl*>(opaque)->run();return 0;}
-    void run(){double nextScan=0;while(true){std::deque<Request*> pending;std::deque<Automation::Event> queued;unsigned long overflow;
-            pthread_mutex_lock(&mutex);bool keep=running;pending.swap(requests);queued.swap(events);overflow=dropped;dropped=0;busy=true;pthread_mutex_unlock(&mutex);if(!keep){for(size_t i=0;i<pending.size();++i){pending[i]->error="automation worker stopping";pending[i]->result=false;pthread_mutex_lock(&mutex);pending[i]->done=true;pthread_cond_broadcast(&ready);pthread_mutex_unlock(&mutex);}break;}
+    void run(){double nextScan=0;while(true){std::deque<Request*> pending;std::deque<EventPtr> queued;unsigned long overflow;
+            pthread_mutex_lock(&mutex);bool keep=running;pending.swap(requests);const bool haveEvents=!events.empty();overflow=dropped;dropped=0;busy=true;pthread_mutex_unlock(&mutex);if(!keep){for(size_t i=0;i<pending.size();++i){pending[i]->error="automation worker stopping";pending[i]->result=false;pthread_mutex_lock(&mutex);pending[i]->done=true;pthread_cond_broadcast(&ready);pthread_mutex_unlock(&mutex);}break;}
             // Source mutations and explicit reloads run on this worker before
             // discovery. The following scan sees their final generation and
             // does not initialize the same replacement a second time.
             catalog();for(size_t i=0;i<pending.size();++i){process(pending[i]);pthread_mutex_lock(&mutex);pending[i]->done=true;pthread_cond_broadcast(&ready);pthread_mutex_unlock(&mutex);}
             if(monotonic()>=nextScan||testScanEveryTurn){scan();nextScan=monotonic()+120.0;}
+            // Keep excess events in the bounded native queue. Materialize at
+            // most one event, and drain runnable callbacks first so immutable
+            // Lua snapshots cannot accumulate across an incoming batch.
+            bool deferEvent=false;
+            if(haveEvents)for(std::map<std::string,Script*>::iterator it=scripts.begin();it!=scripts.end();++it)
+                if(it->second->L&&callbacksReady(it->second))deferEvent=true;
+            if(haveEvents&&!deferEvent){
+                pthread_mutex_lock(&mutex);
+                if(!events.empty()){queued.push_back(events.front());events.pop_front();}
+                pthread_mutex_unlock(&mutex);
+            }
             for(size_t i=0;i<queued.size();++i){
-                const Automation::Event& input=queued[i];
+                const Automation::Event& input=*queued[i];
                 std::map<std::string,Value>::const_iterator typeField=input.data.fields.find("type");
                 const std::string type=input.device?input.type:typeField==input.data.fields.end()?"":typeField->second.string;
                 Value event;bool materialized=false;const time_t at=time(0);
@@ -534,7 +553,15 @@ bool AutomationWorker::reload(const std::string& name,std::string* err){if(!name
 bool AutomationWorker::setEnabled(const std::string& name,bool enabled,std::string* err){if(!filename(name)){*err="invalid automation filename";return false;}Impl::Request r;r.operation=enabled?"enable":"disable";r.name=name;bool ok=impl_->request(&r);*err=r.error;return ok;}
 bool AutomationWorker::remove(const std::string& name,std::string* err){if(!filename(name)){*err="invalid automation filename";return false;}Impl::Request r;r.operation="remove";r.name=name;bool ok=impl_->request(&r);*err=r.error;return ok;}
 bool AutomationWorker::resetPersistent(const std::string& name,std::string* err){if(!filename(name)){*err="invalid automation filename";return false;}Impl::Request r;r.operation="reset";r.name=name;bool ok=impl_->request(&r);*err=r.error;return ok;}
-bool AutomationWorker::enqueue(const Automation::Event& event){pthread_mutex_lock(&impl_->mutex);if(!impl_->running){pthread_mutex_unlock(&impl_->mutex);return false;}if(impl_->events.size()>=512){++impl_->dropped;pthread_mutex_unlock(&impl_->mutex);return false;}impl_->events.push_back(event);pthread_cond_signal(&impl_->ready);pthread_mutex_unlock(&impl_->mutex);return true;}
+bool AutomationWorker::enqueue(const Automation::Event& event){
+    // Reject overload without allocating a snapshot or waiting for queue space.
+    pthread_mutex_lock(&impl_->mutex);
+    if(!impl_->running){pthread_mutex_unlock(&impl_->mutex);return false;}
+    if(impl_->events.size()>=512){++impl_->dropped;pthread_mutex_unlock(&impl_->mutex);return false;}
+    pthread_mutex_unlock(&impl_->mutex);
+    // Copy before taking the shared mutex; enqueue/dequeue only move ownership.
+    const Impl::EventPtr queued(new Automation::Event(event));
+    pthread_mutex_lock(&impl_->mutex);if(!impl_->running){pthread_mutex_unlock(&impl_->mutex);return false;}if(impl_->events.size()>=512){++impl_->dropped;pthread_mutex_unlock(&impl_->mutex);return false;}impl_->events.push_back(queued);pthread_cond_signal(&impl_->ready);pthread_mutex_unlock(&impl_->mutex);return true;}
 bool AutomationWorker::waitIdle(unsigned long ms)const{double until=monotonic()+ms/1000.;while(monotonic()<until){pthread_mutex_lock(&impl_->mutex);bool idle=!impl_->busy&&impl_->events.empty()&&impl_->requests.empty();pthread_mutex_unlock(&impl_->mutex);if(idle)return true;usleep(1000);}return false;}
 #ifdef MICROHAD_TESTING
 void AutomationWorker::advanceTimeForTests(double seconds){Impl::Request r;r.operation="advance";std::ostringstream value;value<<seconds;r.source=value.str();impl_->request(&r);}

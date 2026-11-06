@@ -260,8 +260,18 @@ function runtime.initialize(fn)
 end
 function runtime.event(event)
   local snapshot
-  for _,entry in pairs(listeners) do if matches(entry.filter,event)then snapshot=snapshot or immutable(event);start(entry.fn,{snapshot},event.chain_id,event.chain_depth)end end
+  for _,entry in pairs(listeners) do if matches(entry.filter,event)then
+    -- Check admission before copying a potentially large device snapshot.
+    if count(tasks)>=128 then report('callback queue limit reached','queue')
+    else snapshot=snapshot or immutable(event);start(entry.fn,{snapshot},event.chain_id,event.chain_depth)end
+  end end
   for _,task in pairs(tasks)do if task.wait and task.wait.kind=='event' and matches(task.wait.filter,event)then snapshot=snapshot or immutable(event);unwatch(task);task.wait=nil;task.args={snapshot}end end
+end
+-- The native worker drains runnable callbacks before delivering another event.
+-- Suspended callbacks must still receive events that can wake their waiters.
+function runtime.ready()
+  for _,task in pairs(tasks) do if not task.wait then return true end end
+  return false
 end
 function runtime.history_result(result)
   for _,task in pairs(tasks) do

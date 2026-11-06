@@ -31,6 +31,13 @@ script may run.  Separate scripts may be dispatched independently by the
 worker scheduler, but the worker must preserve arrival order for events
 delivered to one script.
 
+Incoming events remain in the bounded native queue while runnable callbacks
+are drained. The worker materializes at most one new event per pass, then gives
+each script a callback execution slice. Suspended callbacks do not prevent
+events from arriving and waking their waiters. Callback admission is checked
+before copying an immutable event. A full native queue reports overflow rather
+than waiting for scripts; the shared Lua heap remains limited to 2 MiB.
+
 ## Events and callbacks
 
 Scripts register ordinary Lua functions; callbacks do not need global names.

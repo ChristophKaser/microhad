@@ -382,3 +382,37 @@ do
   advance(1);runtime.tick()
   assert(failures()==1 and host.history_cancelled==host.history_token)
 end
+
+-- Admission rejects a saturated listener before walking a large snapshot.
+do
+  local runtime, _, failures = fixture()
+  runtime.initialize(function()
+    for _=1,128 do runtime.env.events.on({type='device.value'},function()end) end
+  end)
+  assert(not runtime.ready())
+  runtime.event({type='device.value'})
+  assert(runtime.ready())
+  local copied=false
+  local large=setmetatable({}, {__pairs=function() copied=true;error('must not copy')end})
+  runtime.event({type='device.value',device=large})
+  assert(not copied and failures()==128,'full callback queue copied a snapshot')
+  for _=1,128 do runtime.tick() end
+  assert(not runtime.ready(),'completed callbacks kept native events blocked')
+end
+
+-- Waiting callbacks do not prevent native events from waking them.
+do
+  local runtime, _, failures = fixture()
+  local woke=false
+  runtime.initialize(function()
+    runtime.env.events.on({type='device.value'},function()
+      runtime.env.events.wait_for({type='remote.action'})
+      woke=true
+    end)
+  end)
+  runtime.event({type='device.value'});runtime.tick()
+  assert(not runtime.ready())
+  runtime.event({type='remote.action'})
+  assert(runtime.ready());runtime.tick()
+  assert(woke and failures()==0 and not runtime.ready())
+end
