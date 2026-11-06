@@ -196,6 +196,49 @@ public:
         assert(thermostatSupported(valve,*thermostatAttribute(ThermostatField::occupied_heating_setpoint)));
         assert(!thermostatModeSupported(valve,3));
         g.devices_[valve.ieeeAddress]=valve;
+        // One combined Boost write, with both values confirmed independently.
+        Device& boostValve=g.devices_[valve.ieeeAddress];
+        boostValve.thermostat.ensure().values[ThermostatField::temporary_mode_duration]=600;
+        assert(!g.setThermostat(valve.ieeeAddress,"boost","0",&error));
+        assert(!g.setThermostat(valve.ieeeAddress,"boost","181",&error));
+        assert(g.setThermostat(valve.ieeeAddress,"boost","15",&error));
+        assert(g.thermostatOperations_.size()==1);
+        const unsigned char expectedBoost[]={0x15,0x60,0x23,0x84,0x03,0,0,0x14,0x60,0x20,0};
+        assert(g.thermostatOperations_.front().payload==std::vector<unsigned char>(expectedBoost,expectedBoost+11));
+        assert(boostValve.thermostat.read().pending.count(ThermostatField::temporary_mode_select));
+        assert(!g.setThermostat(valve.ieeeAddress,"boost","15",&error));
+        assert(!g.setThermostat(valve.ieeeAddress,"temporary_mode_select","0",&error));
+        assert(!g.setThermostat(valve.ieeeAddress,"temporary_mode_duration","15",&error));
+        for(unsigned scenario=0;scenario<4;++scenario) {
+            if(scenario)assert(g.setThermostat(valve.ieeeAddress,"boost","15",&error));
+            g.pollThermostats();
+            const unsigned char seq=g.thermostatOperations_.front().sequence;
+            std::vector<unsigned char> ack(1,0);
+            if(scenario==2) { ack[0]=0x87; ack.push_back(0x14); ack.push_back(0x60); }
+            g.handleThermostatMessage(valve.ieeeAddress,1,0xfc11,8,0,seq,4,ack);
+            if(scenario!=2) {
+                assert(g.thermostatOperations_.front().readback);
+                if(scenario==3) {
+                    g.thermostatOperations_.front().attempts=3;
+                    g.thermostatOperations_.front().deadline=time(0)-1;
+                    g.pollThermostats();
+                } else {
+                    g.pollThermostats();
+                    const unsigned char replyBytes[]={0x15,0x60,0,0x23,0x84,0x03,0,0,0x14,0x60,0,0x20,0};
+                    std::vector<unsigned char> reply(replyBytes,replyBytes+13);
+                    if(scenario==1)reply[12]=1; // accepted write, mismatched readback
+                    g.handleThermostatMessage(valve.ieeeAddress,1,0xfc11,8,0,g.thermostatOperations_.front().sequence,1,reply);
+                }
+            }
+            assert(g.thermostatOperations_.empty());
+            assert(!boostValve.thermostat.read().pending.count(ThermostatField::temporary_mode_duration));
+            assert(!boostValve.thermostat.read().pending.count(ThermostatField::temporary_mode_select));
+            assert(boostValve.thermostat.read().error.empty()==(scenario==0));
+        }
+        boostValve.thermostat.ensure().unsupported.insert(ThermostatField::temporary_mode_select);
+        assert(!g.setThermostat(valve.ieeeAddress,"boost","15",&error));
+        boostValve.thermostat.ensure().unsupported.clear();
+        boostValve.thermostat.ensure().error.clear();
         // Reports and readbacks retain rapid heating transitions, including stage 2.
         unsigned char stateBytes[]={0x29,0,0x19,0,0};
         std::vector<unsigned char> stateReport(stateBytes,stateBytes+5);

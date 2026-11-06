@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Device, TemperatureSource } from './api'
 import { errorMessage, form, post } from './api'
 import { ThermostatDialog } from './ThermostatDialog'
@@ -66,7 +66,17 @@ export function ThermostatPanel({ device }: { device: Device }) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const submitting = useRef(false)
   const disabled = busy || device.controller_available === false
+  const boostFields = ['temporary_mode_duration', 'temporary_mode_select']
+  const canBoost = device.source === 'zigbee' && boostFields.every(field => t.supported[field] && t.fields[field]?.writable !== false)
+  const boostPending = boostFields.some(field => t.pending.includes(field))
+  async function boost() {
+    if (disabled || boostPending || submitting.current) return
+    submitting.current = true
+    try { await send('boost', '15') } catch { /* displayed below */ }
+    finally { submitting.current = false }
+  }
   async function send(field: string, value: string) {
     setBusy(true); setError(''); setMessage('')
     try {
@@ -87,6 +97,7 @@ export function ThermostatPanel({ device }: { device: Device }) {
     {t.values.temperature_sensor_select === 2 && <p className="small">The valve reports its external source is offline and is using its built-in sensor.</p>}
     <p>Operation: {t.values.running_state === undefined ? (t.values.running_mode === undefined ? 'Unknown' : t.values.running_mode === 3 ? 'Cooling' : t.values.running_mode === 4 ? 'Heating' : 'Idle') : [t.values.running_state & 1 ? 'Heating' : '', t.values.running_state & 2 ? 'Cooling' : '', t.values.running_state & 4 ? 'Fan' : ''].filter(Boolean).join(', ') || 'Idle'}</p>
     {settings.slice(0, 3).map(control)}
+    {canBoost && <button type="button" className="button" disabled={disabled || boostPending} onClick={() => void boost()}>Boost · 15 min</button>}
     <p className="small" role="status">{t.status || 'Waiting for thermostat readings'}{message && ` · ${message}`}</p>
     {(error || t.error) && <p className="error" role="alert">{error || t.error}</p>}
   </div>

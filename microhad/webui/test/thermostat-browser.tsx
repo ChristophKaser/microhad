@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client'
-import { ThermostatPanel } from '../src/ThermostatPanel'
+import { ThermostatPanel, ThermostatSettingsButton } from '../src/ThermostatPanel'
 import { scheduleError } from '../src/ThermostatDialog'
 import type { Device, ThermostatSchedule, ThermostatState } from '../src/api'
 
@@ -25,11 +25,11 @@ window.fetch = async (_url, options) => {
 }
 const root = createRoot(document.getElementById('root')!)
 let available = true
-function render() { root.render(<ThermostatPanel device={{ id: 'test-valve', name: 'Living room', thermostat: t, controller_available: available } as Device} sources={[{ id: 'sensor', name: 'Room sensor', observed_at: 0 }]} />) }
+function render() { root.render(<><ThermostatPanel device={{ id: 'test-valve', source: 'zigbee', name: 'Living room', thermostat: t, controller_available: available } as Device} /><ThermostatSettingsButton device={{ id: 'test-valve', name: 'Living room', thermostat: t, controller_available: available } as Device} sources={[{ id: 'sensor', name: 'Room sensor', observed_at: 0 }]} /></>) }
 const pause = () => new Promise(resolve => setTimeout(resolve, 50))
 async function until(check: () => boolean) { for (let i = 0; i < 100; i++) { if (check()) return; await pause() }; throw new Error('Timed out: ' + document.body.textContent) }
 function assert(value: unknown, message: string) { if (!value) throw new Error(message) }
-function button(text: string) { const result = [...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === text); if (!result) throw new Error('Missing button: ' + text); return result }
+function button(text: string) { const result = [...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === text || b.title === text); if (!result) throw new Error('Missing button: ' + text); return result }
 function field(text: string) { const label = [...document.querySelectorAll('dialog label')].find(l => [...l.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent).join('') === text); if (!label) throw new Error('Missing field: ' + text); return label.querySelector<HTMLInputElement | HTMLSelectElement>('input,select')! }
 async function set(element: HTMLInputElement | HTMLSelectElement, value: string) {
   Object.getOwnPropertyDescriptor(element instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLSelectElement.prototype, 'value')!.set!.call(element, value)
@@ -50,6 +50,19 @@ function checkValidation() {
   assert(invalid({ mode: 1, transitions: Array.from({ length: 7 }, (_, i) => ({ time: i * 60, heat: 20 })) }), 'Transition limit ignored')
 }
 async function run() {
+  render(); await until(() => !!document.querySelector('.thermostat-panel'))
+  assert(![...document.querySelectorAll('button')].some(b => b.textContent === 'Boost · 15 min'), 'Boost shown without capabilities')
+  const original = t
+  t = { ...t, supported: { ...t.supported, temporary_mode_duration: true, temporary_mode_select: true } }; render(); await pause()
+  const boost = () => button('Boost · 15 min')
+  available = false; render(); await pause(); assert(boost().disabled, 'Offline Boost enabled')
+  available = true; t = { ...t, pending: ['temporary_mode_select'] }; render(); await pause(); assert(boost().disabled, 'Pending Boost enabled')
+  t = { ...t, pending: [] }; render(); await pause()
+  boost().click(); boost().click(); await until(() => !boost().disabled)
+  assert(requests.length === 1 && requests[0].field === 'boost' && requests[0].value === '15', 'Boost must send one combined action')
+  fail = 'boost'; boost().click(); await until(() => !!document.querySelector('[role=alert]'))
+  assert(document.querySelector('[role=alert]')!.textContent!.includes('Synthetic failure'), 'Boost failure hidden')
+  fail = ''; requests.length = 0; t = original; render(); await pause()
   checkValidation(); render(); await until(() => !!document.querySelector('.thermostat-panel')); await open()
   assert(requests.length === 0, 'Opening caused device reads')
   assert(!document.body.textContent!.toLowerCase().includes('cool'), 'Heating-only thermostat shows cooling settings or diagnostics')

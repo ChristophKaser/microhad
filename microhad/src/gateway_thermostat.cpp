@@ -130,8 +130,32 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
         }
         savePersistentState(); markViewDirty(); return true;
     }
+    if (field=="boost") {
+        const ThermostatAttribute* duration=thermostatAttribute(ThermostatField::temporary_mode_duration);
+        const ThermostatAttribute* mode=thermostatAttribute(ThermostatField::temporary_mode_select);
+        double minutes=0;
+        if (!thermostatNumber(value,&minutes) || minutes<1 || minutes>180 || minutes!=std::floor(minutes)) {
+            *error="boost duration must be 1–180 whole minutes"; return false;
+        }
+        if (duration->cluster!=mode->cluster || !thermostatEndpoint(device,duration->cluster,&endpoint)) {
+            *error="combined boost is unavailable"; return false;
+        }
+        for (std::deque<ThermostatOperation>::const_iterator op=thermostatOperations_.begin();op!=thermostatOperations_.end();++op)
+            if (op->address==device.ieeeAddress && (op->pendingId==duration->id || op->pendingId==mode->id)) {
+                *error="temporary mode has a pending request"; return false;
+            }
+        Device requested=device;
+        requested.thermostat.ensure().values[duration->id]=minutes;
+        std::vector<unsigned char> payload,selection;
+        if (!thermostatEncode(requested,duration->name,value,&payload,error) ||
+            !thermostatEncode(requested,mode->name,"0",&selection,error)) return false;
+        payload.insert(payload.end(),selection.begin(),selection.end());
+        queueThermostatOperation(device,duration->id,duration->cluster,2,payload,true);
+        state.pending.insert(mode->id);
+        state.error.clear(); state.status="Awaiting Boost confirmation"; markViewDirty(); return true;
+    }
     for (std::deque<ThermostatOperation>::const_iterator op=thermostatOperations_.begin();op!=thermostatOperations_.end();++op)
-        if (op->address==device.ieeeAddress && op->pendingId==thermostatPendingId(field)) { *error="this thermostat setting already has a pending request"; return false; }
+        if (op->address==device.ieeeAddress && (op->pendingId==thermostatPendingId(field) || (op->combinedBoost() && field=="temporary_mode_select"))) { *error="this thermostat setting already has a pending request"; return false; }
     std::vector<unsigned char> payload;
     unsigned short cluster=0x0201; unsigned char command=2;
     if (field.size()==10 && field.compare(0,9,"schedule_")==0 && field[9]>='0' && field[9]<='6') {
@@ -224,6 +248,7 @@ void Gateway::pollThermostats() {
             device->second.thermostat.ensure().status="Request timed out";
         }
         device->second.thermostat.ensure().pending.erase(op.pendingId);
+        if(op.combinedBoost())device->second.thermostat.ensure().pending.erase(ThermostatField::temporary_mode_select);
         thermostatOperations_.pop_front(); markViewDirty(); return;
     }
     if (interviewRequestInFlight_) return;
@@ -231,7 +256,8 @@ void Gateway::pollThermostats() {
     std::vector<unsigned char> frame;
     frame.push_back(op.command>=0x80 ? 0x01 : 0x00);
     frame.push_back(op.sequence); frame.push_back(op.command&0x7f);
-    if (op.readback && op.command==2) { frame[2]=0; frame.insert(frame.end(),op.payload.begin(),op.payload.begin()+2); }
+    if (op.readback && op.command==2) { frame[2]=0; frame.insert(frame.end(),op.payload.begin(),op.payload.begin()+2);
+        if(op.combinedBoost())frame.insert(frame.end(),op.payload.begin()+7,op.payload.begin()+9); }
     else frame.insert(frame.end(),op.payload.begin(),op.payload.end());
     ++op.attempts; op.deadline=now+20;
     sendApsUnicast(device->second.zigbee.read().networkAddress,0x0104,op.cluster,1,op.endpoint,frame);
@@ -281,14 +307,21 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
         thermostatOperations_.front().sequence==sequence && thermostatOperations_.front().deadline!=0;
     const std::map<int,std::string> previousSchedules=device.thermostat.read().scheduleDetails;
     bool success=false, completed=false;
+    unsigned boostSeen=0; bool boostValid=true;
     if ((control&3)==0 && command==0x04 && matched) {
         ThermostatOperation& op=thermostatOperations_.front();
         if (op.command==2 && !op.readback) {
             success=payload.size()==1 && payload[0]==0;
             if (success) { op.readback=true; op.attempts=0; op.deadline=0; }
             else {
-                if (payload.size()>=3 && payload[0]==0x86 && get16(payload,1)==get16(op.payload,0))
-                    device.thermostat.ensure().unsupported.insert(static_cast<ThermostatField::Id>(op.pendingId));
+                for(unsigned long at=0;at+3<=payload.size();at+=3) {
+                    if(payload[at]!=0x86)continue;
+                    const unsigned short attribute=get16(payload,at+1);
+                    if(attribute==get16(op.payload,0))
+                        device.thermostat.ensure().unsupported.insert(static_cast<ThermostatField::Id>(op.pendingId));
+                    else if(op.combinedBoost() && attribute==get16(op.payload,7))
+                        device.thermostat.ensure().unsupported.insert(ThermostatField::temporary_mode_select);
+                }
                 completed=true;
             }
         }
@@ -316,10 +349,12 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
             unsigned char status=command==1 ? payload[at++] : 0;
             const ThermostatAttribute* a=0; unsigned long count; const ThermostatAttribute* list=thermostatAttributes(&count);
             for (unsigned long i=0;i<count;++i) if (list[i].cluster==cluster && list[i].attribute==attribute) a=&list[i];
-            bool target=matched && a && thermostatOperations_.front().pendingId==static_cast<unsigned>(a->id);
+            bool compound=matched && thermostatOperations_.front().combinedBoost();
+            bool boostTarget=compound && a && (a->id==ThermostatField::temporary_mode_duration || a->id==ThermostatField::temporary_mode_select);
+            bool target=matched && a && (thermostatOperations_.front().pendingId==static_cast<unsigned>(a->id) || boostTarget);
             if (status) {
                 if (a && status==0x86) { device.thermostat.ensure().unsupported.insert(a->id); device.thermostat.ensure().values.erase(a->id); }
-                if (target) completed=true;
+                if (target) { completed=true; boostValid=false; }
                 continue;
             }
             if (at>=payload.size()) break;
@@ -348,13 +383,23 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
                 ThermostatOperation& op=thermostatOperations_.front();
                 if (op.command==0 || (op.command==2 && op.readback)) {
                     completed=true; success=applied;
-                    if (success && op.command==2) {
+                    if(boostTarget) {
+                        const unsigned offset=a->id==ThermostatField::temporary_mode_duration ? 0 : 7;
+                        boostSeen|=offset==0 ? 1 : 2;
+                        boostValid=boostValid && applied && type==op.payload[offset+2] &&
+                            size==(offset==0?4UL:1UL) && std::equal(value.begin(),value.end(),op.payload.begin()+offset+3);
+                        completed=false;
+                    }
+                    if (success && op.command==2 && !boostTarget) {
                         bool reconnect=op.pendingId==ThermostatField::temperature_sensor_select && value.size()==1 && value[0]==3 && op.payload[3]==1;
                         success=reconnect || (op.payload.size()==value.size()+3 &&
                             std::equal(value.begin(),value.end(),op.payload.begin()+3));
                     }
                 }
             }
+        }
+        if(matched && thermostatOperations_.front().combinedBoost() && command==1 && thermostatOperations_.front().readback) {
+            completed=true; success=boostSeen==3 && boostValid;
         }
         if (command==0x0a && !(control&0x10)) {
             std::vector<unsigned char> reply; reply.push_back(0x10); reply.push_back(sequence);
@@ -363,10 +408,16 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
         }
         markViewDirty();
     }
+    if(!thermostatOperations_.empty() && thermostatOperations_.front().address==address &&
+        thermostatOperations_.front().combinedBoost() && !completed) {
+        device.thermostat.ensure().pending.insert(ThermostatField::temporary_mode_duration);
+        device.thermostat.ensure().pending.insert(ThermostatField::temporary_mode_select);
+    }
     if(previousSchedules!=device.thermostat.read().scheduleDetails)savePersistentState();
     if (matched && completed) {
         ThermostatOperation op=thermostatOperations_.front(); thermostatOperations_.pop_front();
         device.thermostat.ensure().pending.erase(op.pendingId);
+        if(op.combinedBoost())device.thermostat.ensure().pending.erase(ThermostatField::temporary_mode_select);
         if (!success) {
             std::ostringstream detail;
             detail<<"Thermostat request rejected or unconfirmed: "<<op.address<<' '<<thermostatPendingName(op.pendingId)

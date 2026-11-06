@@ -113,6 +113,15 @@ Unsupported fields are hidden or rejected. `system_mode` uses 0 off, 1 auto,
 3 cool, and 4 heat where supported. Running state, demand percentages, occupancy,
 control sequence, and other diagnostic attributes are read-only.
 
+The card's **Boost · 15 min** button is available for Zigbee thermostats with
+writable temporary duration and mode capabilities. `field=boost&value=15`
+queues both settings in one Write Attributes command, followed by a combined
+readback. The value is whole minutes (1–180). Both settings remain pending
+until confirmation or failure. Boost uses the device's native maximum-temperature
+behavior and leaves its normal operating mode unchanged. Confirmed settings
+alone do not prove the valve is heating. This action does not emulate Boost on
+devices without the required capabilities.
+
 Schedules use `schedule_0` through `schedule_6` for Sunday through Saturday.
 Set `value=__read__` to read a day, or send a JSON string as the `value` form
 parameter, for example:

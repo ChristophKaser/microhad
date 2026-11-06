@@ -460,6 +460,7 @@ private:
         long deadline;
         bool readback;
         bool userRequested;
+        bool combinedBoost() const { return command==2 && pendingId==ThermostatField::temporary_mode_duration && payload.size()==11; }
         bool reportsResult() const { return userRequested || (command!=0 && command!=0x82); }
         std::vector<unsigned char> payload;
         ThermostatOperation() : pendingId(ThermostatPendingCount), cluster(0), endpoint(0), command(0), sequence(0), attempts(0), deadline(0), readback(false), userRequested(false) {}
