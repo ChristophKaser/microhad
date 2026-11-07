@@ -16,7 +16,7 @@ consecutive values per subscription, and evicts the oldest value at capacity.
 
 Build with `bash micro-thread-matter-daemon/scripts/build.sh host service` or
 `bash micro-thread-matter-daemon/scripts/build.sh mips service`. The stripped target
-artifact is `build/micro-thread-matter-daemon/mthread-matter-mips`. No build deploys or starts it.
+artifact is `build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips`. No build deploys or starts it.
 
 The native report-integration test uses the host-only
 `micro-thread-matter-daemon/scripts/build-test-service.sh` command. It enables the

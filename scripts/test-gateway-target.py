@@ -14,8 +14,7 @@ def main():
     stock_link = prepare_link_directory(values)
     dynamic_flags = ['-L' + str(stock_link), '-Wl,-rpath-link,' + str(values['STOCK_ROOTFS'] / 'lib'),
                      '-Wl,--dynamic-linker=/lib/ld-uClibc.so.0']
-    if values['TOOLCHAIN'] == 'crosstool-ng':
-        dynamic_flags += ['-no-pie', '-static-libgcc']
+    dynamic_flags += ['-no-pie', '-static-libgcc']
     host_env = dict(os.environ, TARGET_READELF=values['HOST_READELF'])
     result = subprocess.run(['python3', verifier, '/bin/true'], env=host_env, capture_output=True, text=True)
     assert result.returncode != 0 and 'expected ELF32 big-endian MIPS-I/O32' in result.stderr

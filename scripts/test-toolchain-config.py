@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check shared selector agreement and cache isolation without compiling applications."""
+"""Check shared compiler settings and cache isolation without compiling applications."""
 import os
 import importlib.util
 from unittest.mock import patch
@@ -17,15 +17,27 @@ def main():
     base = {k: v for k, v in os.environ.items() if not k.startswith('TARGET_') and k not in ('TOOLCHAIN', 'RSDK_ROOT', 'CROSSTOOL_NG_ROOT', 'LINK_MODE', 'STOCK_ROOTFS')}
     base['WORKSPACE_CONFIG'] = str(ROOT / 'workspace.local.env.example')
     with tempfile.TemporaryDirectory() as temporary:
-        for backend, prefix in [('rsdk', 'mips-linux-'), ('crosstool-ng', 'mips-lexra-linux-uclibc-')]:
-            env = dict(base, TOOLCHAIN=backend, RSDK_ROOT=temporary + '/missing-rsdk', CROSSTOOL_NG_ROOT=temporary + '/candidate')
-            for key in ('TARGET_CC', 'TARGET_CXX', 'TARGET_AR', 'TARGET_NM', 'TARGET_STRIP', 'TARGET_READELF', 'TARGET_PREFIX', 'TARGET_BUILD_SUBDIR', 'CLANG', 'CLANGXX', 'LLVM_AR', 'LLVM_STRIP'):
+        for backend in (None, '', 'rsdk', 'crosstool-ng', 'unknown', 'rsdk crosstool-ng', '%'):
+            prefix = 'mips-lexra-linux-uclibc-'
+            env = dict(base, CROSSTOOL_NG_ROOT=temporary + '/candidate')
+            if backend is not None:
+                env['TOOLCHAIN'] = backend
+            for key in ('TARGET_CC', 'TARGET_CXX', 'TARGET_AR', 'TARGET_NM', 'TARGET_STRIP', 'TARGET_READELF', 'TARGET_PREFIX', 'TARGET_BUILD_SUBDIR', 'TARGET_SPEC_NAME', 'STOCK_LINK_DIR', 'CLANG', 'CLANGXX', 'LLVM_AR', 'LLVM_STRIP'):
                 python = run(['python3', 'scripts/toolchain_config.py', key], env).strip()
                 shell = run(['bash', '-c', 'source scripts/toolchains.sh; printf "%s" "$' + key + '"'], env).strip()
                 recipe = 'include microhad/Makefile\n.PHONY: print-setting\nprint-setting:\n\t@echo $(' + key + ')\n'
                 make = subprocess.run(['make', '--no-print-directory', '-f', '-', 'print-setting'], input=recipe,
                                       env=env, cwd=ROOT, text=True, capture_output=True, check=True).stdout.strip()
                 assert python == shell == make, (key, python, shell, make)
+            # Explicit Make arguments must also ignore every legacy selector value.
+            command = ['make', '--no-print-directory', '-f', '-', 'print-setting']
+            if backend is not None:
+                command.append('TOOLCHAIN=' + backend)
+            recipe = 'include microhad/Makefile\nprint-setting:\n\t@echo $(TARGET_CC) $(TARGET_SPEC_NAME) $(TARGET_BUILD_SUBDIR)\n'
+            result = subprocess.run(command, input=recipe, env=env, cwd=ROOT,
+                                    text=True, capture_output=True, check=True)
+            assert result.stdout.strip() == (temporary + '/candidate/bin/' + prefix +
+                                             'gcc lexra-crosstool-ng-uclibc crosstool-ng/')
             assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_PREFIX'], env).strip() == prefix
             env['TARGET_CC'] = temporary + '/custom-gcc'
             assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_CC'], env).strip() == env['TARGET_CC']
@@ -45,8 +57,8 @@ def main():
             make = subprocess.run(['make', '--no-print-directory', '-f', '-', 'print-setting'], input=recipe,
                                   env=env, cwd=ROOT, text=True, capture_output=True, check=True).stdout.strip()
             assert python == shell == make, (key, python, shell, make)
-        assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_BUILD_SUBDIR'], env).strip() == 'dynamic/'
-        assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_SPEC_NAME'], env).strip() == 'lexra-stock-uclibc-dynamic'
+        assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_BUILD_SUBDIR'], env).strip() == 'crosstool-ng/dynamic/'
+        assert run(['python3', 'scripts/toolchain_config.py', 'TARGET_SPEC_NAME'], env).strip() == 'lexra-crosstool-ng-uclibc-dynamic'
         env = dict(base, TOOLCHAIN='crosstool-ng', LINK_MODE='dynamic')
         for key in ('TARGET_BUILD_SUBDIR', 'TARGET_SPEC_NAME', 'STOCK_LINK_DIR'):
             python = run(['python3', 'scripts/toolchain_config.py', key], env).strip()
@@ -64,13 +76,6 @@ def main():
                          ['make', '-C', 'microhad', '-n', 'mips']):
                 result = subprocess.run(args, env=env, cwd=ROOT, capture_output=True, text=True)
                 assert result.returncode != 0 and 'LINK_MODE' in result.stderr, (args, result.stderr)
-        for invalid in ('', 'unknown', 'rsdk crosstool-ng', '%'):
-            env = dict(base, TOOLCHAIN=invalid)
-            for args in (['python3', 'scripts/toolchain_config.py', 'TARGET_CC'],
-                         ['bash', '-c', 'source scripts/toolchains.sh'],
-                         ['make', '-C', 'microhad', '-n', 'mips']):
-                result = subprocess.run(args, env=env, cwd=ROOT, capture_output=True, text=True)
-                assert result.returncode != 0 and 'TOOLCHAIN' in result.stderr, (invalid, args, result.stderr)
         # Command-line Make settings override environment settings.
         result = run(['make', '-C', 'microhad', '-n', 'TOOLCHAIN=crosstool-ng', 'TARGET_CC=/custom/gcc', 'mips'], dict(base, TOOLCHAIN='rsdk'))
         assert '/custom/gcc' in result and 'build/crosstool-ng/mips-ziggurat-matter' in result
@@ -87,14 +92,9 @@ def main():
         tool.chmod(0o700)
         archive = base_path / 'runtime.a'
         archive.write_text('library identity')
-        values = dict(TOOLCHAIN='rsdk', LINK_MODE='static', TARGET_TOOLCHAIN_ROOT=base_path, TARGET_PREFIX='fake-')
+        values = dict(LINK_MODE='static', TARGET_TOOLCHAIN_ROOT=base_path, TARGET_PREFIX='fake-')
         for name in ('CC', 'CXX', 'AR', 'NM', 'STRIP', 'READELF'):
             values['TARGET_' + name] = tool
-        llvm_tool = base_path / 'llvm-tool'
-        llvm_tool.write_text('LLVM identity')
-        llvm_tool.chmod(0o700)
-        for key in ('CLANG', 'CLANGXX', 'LLVM_AR', 'LLVM_STRIP'):
-            values[key] = llvm_tool
         def output(args, **kwargs):
             if args[1] == '--version':
                 return 'fake compiler version\n'
@@ -111,10 +111,6 @@ def main():
             stamp = (directory / '.toolchain').stat().st_mtime_ns
             guard.ensure(directory)
             assert sentinel.exists() and (directory / '.toolchain').stat().st_mtime_ns == stamp
-            llvm_tool.write_text('changed LLVM compiler identity')
-            guard.ensure(directory)
-            assert not sentinel.exists()
-            sentinel.write_text('cached object')
             archive.write_text('changed library identity')
             guard.ensure(directory)
             assert not sentinel.exists() and host.read_text() == 'preserve'
@@ -137,7 +133,7 @@ def main():
                 runtime.write_bytes(b'stock runtime v2')
                 guard.ensure(directory)
                 assert not sentinel.exists() and host.read_text() == 'preserve'
-    print('PASS shared Make/shell/Python selection, overrides, missing RSDK, invalid values, isolated outputs')
+    print('PASS shared Make/shell/Python settings, ignored TOOLCHAIN, overrides, invalid linkage, isolated outputs')
 
 
 if __name__ == '__main__':

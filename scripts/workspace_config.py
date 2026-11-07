@@ -10,7 +10,7 @@ def settings():
                             capture_output=True)
     if result.returncode:
         # A shell syntax error can include the offending credential assignment.
-        raise ValueError('Cannot load workspace settings (check env-file syntax and TOOLCHAIN/SSH settings)')
+        raise ValueError('Cannot load workspace settings (check env-file syntax and compiler/SSH settings)')
     fields = result.stdout.decode().split('\0')
     return dict(zip(fields[0:-1:2], fields[1:-1:2]))
 

@@ -31,12 +31,13 @@ python3 firmware/scripts/test-maintenance.py
 
 Build and packaging commands do not access a gateway or flash a radio. The GBL
 is written under `build/firmware-hdlc/build/debug/`; the maintenance helper is
-`build/gateway-maintenance`, with a host test binary alongside it.
+`build/crosstool-ng/gateway-maintenance`; its host test binary is
+`build/gateway-maintenance-host`.
 
 Radio firmware uses the pinned ARM toolchain, independently of `TOOLCHAIN`.
-The MIPS maintenance helper uses RSDK by default. After building the candidate
+The MIPS maintenance helper uses crosstool-NG. After building the compiler
 with `python3 scripts/build-toolchain.py`, run
-`TOOLCHAIN=crosstool-ng bash firmware/scripts/build-maintenance.sh` to produce
+`bash firmware/scripts/build-maintenance.sh` to produce
 `build/crosstool-ng/gateway-maintenance`. See
 [toolchain selection](../config/TOOLCHAINS.md) for prerequisites and limits.
 

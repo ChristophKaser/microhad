@@ -50,12 +50,9 @@ access until SSH and your selected boot launcher work.
 
 Use the [binary package](binary-releases.md) for prebuilt application binaries,
 or follow [build setup](building.md) for source builds. Radio preparation and
-existing-network migration remain separate from application installation. Gateway application builds support separately
-acquired RSDK (the default) or source-built crosstool-NG.
-The source-built external serial bridge uses its documented RSDK recipe; the
-prebuilt firmware flasher can download the compatible upstream bridge. Deployment
-examples below use RSDK artifact paths; crosstool-NG builds require explicit paths
-and the compatibility checks in [toolchain selection](../config/TOOLCHAINS.md).
+existing-network migration remain separate from application installation. Gateway application builds use source-built crosstool-NG. The prebuilt firmware
+flasher can download the compatible upstream serial bridge. See
+[toolchain configuration](../config/TOOLCHAINS.md) for artifact paths and compatibility checks.
 For UART tools on the host:
 
 ```sh
@@ -85,8 +82,7 @@ export CONFIG_FILE="$PRIVATE_DIR/native-config.json"
 ```
 
 `WORKSPACE`, `PROJECT_ROOT`, `MIGRATION_PYTHON`, `NCP_IMAGE` and `RCP_IMAGE` come from
-[build setup](building.md); RSDK is needed only if building the serial bridge
-from source. The firmware package and upstream prebuilt bridge need no compiler.
+[build setup](building.md). The firmware package and upstream prebuilt bridge need no compiler.
 Only Mode B needs `RCP_IMAGE`: build it, or set it to the GBL extracted from the
 prebuilt firmware package. For that package also set `RCP_PACKAGE_DIR` to its
 absolute extraction directory and follow its host dependency setup.
@@ -340,7 +336,7 @@ Keep TCP:8888 on a trusted LAN; the bridge has no authentication.
    chmod 600 "$CONFIG_FILE"
    cd "$PROJECT_ROOT/microhad"
    ../deploy.sh \
-     --binary build/mips/microhad --config "$CONFIG_FILE" \
+     --binary build/crosstool-ng/mips/microhad --config "$CONFIG_FILE" \
      --target /tuya/native --activate
    ```
 
@@ -394,9 +390,9 @@ space first. The helper is reused by final capture and ownership checks:
 
 ```sh
 gateway_ssh 'mkdir -p /tuya/ziggurat-stage; chmod 700 /tuya/ziggurat-stage; df -k /tuya'
-cat "$PROJECT_ROOT/build/gateway-maintenance" | \
+cat "$PROJECT_ROOT/build/crosstool-ng/gateway-maintenance" | \
   gateway_ssh 'cat > /tuya/ziggurat-stage/gateway-maintenance.new && chmod 700 /tuya/ziggurat-stage/gateway-maintenance.new && mv /tuya/ziggurat-stage/gateway-maintenance.new /tuya/ziggurat-stage/gateway-maintenance'
-cat "$PROJECT_ROOT/build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped" | \
+cat "$PROJECT_ROOT/build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat.stripped" | \
   gateway_ssh 'cat > /tuya/ziggurat-stage/ziggurat.new && chmod 700 /tuya/ziggurat-stage/ziggurat.new && mv /tuya/ziggurat-stage/ziggurat.new /tuya/ziggurat-stage/ziggurat'
 cd "$PROJECT_ROOT/microhad"
 "$MIGRATION_PYTHON" scripts/network_backup.py collect \
@@ -507,7 +503,7 @@ p.write_text(json.dumps(x, indent=2) + '\n')
 PY
 cd "$PROJECT_ROOT/microhad"
 ../deploy.sh \
-  --binary build/mips-ziggurat/microhad \
+  --binary build/crosstool-ng/mips-ziggurat/microhad \
   --config "$CONFIG_FILE" --target /tuya/native
 cat "$PRIVATE_DIR/native-ziggurat-state.json" | \
   gateway_ssh 'umask 077; cat > /tuya/native/ziggurat-state.json.new && chmod 600 /tuya/native/ziggurat-state.json.new && mv /tuya/native/ziggurat-state.json.new /tuya/native/ziggurat-state.json'

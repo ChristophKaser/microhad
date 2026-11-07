@@ -4,8 +4,11 @@ from pathlib import Path
 import subprocess
 import hashlib
 import tempfile
+import os
 
 ROOT = Path(__file__).resolve().parents[1]
+os.environ['WORKSPACE_CONFIG'] = str(ROOT.parent / 'workspace.local.env.example')
+os.environ['LINK_MODE'] = 'static'
 
 
 def selected(arguments):
@@ -22,11 +25,11 @@ print-matter-selection:
 
 def main():
     for args, host, mips in (
-        ([], 'build/host-ziggurat-matter', 'build/mips-ziggurat-matter'),
-        (['ZIGGURAT=0'], 'build/host', 'build/mips'),
-        (['ZIGGURAT=0', 'MATTER=0'], 'build/host', 'build/mips'),
-        (['ZIGGURAT=1', 'MATTER=0'], 'build/host-ziggurat', 'build/mips-ziggurat'),
-        (['ZIGGURAT=1', 'MATTER=1'], 'build/host-ziggurat-matter', 'build/mips-ziggurat-matter'),
+        ([], 'build/host-ziggurat-matter', 'build/crosstool-ng/mips-ziggurat-matter'),
+        (['ZIGGURAT=0'], 'build/host', 'build/crosstool-ng/mips'),
+        (['ZIGGURAT=0', 'MATTER=0'], 'build/host', 'build/crosstool-ng/mips'),
+        (['ZIGGURAT=1', 'MATTER=0'], 'build/host-ziggurat', 'build/crosstool-ng/mips-ziggurat'),
+        (['ZIGGURAT=1', 'MATTER=1'], 'build/host-ziggurat-matter', 'build/crosstool-ng/mips-ziggurat-matter'),
     ):
         result = selected(args)
         assert result.returncode == 0, result.stderr
@@ -46,14 +49,14 @@ def main():
         assert result.returncode != 0 and message in result.stderr, result.stderr
     # Confirm that an enabled binary cannot bypass its platform gate, even with -j.
     result = subprocess.run(['make', '-n', 'ZIGGURAT=1', 'MATTER=1',
-                             'build/mips-ziggurat-matter/microhad'], cwd=ROOT,
+                             'build/crosstool-ng/mips-ziggurat-matter/microhad'], cwd=ROOT,
                             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert result.returncode == 0, result.stderr
     assert 'Matter native IPC, commissioning, Thread, and device-control APIs enabled' in result.stdout
     result = subprocess.run(['make', '-B', '-n', 'ZIGGURAT=1', 'MATTER=1', 'mips'], cwd=ROOT,
                             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert result.returncode == 0, result.stderr
-    assert 'build/mips-ziggurat-matter/microhad.matter-manifest' in result.stdout
+    assert 'build/crosstool-ng/mips-ziggurat-matter/microhad.matter-manifest' in result.stdout
     assert "'matter=1'" in result.stdout and 'sha256sum' in result.stdout
     with tempfile.TemporaryDirectory(prefix='matter-build-manifest-') as directory:
         binary = Path(directory) / 'microhad'

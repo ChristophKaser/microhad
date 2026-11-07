@@ -33,7 +33,7 @@ def main():
         release_source.verify('build/toolchain-proof/downloads')
         release_source.verify('firmware/dependencies/rtl8196e-gateway/1-Build-Environment/10-lexra-toolchain/patches')
     env = dict(os.environ, PATH=str(BOOTSTRAP / 'bin') + ':' + os.environ['PATH'])
-    for variable in ['RSDK_ROOT', 'TARGET_CC', 'TARGET_CXX', 'TARGET_AR', 'CC', 'CXX', 'AR',
+    for variable in ['TARGET_CC', 'TARGET_CXX', 'TARGET_AR', 'CC', 'CXX', 'AR',
                      'CFLAGS', 'CXXFLAGS', 'CPPFLAGS', 'LDFLAGS', 'CPATH', 'C_INCLUDE_PATH',
                      'CPLUS_INCLUDE_PATH', 'LIBRARY_PATH', 'LD_LIBRARY_PATH']:
         env.pop(variable, None)

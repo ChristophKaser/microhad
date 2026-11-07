@@ -20,7 +20,7 @@ fn main() {
     let compiler = resolve("TARGET_CC");
     let archiver = resolve("TARGET_AR");
     let nm = resolve("TARGET_NM");
-    for variable in ["CRASH_SNAPSHOTS", "STOCK_ROOTFS", "LINK_MODE", "TOOLCHAIN", "RSDK_ROOT", "CROSSTOOL_NG_ROOT", "TARGET_PREFIX", "TARGET_CC", "TARGET_AR", "TARGET_NM"] {
+    for variable in ["CRASH_SNAPSHOTS", "STOCK_ROOTFS", "LINK_MODE", "CROSSTOOL_NG_ROOT", "TARGET_PREFIX", "TARGET_CC", "TARGET_AR", "TARGET_NM"] {
         println!("cargo:rerun-if-env-changed={variable}");
     }
     println!("cargo:rerun-if-changed=../../config/toolchains.mk");

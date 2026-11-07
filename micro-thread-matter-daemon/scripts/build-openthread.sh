@@ -21,19 +21,18 @@ import sys
 root = Path(sys.argv[1])
 out = Path(sys.argv[2])
 out.mkdir(parents=True, exist_ok=True)
-if os.environ['TOOLCHAIN'] == 'crosstool-ng':
-    import subprocess
-    cc, cxx = os.environ['TARGET_CC'], os.environ['TARGET_CXX']
-    sysroot = subprocess.check_output([cc, '-print-sysroot'], text=True).strip()
-    flags = f'-D_DEFAULT_SOURCE -Os -march=lx4380 -msoft-float -mabi=32 -fno-pic -mabicalls -G0 -fno-stack-protector -DOPENTHREAD_POSIX_CONFIG_BACKTRACE_ENABLE=0'
-    link_flags = '-static -Wl,--gc-sections'
-    cpp_flags = '-fno-exceptions'
-    cpp_libraries = ''
-    if os.environ['LINK_MODE'] == 'dynamic':
-        cpp_flags += ' -D_GLIBCXX_USE_CXX11_ABI=0 -fno-sized-deallocation'
-        cpp_libraries = '-lstdc++ ' + os.environ['STOCK_LINK_DIR'] + '/libstdc++-compat.a'
-        link_flags = '-no-pie -static-libgcc -Wl,--defsym,__gnu_local_gp=_gp -Wl,--gc-sections -L' + os.environ['STOCK_LINK_DIR'] + ' -Wl,-rpath-link,' + os.environ['STOCK_ROOTFS'] + '/lib -Wl,--dynamic-linker=/lib/ld-uClibc.so.0'
-    (out / 'toolchain.cmake').write_text(f'''set(CMAKE_SYSTEM_NAME Linux)
+import subprocess
+cc, cxx = os.environ['TARGET_CC'], os.environ['TARGET_CXX']
+sysroot = subprocess.check_output([cc, '-print-sysroot'], text=True).strip()
+flags = f'-D_DEFAULT_SOURCE -Os -march=lx4380 -msoft-float -mabi=32 -fno-pic -mabicalls -G0 -fno-stack-protector -DOPENTHREAD_POSIX_CONFIG_BACKTRACE_ENABLE=0'
+link_flags = '-static -Wl,--gc-sections'
+cpp_flags = '-fno-exceptions'
+cpp_libraries = ''
+if os.environ['LINK_MODE'] == 'dynamic':
+    cpp_flags += ' -D_GLIBCXX_USE_CXX11_ABI=0 -fno-sized-deallocation'
+    cpp_libraries = '-lstdc++ ' + os.environ['STOCK_LINK_DIR'] + '/libstdc++-compat.a'
+    link_flags = '-no-pie -static-libgcc -Wl,--defsym,__gnu_local_gp=_gp -Wl,--gc-sections -L' + os.environ['STOCK_LINK_DIR'] + ' -Wl,-rpath-link,' + os.environ['STOCK_ROOTFS'] + '/lib -Wl,--dynamic-linker=/lib/ld-uClibc.so.0'
+(out / 'toolchain.cmake').write_text(f'''set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR mips)
 set(CMAKE_C_COMPILER {cc})
 set(CMAKE_CXX_COMPILER {cxx})
@@ -48,33 +47,6 @@ set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "{cpp_libraries}")
 set(CMAKE_EXE_LINKER_FLAGS "${{CMAKE_EXE_LINKER_FLAGS_INIT}}" CACHE STRING "" FORCE)
 set(CMAKE_CXX_STANDARD_LIBRARIES "${{CMAKE_CXX_STANDARD_LIBRARIES_INIT}}" CACHE STRING "" FORCE)
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
-''')
-    raise SystemExit(0)
-link_flags = ('-L' + os.environ['STOCK_LINK_DIR']) if os.environ['LINK_MODE'] == 'dynamic' else '-static'
-rd = Path(os.environ['RSDK_ROOT'])
-cxx = rd / 'include/c++/4.4.7'
-# GCC 4.4 exception_ptr.h assumes an earlier type_info declaration.
-(out / 'stock-cxx-compat.hpp').write_text('namespace std { class type_info; }\n')
-flags = (f'--target=mips-linux-gnu -march=mips1 -msoft-float -mabi=32 '
-         f'--sysroot={rd}/mips-linux-uclibc '
-         f'-isystem {rd}/lib/gcc/mips-linux-uclibc/4.4.7/include-fixed '
-         '-Os -fno-pic -mabicalls -G0 -fno-stack-protector -mllvm -mno-check-zero-division '
-         '-DOPENTHREAD_POSIX_CONFIG_BACKTRACE_ENABLE=0')
-cppflags = (f'{flags} -nostdinc++ -isystem {cxx} -isystem {cxx}/mips-linux-uclibc/4181 '
-            f'-fno-exceptions -include {out}/stock-cxx-compat.hpp '
-            '-D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS')
-(out / 'toolchain.cmake').write_text(f'''set(CMAKE_SYSTEM_NAME Linux)
-set(CMAKE_SYSTEM_PROCESSOR mips)
-set(CMAKE_C_COMPILER {os.environ['CLANG']})
-set(CMAKE_CXX_COMPILER {os.environ['CLANGXX']})
-set(CMAKE_C_FLAGS_INIT "{flags}")
-set(CMAKE_CXX_FLAGS_INIT "{cppflags}")
-set(CMAKE_C_FLAGS "${{CMAKE_C_FLAGS_INIT}}" CACHE STRING "" FORCE)
-set(CMAKE_CXX_FLAGS "${{CMAKE_CXX_FLAGS_INIT}}" CACHE STRING "" FORCE)
-set(CMAKE_AR {os.environ['LLVM_AR']})
-set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
-set(CMAKE_C_LINK_EXECUTABLE "{os.environ['TARGET_CC']} <LINK_FLAGS> <OBJECTS> -o <TARGET> {link_flags} -Wl,--gc-sections -Wl,--start-group <LINK_LIBRARIES> -Wl,--end-group")
-set(CMAKE_CXX_LINK_EXECUTABLE "{os.environ['TARGET_CXX']} <LINK_FLAGS> <OBJECTS> -o <TARGET> {link_flags} -Wl,--gc-sections -Wl,--start-group <LINK_LIBRARIES> -Wl,--end-group")
 ''')
 PY
 fi
@@ -102,9 +74,6 @@ if [[ "$mode" == host ]]; then
     cmake --build "$build_dir" --target ot-unix-adapter-test --parallel "${BUILD_JOBS:-4}"
     "$build_dir/src/posix/ot-unix-adapter-test"
 else
-    if [[ "$TOOLCHAIN" == rsdk ]]; then
-        python3 scripts/check-mips-load-delay.py "$build_dir/src/core/libopenthread-ftd.a"
-    fi
     "$LLVM_STRIP" --keep-section=.gnu.attributes -o "$output/ot-cli-mips" "$build_dir/src/posix/ot-cli"
     python3 scripts/verify-gateway-target.py --link-mode "$LINK_MODE" "$output/ot-cli-mips"
     file "$output/ot-cli-mips"

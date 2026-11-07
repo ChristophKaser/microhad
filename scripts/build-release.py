@@ -42,7 +42,7 @@ def git(*args, cwd=ROOT):
 
 def environment(root, jobs, cargo_home, rustup_home, epoch):
     env = {k: v for k, v in os.environ.items() if k in ('PATH', 'HOME', 'TMPDIR', 'LANG', 'TERM')}
-    env.update(TOOLCHAIN='crosstool-ng', LINK_MODE='static', WORKSPACE_CONFIG='/dev/null',
+    env.update(LINK_MODE='static', WORKSPACE_CONFIG='/dev/null',
                CARGO_HOME=str(cargo_home), RUSTUP_HOME=str(rustup_home), BUILD_JOBS=str(jobs),
                CARGO_BUILD_JOBS=str(jobs), ZIGGURAT_MULTIPAN='1', SOURCE_DATE_EPOCH=str(epoch),
                npm_config_userconfig='/dev/null', npm_config_globalconfig=str(root / 'scripts/release/npmrc'), npm_config_audit='false',

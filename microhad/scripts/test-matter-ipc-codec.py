@@ -13,8 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent / 'scripts'))
 from toolchain_config import settings
 
-TOOLCHAIN = settings()
-RSDK = TOOLCHAIN['RSDK_ROOT']
+COMPILERS = settings()
 from workspace_config import setting, gateway_host, has_credentials, ssh_command
 
 
@@ -49,19 +48,19 @@ def main():
                 subprocess.run([compiler, '-std=gnu99', '-O2', '-DPB_C99_STATIC_ASSERT', '-I'+str(protobuf_include), '-c', str(protobuf_include/(name+'.c')), '-o', str(output)], check=True)
                 objects.append(str(output))
             return objects
-        host_objects = protobuf_objects(TOOLCHAIN['HOST_CC'], '-host')
+        host_objects = protobuf_objects(COMPILERS['HOST_CC'], '-host')
         host = directory / 'host'
         subprocess.run(['g++', '-std=gnu++03', '-Wall', '-Wextra', '-Werror', '-pedantic', '-O2',
                         '-I' + str(ROOT / 'include'), '-I'+str(protobuf_include), *sources, *host_objects, '-o', str(host)], check=True)
         subprocess.run([str(host)], check=True)
         report['host'] = True
         if args.host:
-            target_objects = protobuf_objects(str(TOOLCHAIN['TARGET_CC']), '-mips')
+            target_objects = protobuf_objects(str(COMPILERS['TARGET_CC']), '-mips')
             target = directory / 'mips'
-            subprocess.run([str(TOOLCHAIN['TARGET_CXX']), '-Wall', '-Wextra', '-Werror', '-pedantic',
+            subprocess.run([str(COMPILERS['TARGET_CXX']), '-Wall', '-Wextra', '-Werror', '-pedantic',
                             '-Os', '-msoft-float', '-static', '-I' + str(ROOT / 'include'), '-I'+str(protobuf_include), *sources, *target_objects,
                             '-o', str(target)], check=True)
-            subprocess.run([str(TOOLCHAIN['TARGET_STRIP']), str(target)], check=True)
+            subprocess.run([str(COMPILERS['TARGET_STRIP']), str(target)], check=True)
             ssh = ssh_command(args.host, args.password_file)
             stage = '/tmp/matter-ipc-' + uuid.uuid4().hex
             def remote(command, payload=None):

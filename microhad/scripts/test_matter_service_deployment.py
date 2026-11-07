@@ -21,7 +21,6 @@ def fake_api_transport(root):
 ROOT = Path(__file__).resolve().parents[1]
 os.environ['WORKSPACE_CONFIG'] = str(ROOT.parent / 'workspace.local.env.example')
 os.environ['GATEWAY_IP'] = '192.168.178.62'
-os.environ['TOOLCHAIN'] = 'rsdk'
 os.environ['SSH_PASSWORD'] = ''
 FAKE_SSH = '''#!/usr/bin/env python3
 import json, os, sys
@@ -216,7 +215,7 @@ echo '{"available":true,"controller_initialized":true,"fabric_ready":true,"state
             root = Path(directory)
             checkout = root / 'checkout'
             component = checkout / 'microhad'
-            build = component / 'build/mips-ziggurat-matter'
+            build = component / 'build/crosstool-ng/mips-ziggurat-matter'
             build.mkdir(parents=True)
             binary = build / 'microhad'
             binary.write_bytes(b'default native executable')

@@ -50,17 +50,11 @@ fn main() {
     } else {
         "host"
     };
-    println!("cargo:rerun-if-env-changed=TOOLCHAIN");
-    let backend = env::var("TOOLCHAIN").unwrap_or_else(|_| "rsdk".into());
-    assert!(
-        backend == "rsdk" || backend == "crosstool-ng",
-        "invalid TOOLCHAIN"
-    );
     println!("cargo:rerun-if-env-changed=LINK_MODE");
     let link_mode = env::var("LINK_MODE").unwrap_or_else(|_| "static".into());
     let base = if mode == "mips" {
         root.join("build")
-            .join(if backend == "crosstool-ng" { "crosstool-ng" } else { "" })
+            .join("crosstool-ng")
             .join(if link_mode == "dynamic" { "dynamic" } else { "" })
             .join("openthread-unix").join(mode)
     } else {
@@ -120,7 +114,7 @@ fn main() {
         }
     }
     println!("cargo:rustc-link-lib=stdc++");
-    if mode == "mips" && link_mode == "dynamic" && backend == "crosstool-ng" {
+    if mode == "mips" && link_mode == "dynamic" {
         // Stock libstdc++ resolves old ABI symbols first; GCC 15 supplies only
         // newer helpers still unresolved by that shared library.
         println!("cargo:rustc-link-arg={}", PathBuf::from(env::var("STOCK_LINK_DIR").expect("missing stock link directory")).join("libstdc++-compat.a").display());
@@ -158,7 +152,7 @@ fn build_timezones() {
     };
     let compiler = resolve(if target { "TARGET_CC" } else { "HOST_CC" });
     let archiver = if target { resolve("TARGET_AR") } else { env::var("AR").unwrap_or_else(|_| "ar".into()) };
-    for key in ["HOST_CC", "AR", "TOOLCHAIN", "RSDK_ROOT", "CROSSTOOL_NG_ROOT", "TARGET_PREFIX", "TARGET_CC", "TARGET_AR"] {
+    for key in ["HOST_CC", "AR", "CROSSTOOL_NG_ROOT", "TARGET_PREFIX", "TARGET_CC", "TARGET_AR"] {
         println!("cargo:rerun-if-env-changed={key}");
     }
     println!("cargo:rerun-if-changed={}", root.join("config/toolchains.mk").display());

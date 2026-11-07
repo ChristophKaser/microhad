@@ -41,26 +41,18 @@ set your gateway address, LAN interface, compiler location and SSH credentials.
 See [shared host settings](workspace-settings.md) for syntax and overrides.
 Host tools read it automatically; no gateway is accessed by loading settings.
 
-## Select a MIPS toolchain
+## Build the MIPS toolchain
 
-Host builds need no MIPS SDK. Gateway builds default to RSDK
-`rsdk-4.4.7-4181-EB-2.6.30-0.9.30-m32u-140129`, located beside this checkout.
-Obtain the archive separately; the repository does not download it. Its SHA256 is
-`63af001fcbebbf32e6235a66efb117d8abd13e088c8161abece7d578b55b56d2`.
-If installed elsewhere, set `RSDK_ROOT` to its directory.
-
-The source-built crosstool-NG compiler is selected explicitly:
+Host builds need no MIPS compiler. Gateway builds use the pinned source-built
+crosstool-NG compiler. Build it explicitly:
 
 ```sh
 python3 scripts/build-toolchain.py
-export TOOLCHAIN=crosstool-ng
 ```
 
 See [toolchain selection](../config/TOOLCHAINS.md) for compiler prerequisites,
-cache isolation, overrides and runtime limits. RSDK remains the production
-default. Radio firmware uses separate ARM tools regardless of `TOOLCHAIN`.
-Install the pinned LLVM host tools used by the build scripts (including RSDK
-OpenThread's Clang compiler):
+cache isolation, overrides and runtime limits. Radio firmware uses separate ARM tools.
+Install the pinned LLVM host tools used by the build scripts:
 
 ```sh
 python3 scripts/install-llvm.py
@@ -108,15 +100,15 @@ python3 scripts/bootstrap-stock-runtime.py --from-root /path/to/stock-root --out
 The source directory must contain `lib/`. The flash-dump extraction alternative
 is documented in [toolchain selection](../config/TOOLCHAINS.md#experimental-dynamic-linkage-using-stock-libraries).
 A different firmware's libraries fail verification; do not change the manifest
-to bypass that compatibility check. Generated backend link directories are
+to bypass that compatibility check. Generated runtime link directories are
 created automatically by build preparation after bootstrap.
 
-For an RSDK-free dynamic build after installing crosstool-NG and LLVM:
+For a dynamic build after installing crosstool-NG and LLVM:
 
 ```sh
-TOOLCHAIN=crosstool-ng LINK_MODE=dynamic make -C microhad mips
-TOOLCHAIN=crosstool-ng LINK_MODE=dynamic bash ziggurat/scripts/build.sh
-TOOLCHAIN=crosstool-ng LINK_MODE=dynamic bash micro-thread-matter-daemon/scripts/build.sh mips service
+LINK_MODE=dynamic make -C microhad mips
+LINK_MODE=dynamic bash ziggurat/scripts/build.sh
+LINK_MODE=dynamic bash micro-thread-matter-daemon/scripts/build.sh mips service
 ```
 
 Deleting `build/` requires repeating the bootstrap; deployed gateways do not
@@ -126,11 +118,11 @@ depend on these host files.
 
 Choose the MicroHAD backend that matches the installed radio firmware:
 
-| Configuration | Command | RSDK output |
+| Configuration | Command | Target output |
 | --- | --- | --- |
-| Ziggurat and Matter (default) | `make -C microhad mips` | `microhad/build/mips-ziggurat-matter/microhad` |
-| Ziggurat without Matter | `make -C microhad ZIGGURAT=1 MATTER=0 mips` | `microhad/build/mips-ziggurat/microhad` |
-| EZSP NCP | `make -C microhad ZIGGURAT=0 mips` | `microhad/build/mips/microhad` |
+| Ziggurat and Matter (default) | `make -C microhad mips` | `microhad/build/crosstool-ng/mips-ziggurat-matter/microhad` |
+| Ziggurat without Matter | `make -C microhad ZIGGURAT=1 MATTER=0 mips` | `microhad/build/crosstool-ng/mips-ziggurat/microhad` |
+| EZSP NCP | `make -C microhad ZIGGURAT=0 mips` | `microhad/build/crosstool-ng/mips/microhad` |
 
 ```sh
 make -C microhad host test
@@ -143,12 +135,12 @@ bash firmware/scripts/build-maintenance.sh
 | Artifact | Default output |
 | --- | --- |
 | Web UI | `microhad/webui/dist/` (gzip-only `.gz` artifacts) |
-| Ziggurat multipan | `build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped` |
-| Matter service | `build/micro-thread-matter-daemon/mthread-matter-mips` |
-| Radio maintenance helper | `build/gateway-maintenance` |
+| Ziggurat multipan | `build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat.stripped` |
+| Matter service | `build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips` |
+| Radio maintenance helper | `build/crosstool-ng/gateway-maintenance` |
 
-Crosstool-NG outputs insert `crosstool-ng/` below the relevant `build/`
-directory; Ziggurat also changes its target directory name. Use the exact
+Target outputs use `crosstool-ng/` below the relevant `build/`
+directory. Use the exact
 paths in the [toolchain artifact table](../config/TOOLCHAINS.md#artifacts-and-verification).
 
 ## Build and test on the host
@@ -205,16 +197,17 @@ tools/network-migration-venv/bin/pip install \
   bellows==1.0.2 zigpy==2.2.0 universal-silabs-flasher==1.1.0
 ```
 
-The serial bridge uses its RSDK build recipe:
+Build the serial bridge with the shared MIPS compiler:
 
 ```sh
 . ./scripts/workspace-env.sh
 workspace_load "$PWD"
-make -C ../lidl-gateway-freedom/gateway CC="$RSDK_ROOT/bin/mips-linux-gcc" build
+. ./scripts/toolchains.sh
+make -C ../lidl-gateway-freedom/gateway CC="$TARGET_CC" build
 ```
 
 The upstream Makefile does not read our env file, so the command above loads
-`RSDK_ROOT` first and passes its compiler explicitly. Avoid its upload target, which
+the shared compiler settings first and passes the compiler explicitly. Avoid its upload target, which
 contains a fixed device address. Transfer through SSH stdin as shown in
 [installation](installation.md).
 

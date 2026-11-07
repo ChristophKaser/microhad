@@ -1,61 +1,48 @@
-# Gateway toolchains
+# Gateway toolchain
 
-Gateway builds accept `TOOLCHAIN=rsdk` (the default) or
-`TOOLCHAIN=crosstool-ng`. Host builds use the host compilers and
-do not require either SDK directory. Silicon Labs firmware keeps its ARM tools.
+Gateway builds use the pinned source-built crosstool-NG compiler. The former
+`TOOLCHAIN` setting is ignored, regardless of its value. RSDK is no longer used.
+Host builds use host compilers; Silicon Labs firmware keeps its separate ARM tools.
 
-The source-built crosstool-NG toolchain targets Lexra LX4380, big-endian MIPS-I/O32 and
-soft float. It uses GCC 15.2.0, binutils 2.45.1, uClibc-ng 1.0.54 LinuxThreads,
-and stock Linux 3.10.90 headers. Native TLS, time64 and FENV remain disabled.
-The application configuration enables interface enumeration and SUSv3/SUSv4
-legacy APIs required by OpenThread and BusyBox.
+The compiler targets Lexra LX4380, big-endian MIPS-I/O32 and soft float, using
+GCC 15.2.0, binutils 2.45.1, uClibc-ng 1.0.54 LinuxThreads and stock Linux
+3.10.90 headers. Native TLS, time64 and FENV remain disabled. Interface enumeration
+and SUSv3/SUSv4 legacy APIs are enabled for OpenThread and BusyBox.
 
 ## Build
 
-Build the compiler explicitly before selecting it:
+Build the compiler explicitly before building target applications:
 
 ```sh
 python3 scripts/build-toolchain.py
+make -C microhad host test
+make -C microhad mips
+ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
+bash micro-thread-matter-daemon/scripts/build.sh mips service
+bash firmware/scripts/build-maintenance.sh
 ```
 
-Sources, checksums and configurations are pinned under `config/crosstool-ng/`;
-the builder uses the pinned upstream Lexra patches from `jnilo1/rtl8196e-gateway`.
-See [configuration provenance and credits](crosstool-ng/README.md) for the source
-configuration, exact revision, patch links and local adaptations. It installs
-under `tools/lexra-proof`, uses local bootstrap tools, and requires approximately
-12 GiB free space. The Linux build host needs GCC/G++, make, autoconf, automake, libtoolize,
-flex, bison, gperf, makeinfo, rsync, patch, curl, tar, and Python 3.11 or later.
-The builder installs help2man, GNU libtool and crosstool-NG locally. Application
-builds never install a compiler automatically. A missing compiler fails the build.
+Sources, checksums and configurations are pinned under `config/crosstool-ng/`.
+See [configuration provenance and credits](crosstool-ng/README.md) for upstream
+Lexra patches and local adaptations. Installation is under `tools/lexra-proof`,
+with approximately 12 GiB free space required. The Linux host needs GCC/G++, make,
+autoconf, automake, libtoolize, flex, bison, gperf, makeinfo, rsync, patch, curl,
+tar and Python 3.11+. The builder installs help2man, GNU libtool and crosstool-NG
+locally. Application builds never install a missing compiler automatically.
 
-Run from the repository root:
-
-```sh
-make -C microhad TOOLCHAIN=crosstool-ng mips
-TOOLCHAIN=crosstool-ng ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
-TOOLCHAIN=crosstool-ng bash micro-thread-matter-daemon/scripts/build.sh mips service
-TOOLCHAIN=crosstool-ng bash firmware/scripts/build-maintenance.sh
-```
-
-Set `TOOLCHAIN`, `RSDK_ROOT` and `CROSSTOOL_NG_ROOT` in the gitignored root
-`workspace.local.env` to share your selection across Make, shell and Python.
-Environment and Make command-line overrides still win. See
-[development-host settings](../docs/workspace-settings.md). Set `RSDK_ROOT` or
-`CROSSTOOL_NG_ROOT` to select a compatible installation.
-Explicit `TARGET_CC`, `TARGET_CXX`, `TARGET_AR`, `TARGET_NM`, `TARGET_STRIP`,
-`TARGET_READELF` and `TARGET_PREFIX` overrides are supported by Make, shell and
-Python consumers. Use a fresh process for each selection; exported explicit tool
-overrides remain overrides when switching `TOOLCHAIN` in a sourced shell.
+Set `CROSSTOOL_NG_ROOT` in the environment, Make arguments or gitignored
+`workspace.local.env` to use another compatible installation. Environment and
+Make command-line overrides win over private workspace settings. Explicit
+`TARGET_CC`, `TARGET_CXX`, `TARGET_AR`, `TARGET_NM`, `TARGET_STRIP`,
+`TARGET_READELF` and `TARGET_PREFIX` overrides remain supported. See
+[development-host settings](../docs/workspace-settings.md).
 
 ## Artifacts and verification
 
-MicroHAD uses `-Os` for crosstool-NG C/C++ code, nanopb and Mbed TLS; RSDK
-and host builds retain `-O2`.
+MicroHAD target code, nanopb and Mbed TLS use `-Os`; host builds retain `-O2`.
+Existing crosstool-NG paths are preserved:
 
-RSDK paths and host fixture paths remain unchanged. Crosstool-NG paths insert
-`crosstool-ng/` immediately below `build/`:
-
-| Artifact | Crosstool-NG path |
+| Artifact | Path |
 | --- | --- |
 | MicroHAD with Zigbee/Matter | `microhad/build/crosstool-ng/mips-ziggurat-matter/microhad` |
 | Ziggurat multipan | `build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat.stripped` |
@@ -63,183 +50,103 @@ RSDK paths and host fixture paths remain unchanged. Crosstool-NG paths insert
 | OpenThread CLI | `build/crosstool-ng/openthread-unix/ot-cli-mips` |
 | Maintenance helper | `build/crosstool-ng/gateway-maintenance` |
 
-Native and Cargo target caches are separated. Compiler/tool identities and
-runtime archive identities are recorded in each guarded target directory's
-`toolchain-provenance.json`. Changing the selected installation invalidates that
-directory's generated cache. Shared patched source and host artifacts are retained.
-
-Build verification checks static linkage, ELF32 big-endian MIPS-I/O32, soft-float
-attributes, and absence of `rdhwr`/`teq`. Other Lexra-sensitive instructions are
-reported. Rust still uses LLVM for code generation and the selected GCC for linking.
-RSDK OpenThread retains its Clang workaround; crosstool-NG OpenThread uses native GCC.
+Host fixture paths are unchanged. Target directories record compiler and runtime
+archive identities in `toolchain-provenance.json`; changing the installation
+invalidates those caches while retaining shared patched sources and host artifacts.
+Verification checks static linkage, ELF32 big-endian MIPS-I/O32, soft-float
+attributes and absence of `rdhwr`/`teq`. Other Lexra-sensitive instructions are
+reported. Rust uses LLVM code generation and GCC linking; OpenThread uses GCC/G++.
 
 ```sh
 python3 scripts/test-toolchain-config.py
-make -C microhad host test
-make -C microhad mips
-make -C microhad TOOLCHAIN=crosstool-ng mips
 ```
 
 ## Experimental dynamic linkage using stock libraries
 
-`LINK_MODE=dynamic` builds non-PIE application executables using only shared
-libraries supplied by the stock image. `LINK_MODE=static` remains the default;
-dynamic mode supports both `TOOLCHAIN=rsdk` and `TOOLCHAIN=crosstool-ng`.
-The selected compiler supplies headers, startup objects and compiler support;
-dynamic linking and ELF verification use the stock uClibc 0.9.33 libraries.
-The crosstool-NG mode uses GCC 15.2 throughout native code and OpenThread,
-without accessing RSDK files. It does not install a replacement libc.
+`LINK_MODE=static` remains the default. `LINK_MODE=dynamic` builds non-PIE
+applications against verified stock uClibc 0.9.33 libraries. The compiler supplies
+headers, startup objects and support archives; no replacement libc is installed.
 
-For a fresh checkout, bootstrap the host runtime after configuring `GATEWAY_IP`
-and SSH credentials in `workspace.local.env`:
+Import libraries from an existing local extraction, without accessing a device:
 
 ```sh
-python3 scripts/bootstrap-stock-runtime.py
-# Optional override of the configured gateway:
-python3 scripts/bootstrap-stock-runtime.py --host 192.168.1.50
+python3 scripts/bootstrap-stock-runtime.py --from-root /path/to/stock-root
 python3 scripts/bootstrap-stock-runtime.py --verify-only
 ```
 
-Without flags, the command uses the configured gateway; `--host` overrides it.
-Without either a configured or explicit gateway, it reports a setup error.
-This reads only the manifest's `/lib` files; it changes no device files or
-services. Files are hash-checked
-before publication, and valid existing copies are reused. The command requires
-no compiler. `--output DIR` overrides the host destination; set `STOCK_ROOTFS`
-to the same directory for subsequent builds. `--from-root DIR` imports from an
-existing extraction containing `lib/` without device access. See the
-[fresh-checkout bootstrap instructions](../docs/building.md#bootstrap-stock-libraries-for-dynamic-builds).
-
-Alternatively extract only `/lib` from a local stock flash dump. This gateway's
-SquashFS starts at offset `0x200000`; do not extract or commit userdata:
+The source must contain `lib/`. An explicitly authorized gateway read can instead
+use `--host HOST`. See [runtime bootstrap](../docs/building.md#bootstrap-stock-libraries-for-dynamic-builds).
+`STOCK_ROOTFS` defaults to `build/stock-runtime`. Hashes and SONAMEs must match
+`config/stock-runtime.json`; generated links live in `link-crosstool-ng/` beside
+`lib/`. These runtime files and links are ignored build artifacts.
 
 ```sh
-unsquashfs -d build/stock-runtime -o 2097152 /path/to/stock-flash.bin lib
+make -C microhad LINK_MODE=dynamic mips
+LINK_MODE=dynamic ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
+LINK_MODE=dynamic bash micro-thread-matter-daemon/scripts/build.sh mips service
 ```
 
-`STOCK_ROOTFS` can select another extraction directory through the environment,
-Make arguments, or `workspace.local.env`. The default is `build/stock-runtime`.
-`config/stock-runtime.json` records stock SONAMEs and file hashes; a missing or
-modified library fails validation. Build preparation creates a generated `link/`
-directory (`link-crosstool-ng/` for crosstool-NG) beside the extracted `lib/`, bypassing the stock `libc.so` script's
-reference to an archive absent from the image. Extracted binaries and generated
-links are ignored build artifacts and must not be committed.
+Dynamic outputs are under `microhad/build/crosstool-ng/dynamic/` and
+`build/crosstool-ng/dynamic/`, with Rust target
+`lexra-crosstool-ng-uclibc-dynamic`. Mbed TLS and OpenThread archives remain
+statically incorporated. The stock image supplies the loader, libc, pthread,
+math, realtime, C++ and GCC shared runtimes. Since it has no `libutil.so`, only
+`forkpty`, `openpty` and `login_tty` are extracted from the compiler's libc archive
+into a private `libutil.a`. The new libc is never linked wholesale.
 
-```sh
-make -C microhad TOOLCHAIN=rsdk LINK_MODE=dynamic mips
-TOOLCHAIN=rsdk LINK_MODE=dynamic ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
-TOOLCHAIN=rsdk LINK_MODE=dynamic bash micro-thread-matter-daemon/scripts/build.sh mips service
+Dynamic C++ uses `_GLIBCXX_USE_CXX11_ABI=0` and disables sized deallocation.
+Stock `libstdc++.so.6` is followed by GCC 15 `libstdc++.a` for unresolved newer
+helper symbols. OpenThread resolves `__gnu_local_gp` to `_gp`. The Rust shim
+supplies ENOSYS fallbacks for missing pthread stack-inspection APIs. Firmware,
+RNG seed and maintenance helpers retain static linkage.
 
-# RSDK-free GCC 15.2 builds against the same stock runtime:
-make -C microhad TOOLCHAIN=crosstool-ng LINK_MODE=dynamic mips
-TOOLCHAIN=crosstool-ng LINK_MODE=dynamic ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
-TOOLCHAIN=crosstool-ng LINK_MODE=dynamic bash micro-thread-matter-daemon/scripts/build.sh mips service
-```
+Each executable receives an adjacent `.linkage.json`. Verification checks
+non-PIE `ET_EXEC`, `/lib/ld-uClibc.so.0`, exact stock dependency closure, strong
+imports and symbol versions, alongside the target architecture/instruction checks.
+These checks do not establish all runtime behavior. No shared library upload is
+required; device trials require explicit authorization.
 
-Outputs and caches remain isolated under `microhad/build/dynamic/` and
-`build/dynamic/`; the Rust target is `lexra-stock-uclibc-dynamic`. MicroHAD's
-Mbed TLS and Matter's OpenThread archives remain statically incorporated.
-The stock image supplies the loader, libc, pthread, math, realtime, C++ and GCC
-runtime libraries. It has no `libutil.so`: RSDK uses its `libutil.a`; crosstool-NG
-extracts only `forkpty`, `openpty` and `login_tty` from its libc archive into a
-small private `libutil.a`, retaining the internal aliases. Its new libc is never
-linked wholesale. Each backend has its own generated link directory.
+## Runtime limits and recorded validation
 
-Crosstool-NG dynamic C++ uses `_GLIBCXX_USE_CXX11_ABI=0` and disables sized
-deallocation. The stock `libstdc++.so.6` is linked first, followed by the selected
-GCC 15 `libstdc++.a` as a fallback for newer helper symbols absent from the old
-shared runtime. Only unresolved archive members are incorporated; no new shared
-C++ library is deployed. Isolated gateway probes cover formatted bounds errors,
-`bad_array_new_length`, default string streams, and exception handling with this
-combination. OpenThread's dynamic linker script also resolves `__gnu_local_gp`
-to the executable's `_gp` rather than exporting an unresolved linker pseudo-symbol.
-
-Crosstool-NG dynamic outputs are isolated under
-`microhad/build/crosstool-ng/dynamic/` and `build/crosstool-ng/dynamic/`, with Rust
-target `lexra-crosstool-ng-uclibc-dynamic`. Existing static and RSDK caches and
-workspace selection remain separate. The Rust compatibility shim inspects stock exports
-and supplies its existing ENOSYS fallbacks for missing pthread stack-inspection
-APIs. Firmware, RNG seed, maintenance helpers and deployment defaults retain
-static linkage.
-
-Each executable receives an adjacent `.linkage.json`. Verification requires
-non-PIE `ET_EXEC`, `/lib/ld-uClibc.so.0`, and a dependency closure contained in
-the recorded stock library set. It checks strong imports and symbol versions
-against those exact libraries, plus executable MIPS-I/O32, soft-float and
-forbidden-instruction checks. Loader-required symbols and copy relocations
-remain visible. These checks do not establish runtime compatibility of RSDK
-headers/CRT with the stock libraries or stock kernel behavior; a device trial
-still requires explicit authorization.
-
-Compare the stripped executables with static counterparts:
-
-```sh
-python3 scripts/report-dynamic-linkage.py --output build/dynamic/linkage-summary.json \
-  microhad/build/dynamic/mips-ziggurat-matter/microhad.linkage.json \
-  build/dynamic/ziggurat-hdlc/lexra-stock-uclibc-dynamic/release/ziggurat.stripped.linkage.json \
-  build/dynamic/micro-thread-matter-daemon/mthread-matter-mips.linkage.json
-```
-
-All shared dependencies are part of the stock image, so the additional
-shared-library upload is **zero bytes**. The summary also lists their existing
-uncompressed size for reference; it is not additional application storage.
-JFFS2 compression and process memory use are not measured.
-
-Current stripped artifacts, linked and checked against the stock libraries:
-
-| Service | Static bytes | Stock-dynamic bytes |
-| --- | ---: | ---: |
-| MicroHAD | 1,959,780 | 1,567,736 |
-| Ziggurat multipan | 3,643,400 | 3,521,320 |
-| Matter (static libutil) | 2,621,088 | 2,474,048 |
-| Total | 8,224,268 | 7,563,104 |
-
-The executable saving is 661,164 bytes (about 646 KiB), with zero extra shared
-libraries. Stock runtime files are already present in the image and are not
-part of the application upload.
-
-A stock-gateway deployment trial on 2026-10-19 passed for all three dynamic
-services on Linux 3.10.90. Installed runtime hashes matched the recorded stock
-libraries; process maps confirmed the stock DSOs were loaded. HTTP and HTTPS
-status checks passed, Zigbee was online with the same 26-device inventory, and
-Matter reported its controller initialized, fabric ready and state running.
-The trial replaced only the three executables and native build manifest,
-retaining existing configuration and network/identity state. No new shared
-libraries were uploaded. This trial verified startup and integration;
-commissioning, device control and long-duration behavior remain untested.
-
-## Runtime limits
-
-The shared Rust shim supplies only APIs missing from the selected libc.
-For LinuxThreads, `pthread_getattr_np` and `pthread_attr_getstack` return `ENOSYS`.
-Stack-bound diagnostics and reliable stack-overflow reporting are not guaranteed.
-`pthread_setname_np` supports the current thread only. Application builds require
-the expanded libc configuration, rather than the initial minimal proof compiler.
+LinuxThreads lacks `pthread_getattr_np` and `pthread_attr_getstack`; the shim
+returns `ENOSYS`. Reliable stack-bound diagnostics and stack-overflow reporting
+are not guaranteed. `pthread_setname_np` supports the current thread only.
 
 Static crosstool-NG release artifacts completed a paired deployment on a
 Silvercrest SGWZ 1 A1 / HG06339 gateway on 2026-10-21. MicroHAD, Ziggurat and
-the Matter service started successfully; the dashboard, status and log APIs were
-reachable, and the existing formed Zigbee network retained its 26 devices.
-RSDK remains the default for local source builds. Crosstool-NG deployments use
-explicit artifact paths and follow the existing maintenance flow.
+Matter started; dashboard, status and log APIs were reachable, and the formed
+Zigbee network retained its 26 devices. Follow the existing maintenance flow
+for future authorized deployments.
+
+A stock-dynamic deployment trial on 2026-10-19 verified startup/integration of
+all three services with the existing 26-device inventory and no new shared
+libraries. It did not establish commissioning, device control or long-duration
+behavior. Earlier compatibility investigation results remain in the
+[stock-dynamic probe notes](../scripts/probes/stock-dynamic/README.md).
 
 ## Pinned LLVM host tools
 
-RSDK OpenThread C/C++ builds use **Clang 23.1.5** with RSDK headers, libraries
-and linking tools. Install the official Linux x86_64 binary distribution explicitly:
+Install the pinned host LLVM tools explicitly:
 
 ```sh
 python3 scripts/install-llvm.py
 ```
 
-The installer verifies the pinned archive SHA-256 and installs under ignored
-`tools/llvm-23.1.5/`. It does not replace system packages. Clang, Clang++, llvm-ar
-and llvm-strip are selected together in `config/toolchains.mk`. `CLANG`,
-`CLANGXX`, `LLVM_AR` and `LLVM_STRIP` accept environment or private workspace
-settings; environment overrides take precedence. Bare executable names use PATH;
-relative paths containing `/` resolve against the repository root. Missing tools
-fail target builds with an installation hint; builds never download tools.
-Compiler identities are included in target cache provenance.
+The installer verifies its archive hash and installs under ignored
+`tools/llvm-23.1.5/`. `LLVM_STRIP` and `LLVM_AR` remain available for Rust artifact
+processing and compatibility tooling; `CLANG`/`CLANGXX` remain available for
+standalone diagnostic probes. None selects an alternative gateway compiler.
+Environment/private workspace overrides are supported. Relative paths resolve
+against the repository root; bare executable names use PATH.
+
+The historical RSDK/Clang OpenThread delay-slot investigation is preserved in
+its standalone probe and `scripts/check-mips-load-delay.py --self-test`.
+That workaround is no longer part of application builds.
+
+## Historical RSDK/Clang investigation
+
+The following records the retired backend investigation; it does not describe
+the current GCC OpenThread build.
 
 Clang 18.1.3 emitted a pointer load in the call delay slot before
 `AddressResolver::UpdateCacheEntry` entered `LinkedList::PopAfter`. The first
@@ -264,12 +171,21 @@ radio or application state; its child catches the deliberate SIGSEGV. This
 check covers C/C++ scheduling, not Rust's bundled LLVM or the ARM radio
 firmware toolchain. Host and crosstool-NG scheduling flags are unchanged.
 
-## RSDK-free dynamic compatibility investigation
 
-Small C/C++/Rust probes independently test GCC 15.2 against the stock gateway
-shared libraries, without changing the supported backend combinations. See
-[probe commands and compatibility results](../scripts/probes/stock-dynamic/README.md).
-C, C++ with selective compiler helper fallback, and Rust with the existing
-production compatibility shim compiled by GCC 15 have passed on the gateway.
-Unadapted C++ bounds checking and unshimmed Rust expose missing stock symbols. This is not yet an
-application migration or permission to deploy additional runtime libraries.
+## Historical stock-dynamic size measurements
+
+These measurements describe the earlier stock-runtime trial, rather than
+current compiler outputs.
+
+Current stripped artifacts, linked and checked against the stock libraries:
+
+| Service | Static bytes | Stock-dynamic bytes |
+| --- | ---: | ---: |
+| MicroHAD | 1,959,780 | 1,567,736 |
+| Ziggurat multipan | 3,643,400 | 3,521,320 |
+| Matter (static libutil) | 2,621,088 | 2,474,048 |
+| Total | 8,224,268 | 7,563,104 |
+
+The executable saving is 661,164 bytes (about 646 KiB), with zero extra shared
+libraries. Stock runtime files are already present in the image and are not
+part of the application upload.

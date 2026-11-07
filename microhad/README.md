@@ -20,9 +20,9 @@ make -C microhad webui
 
 Defaults are `ZIGGURAT=1 MATTER=1`; Matter requires Ziggurat. Use
 `ZIGGURAT=1 MATTER=0` for Zigbee only, or `ZIGGURAT=0` for EZSP.
-The default target binary is `microhad/build/mips-ziggurat-matter/microhad`.
+The default target binary is `microhad/build/crosstool-ng/mips-ziggurat-matter/microhad`.
 [Build setup](../docs/building.md) covers dependencies and artifact paths;
-[toolchain selection](../config/TOOLCHAINS.md) covers RSDK and crosstool-NG.
+[toolchain selection](../config/TOOLCHAINS.md) covers the crosstool-NG compiler.
 
 After every C++ source/header change, run host tests and the MIPS build. After
 Web UI changes, build the UI. See [test entrypoints](test/TEST_PLAN.md) and

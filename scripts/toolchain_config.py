@@ -1,4 +1,4 @@
-"""Resolve shared host and gateway compiler settings without requiring RSDK."""
+"""Resolve shared host and gateway compiler settings for the crosstool-NG compiler."""
 import os
 from pathlib import Path
 import shlex
@@ -23,23 +23,18 @@ def settings():
     if snapshots not in ('true', 'false'):
         raise ValueError('CRASH_SNAPSHOTS must be true or false')
     values['CRASH_SNAPSHOTS'] = snapshots
-    backend = environment.get('TOOLCHAIN', 'rsdk')
-    if backend not in ('rsdk', 'crosstool-ng'):
-        raise ValueError('TOOLCHAIN must be rsdk or crosstool-ng: ' + backend)
     link_mode = environment.get('LINK_MODE', 'static')
     if link_mode not in ('static', 'dynamic'):
         raise ValueError('LINK_MODE must be static or dynamic: ' + link_mode)
     values['STOCK_ROOTFS'] = Path(environment.get('STOCK_ROOTFS', ROOT / 'build/stock-runtime')).resolve()
     values['LINK_MODE'] = link_mode
-    values['STOCK_LINK_DIR'] = values['STOCK_ROOTFS'] / ('link-crosstool-ng' if backend == 'crosstool-ng' else 'link')
-    values['TOOLCHAIN'] = backend
-    values['RSDK_ROOT'] = Path(environment.get('RSDK_ROOT', ROOT / values['RSDK_RELATIVE'])).resolve()
+    values['STOCK_LINK_DIR'] = values['STOCK_ROOTFS'] / 'link-crosstool-ng'
     values['CROSSTOOL_NG_ROOT'] = Path(environment.get('CROSSTOOL_NG_ROOT', ROOT / values['CROSSTOOL_NG_RELATIVE'])).resolve()
-    compiler_root = values['RSDK_ROOT' if backend == 'rsdk' else 'CROSSTOOL_NG_ROOT']
-    prefix = environment.get('TARGET_PREFIX', values['RSDK_PREFIX' if backend == 'rsdk' else 'CROSSTOOL_NG_PREFIX'])
+    compiler_root = values['CROSSTOOL_NG_ROOT']
+    prefix = environment.get('TARGET_PREFIX', values['CROSSTOOL_NG_PREFIX'])
     values.update(TARGET_TOOLCHAIN_ROOT=compiler_root, TARGET_PREFIX=prefix,
-                  TARGET_BUILD_SUBDIR=('' if backend == 'rsdk' else 'crosstool-ng/') + ('dynamic/' if link_mode == 'dynamic' else ''),
-                  TARGET_SPEC_NAME='lexra-stock-uclibc' if backend == 'rsdk' else 'lexra-crosstool-ng-uclibc')
+                  TARGET_BUILD_SUBDIR='crosstool-ng/' + ('dynamic/' if link_mode == 'dynamic' else ''),
+                  TARGET_SPEC_NAME='lexra-crosstool-ng-uclibc')
     if link_mode == 'dynamic':
         values['TARGET_SPEC_NAME'] += '-dynamic'
     for name, executable in [('CC', 'gcc'), ('CXX', 'g++'), ('AR', 'ar'), ('NM', 'nm'),
@@ -50,7 +45,7 @@ def settings():
 
 
 def target_path(path):
-    """Insert the backend directory immediately below a component's build directory."""
+    """Insert the target build directory immediately below a component's build directory."""
     path = Path(path)
     parts = list(path.parts)
     index = parts.index('build') + 1

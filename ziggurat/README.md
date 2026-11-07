@@ -17,8 +17,8 @@ ZIGGURAT_MULTIPAN=0 bash ziggurat/scripts/build.sh
 ```
 
 The default multipan build writes
-`build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped`.
-The alternate stock transport build writes under `build/ziggurat/`.
+`build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat.stripped`.
+The alternate stock transport build writes under `build/crosstool-ng/ziggurat/`.
 Both apply their patch series to ignored worktrees, preserving upstream source.
 Gateway builds override the upstream release optimization level with `opt-level="s"`
 to reduce binary size, retaining upstream LTO, stripping and abort-on-panic settings.
@@ -27,9 +27,9 @@ Without WebSockets the API defaults to stdio. Thread HDLC Unix/TCP endpoints
 remain available. Logging supports global and module levels in `RUST_LOG`
 (for example, `info,ziggurat_driver=debug`), but no span/field regex filters.
 
-Gateway builds use RSDK by default. After `python3 scripts/build-toolchain.py`,
-run `TOOLCHAIN=crosstool-ng ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh`
-for the source-built compiler. Its multipan artifact is
+Gateway builds use crosstool-NG. After `python3 scripts/build-toolchain.py`,
+run `ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh`
+to build the multipan artifact at
 `build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat.stripped`;
 single-PAN output is under `build/crosstool-ng/ziggurat/`. See
 [toolchain selection](../config/TOOLCHAINS.md) for source credits and limits.

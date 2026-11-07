@@ -180,11 +180,9 @@ bash micro-thread-matter-daemon/scripts/build.sh mips service
 bash firmware/scripts/build-maintenance.sh
 ```
 
-To build without RSDK, first run `python3 scripts/build-toolchain.py`, then
-select `TOOLCHAIN=crosstool-ng` for the target commands above (for example,
-`make -C microhad TOOLCHAIN=crosstool-ng mips`). Crosstool-NG artifacts use separate
-`build/crosstool-ng/` directories. See [toolchain selection](config/TOOLCHAINS.md)
-for commands, source credits and compatibility limits.
+First build the MIPS compiler with `python3 scripts/build-toolchain.py`.
+Target artifacts use `build/crosstool-ng/` directories. See
+[toolchain configuration](config/TOOLCHAINS.md) for commands, source credits and compatibility limits.
 
 ## Repository layout
 

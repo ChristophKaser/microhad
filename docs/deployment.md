@@ -8,9 +8,8 @@ SSH settings in the private [workspace env file](workspace-settings.md).
 remain explicit overrides. Deployment requires an explicit request; these
 examples are procedures, not actions run by reading this document.
 
-Artifact paths below show RSDK outputs. When selecting `TOOLCHAIN=crosstool-ng`,
-use the crosstool-NG paths listed in [toolchain selection](../config/TOOLCHAINS.md);
-explicit `--binary` and service paths must match the selected build.
+Artifact paths below use crosstool-NG. See [toolchain configuration](../config/TOOLCHAINS.md);
+explicit `--binary` and service paths must match the build.
 
 ## Choose the update procedure
 
@@ -51,8 +50,8 @@ Rust service and supervisor:
 
 ```sh
 ./deploy.sh --target /tuya/native --binary-only \
-  --binary microhad/build/mips-ziggurat-matter/microhad \
-  --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
+  --binary microhad/build/crosstool-ng/mips-ziggurat-matter/microhad \
+  --matter-service build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips
 ```
 
 Add `--activate-paired` to install the paired launcher for the next stack start.
@@ -69,7 +68,7 @@ Matter, configuration or Web UI assets:
 ```sh
 ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 ./deploy.sh --services ziggurat,supervisor --target /tuya/native \
-  --ziggurat build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat.stripped
+  --ziggurat build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat.stripped
 ```
 
 `supervisor` selects `paired_start.sh` and `paired_control.sh` as a pair. Either
@@ -99,10 +98,10 @@ ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 bash firmware/scripts/build-maintenance.sh
 bash micro-thread-matter-daemon/scripts/build.sh mips service
 ./deploy.sh --maintenance-deploy --target /tuya/native \
-  --binary microhad/build/mips-ziggurat-matter/microhad \
-  --ziggurat build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat \
-  --matter-service build/micro-thread-matter-daemon/mthread-matter-mips \
-  --maintenance-helper build/gateway-maintenance
+  --binary microhad/build/crosstool-ng/mips-ziggurat-matter/microhad \
+  --ziggurat build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat \
+  --matter-service build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips \
+  --maintenance-helper build/crosstool-ng/gateway-maintenance
 ```
 
 The script quiesces/stops the stack, installs the complete bundle, activates

@@ -22,18 +22,18 @@ bash micro-thread-matter-daemon/scripts/build.sh host transport
 
 The default is `host service`. Production outputs are
 `build/micro-thread-matter-daemon/target/release/mthread-matter` and
-`build/micro-thread-matter-daemon/mthread-matter-mips`. Synthetic fixtures retain the names
+`build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips`. Synthetic fixtures retain the names
 `ot-matter-commissioning-probe` and `ot-matter-transport-probe`.
 Always use the build wrapper before integration checks; plain Cargo builds can
 leave the fixture harness using a stale executable.
 
-MIPS builds select RSDK by default, or crosstool-NG without RSDK.
+MIPS builds use the source-built crosstool-NG compiler.
 After `python3 scripts/build-toolchain.py`, run
-`TOOLCHAIN=crosstool-ng bash micro-thread-matter-daemon/scripts/build.sh mips service`.
+`bash micro-thread-matter-daemon/scripts/build.sh mips service`.
 Its output is `build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips`;
 OpenThread target artifacts are under `build/crosstool-ng/openthread-unix/`.
-RSDK OpenThread uses Clang 18; crosstool-NG uses its native GCC/G++.
-Host builds need neither MIPS SDK and keep their fixture paths. See
+OpenThread uses its native GCC/G++.
+Host builds need no MIPS compiler and keep their fixture paths. See
 [toolchain selection](../config/TOOLCHAINS.md) for source credits and limits.
 
 Build scripts prepare `build/micro-thread-matter-daemon/service-source/` from
@@ -223,11 +223,10 @@ For explicitly requested deployment of a changed service, run from the root:
 
 ```sh
 ./deploy.sh --services matter --target /tuya/native \
-  --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
+  --matter-service build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips
 ```
 
-This example uses the RSDK artifact; select the crosstool-NG output path when
-using crosstool-NG. Selective maintenance
+Selective maintenance
 retains the installed launcher and restarts the paired stack. Rollback copies
 are opt-in via `--rollback-dir DIR`; existing backups are preserved.
 

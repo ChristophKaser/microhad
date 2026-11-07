@@ -29,11 +29,11 @@ device tests still require explicit `--host` or `--device`.
 Compiler defaults are maintained once in `config/toolchains.mk`. Shell build
 helpers source `scripts/toolchains.sh`; Python checks use
 `scripts/toolchain_config.py`; MicroHAD's Makefile includes the same settings.
-`RSDK_ROOT` can be set in `workspace.local.env`, the environment or on a Make command line to select
-another compatible toolchain. `TOOLCHAIN=crosstool-ng` selects the source-built
-Lexra/uClibc-ng compiler; `CROSSTOOL_NG_ROOT` overrides its location.
-See [toolchain selection](config/TOOLCHAINS.md) for build commands, isolated outputs
-and compatibility limits. RSDK remains the default.
+`CROSSTOOL_NG_ROOT` can be set in `workspace.local.env`, the environment or on a
+Make command line to select another compatible installation of the source-built
+Lexra/uClibc-ng compiler. See [toolchain configuration](config/TOOLCHAINS.md) for
+build commands and compatibility limits.
+The former `TOOLCHAIN` setting is ignored.
 
 Initialize the pinned shared C dependencies before building either gateway service:
 

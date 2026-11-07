@@ -8,23 +8,22 @@ local compiler selection, gateway IP, LAN interface and SSH credentials. See
 `workspace.local.env.example`. Host tools load it automatically; explicit
 arguments and existing environment variables override it. Never commit this
 trusted shell file or print credentials. Prefer an existing `SSH_PASSWORD_FILE`
-by pathname. `RSDK_ROOT` can override the configured RSDK.
-`make TOOLCHAIN=crosstool-ng mips` selects the source-built compiler and writes
-under `build/crosstool-ng/`. See [toolchain selection](../config/TOOLCHAINS.md).
+by pathname. `CROSSTOOL_NG_ROOT` overrides the source-built compiler installation.
+Target builds use crosstool-NG and write under `build/crosstool-ng/`. See
+[toolchain configuration](../config/TOOLCHAINS.md).
 
 ```sh
 make host test
 make mips
 ```
 
-Artifact paths shown below are RSDK outputs. When the local configuration selects
-crosstool-NG, use its isolated artifact paths from the toolchain guide; explicit
-`--binary` and service-path arguments override automatic selection.
+Artifact paths below use the crosstool-NG compiler. Explicit `--binary` and
+service-path arguments override automatic artifact resolution.
 
 Builds default to Ziggurat and Matter.
 Initialize TLS with `git submodule update --init --recursive microhad/dependencies/mbedtls`
 from the repository root before building. `make mips` builds the Mbed TLS v4 submodule and produces the static,
-big-endian MIPS binary at `build/mips-ziggurat-matter/microhad`.
+big-endian MIPS binary at `build/crosstool-ng/mips-ziggurat-matter/microhad`.
 Use `make ZIGGURAT=0 mips` for the legacy EZSP binary or
 `make ZIGGURAT=1 MATTER=0 mips` for Ziggurat without Matter APIs.
 
@@ -76,8 +75,8 @@ bash micro-thread-matter-daemon/scripts/build.sh mips service
 
 # Stage the Matter package without changing the active launcher or processes
 ./deploy.sh --target /tuya/native --binary-only \
-  --binary microhad/build/mips-ziggurat-matter/microhad \
-  --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
+  --binary microhad/build/crosstool-ng/mips-ziggurat-matter/microhad \
+  --matter-service build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips
 ```
 
 Staging does not activate Matter or restart a process. To install the
@@ -111,7 +110,7 @@ state, Web UI and existing backups are preserved.
 ```sh
 bash micro-thread-matter-daemon/scripts/build.sh mips service
 ./deploy.sh --services matter --target /tuya/native \
-  --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
+  --matter-service build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips
 ```
 
 Rollback artifact generation is disabled by default for both selective and
@@ -144,10 +143,10 @@ ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 bash firmware/scripts/build-maintenance.sh
 bash micro-thread-matter-daemon/scripts/build.sh mips service
 ./deploy.sh --maintenance-deploy --target /tuya/native \
-  --binary microhad/build/mips-ziggurat-matter/microhad \
-  --ziggurat build/ziggurat-hdlc/lexra-stock-uclibc/release/ziggurat \
-  --matter-service build/micro-thread-matter-daemon/mthread-matter-mips \
-  --maintenance-helper build/gateway-maintenance
+  --binary microhad/build/crosstool-ng/mips-ziggurat-matter/microhad \
+  --ziggurat build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat \
+  --matter-service build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips \
+  --maintenance-helper build/crosstool-ng/gateway-maintenance
 ```
 
 For an update to an already paired installation, `--restart` signals only the
@@ -274,8 +273,8 @@ same local artifacts against the staged device files:
 
 ```sh
 ./deploy.sh --target /tuya/native --activate-paired-only \
-  --binary microhad/build/mips-ziggurat-matter/microhad \
-  --matter-service build/micro-thread-matter-daemon/mthread-matter-mips
+  --binary microhad/build/crosstool-ng/mips-ziggurat-matter/microhad \
+  --matter-service build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips
 ```
 
 `--activate-paired-only` uploads only the launcher after verifying the staged

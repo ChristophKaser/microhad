@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from workspace_config import ROOT, settings, ssh_command
 
-KEYS = 'CLANG CLANGXX LLVM_AR LLVM_STRIP CRASH_SNAPSHOTS GATEWAY_IP LAN_INTERFACE TOOLCHAIN LINK_MODE RSDK_ROOT CROSSTOOL_NG_ROOT STOCK_ROOTFS SSH_PASSWORD_FILE SSH_PASSWORD SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT'.split()
+KEYS = 'CLANG CLANGXX LLVM_AR LLVM_STRIP CRASH_SNAPSHOTS GATEWAY_IP LAN_INTERFACE LINK_MODE CROSSTOOL_NG_ROOT STOCK_ROOTFS SSH_PASSWORD_FILE SSH_PASSWORD SSH_USER SSH_PORT SSH_CONNECT_TIMEOUT'.split()
 
 
 class WorkspaceSettings(unittest.TestCase):
@@ -65,7 +65,7 @@ class WorkspaceSettings(unittest.TestCase):
         self.config.write_text("""# ordinary shell configuration
 export GATEWAY_IP=192.0.2.20 # comment
 LAN_INTERFACE='lan test'
-RSDK_ROOT='build/compiler space'
+CROSSTOOL_NG_ROOT='build/compiler space'
 SSH_PASSWORD_FILE='../password file'
 EXTRA_SETTING=ignored
 SSH_PASSWORD='fixture password $literal # quote'
@@ -73,7 +73,7 @@ SSH_PASSWORD='fixture password $literal # quote'
         values = self.resolved()
         self.assertEqual(values['GATEWAY_IP'], '192.0.2.20')
         self.assertEqual(values['LAN_INTERFACE'], 'lan test')
-        self.assertEqual(values['RSDK_ROOT'], str(ROOT / 'build/compiler space'))
+        self.assertEqual(values['CROSSTOOL_NG_ROOT'], str(ROOT / 'build/compiler space'))
         self.assertEqual(values['SSH_PASSWORD_FILE'], str(ROOT.parent / 'password file'))
         self.assertNotIn('EXTRA_SETTING', values)
         self.assertNotIn('SSH_PASSWORD', values)
@@ -98,15 +98,15 @@ SSH_PASSWORD='fixture password $literal # quote'
         shutil.copy(ROOT / 'config/toolchains.mk', root / 'config/toolchains.mk')
         env = dict(self.env)
         del env['WORKSPACE_CONFIG']
-        result = subprocess.run(['sh', str(root / 'scripts/workspace-env.sh'), '--get', 'TOOLCHAIN'],
+        result = subprocess.run(['sh', str(root / 'scripts/workspace-env.sh'), '--get', 'LINK_MODE'],
                                 env=env, check=True, capture_output=True, text=True)
-        self.assertEqual(result.stdout.strip(), 'rsdk')
+        self.assertEqual(result.stdout.strip(), 'static')
         self.env['WORKSPACE_CONFIG'] = str(ROOT / 'workspace.local.env.example')
         self.assertEqual(self.resolved()['GATEWAY_IP'], '')
         self.assertEqual(self.resolved()['SSH_PASSWORD_SET'], '')
 
     def test_invalid_config_reports_no_secret(self):
-        for text in ["SSH_PASSWORD='fixture-secret", 'TOOLCHAIN=invalid', 'SSH_PORT=0', 'SSH_PORT=65536', 'SSH_CONNECT_TIMEOUT=no']:
+        for text in ["SSH_PASSWORD='fixture-secret", 'SSH_PORT=0', 'SSH_PORT=65536', 'SSH_CONNECT_TIMEOUT=no']:
             self.config.write_text(text + '\n')
             result = subprocess.run(['sh', str(ROOT / 'scripts/workspace-env.sh'), '--null'],
                                     env=self.env, capture_output=True)
@@ -117,8 +117,8 @@ SSH_PASSWORD='fixture password $literal # quote'
             self.resolved()
 
     def test_make_shell_python_compiler_agreement_and_overrides(self):
-        for backend in ['rsdk', 'crosstool-ng']:
-            self.config.write_text(f'TOOLCHAIN={backend}\nRSDK_ROOT="build/rsdk space"\nCROSSTOOL_NG_ROOT=build/candidate\n')
+        for backend in ['', 'rsdk', 'crosstool-ng', 'arbitrary']:
+            self.config.write_text(f'TOOLCHAIN={backend}\nCROSSTOOL_NG_ROOT=build/candidate\n')
             env = dict(self.env)
             python = subprocess.check_output(['python3', str(ROOT / 'scripts/toolchain_config.py'), 'TARGET_CC'], env=env, text=True).strip()
             shell = subprocess.check_output(['bash', '-c', 'source "$1/scripts/toolchains.sh"; printf "%s" "$TARGET_CC"', 'sh', str(ROOT)], env=env, text=True)
@@ -131,7 +131,7 @@ SSH_PASSWORD='fixture password $literal # quote'
             result = subprocess.run(['make', '--no-print-directory', '-f', '-', 'TOOLCHAIN=rsdk', 'TARGET_CC=/explicit/compiler'], input=recipe,
                                     env=dict(env, TOOLCHAIN='crosstool-ng'), cwd='/tmp', capture_output=True, text=True, check=True)
             self.assertIn('COMPILER=/explicit/compiler', result.stdout)
-            env.update(TOOLCHAIN=backend, RSDK_ROOT='build/environment-rsdk', CROSSTOOL_NG_ROOT='build/environment-candidate')
+            env.update(TOOLCHAIN=backend, CROSSTOOL_NG_ROOT='build/environment-candidate')
             python = subprocess.check_output(['python3', str(ROOT / 'scripts/toolchain_config.py'), 'TARGET_CC'], env=env, cwd='/tmp', text=True).strip()
             result = subprocess.run(['make', '--no-print-directory', '-f', '-'], input=recipe,
                                     env=env, cwd='/tmp', capture_output=True, text=True, check=True)

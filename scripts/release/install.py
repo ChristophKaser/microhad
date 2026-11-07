@@ -24,7 +24,7 @@ class Installer:
         self.args = args
         self.env = {k: v for k, v in os.environ.items() if k in ('PATH', 'HOME', 'TMPDIR', 'LANG', 'SSH_AUTH_SOCK')}
         self.env['API_ADMIN_PASSWORD_FILE'] = workspace_settings().get('API_ADMIN_PASSWORD_FILE', '')
-        self.env.update(WORKSPACE_CONFIG='/dev/null', TOOLCHAIN='crosstool-ng', LINK_MODE='static',
+        self.env.update(WORKSPACE_CONFIG='/dev/null', LINK_MODE='static',
                         SSH_PORT=str(args.ssh_port), SSH_USER='root', SSH_PASSWORD_FILE=str(args.password_file),
                         TARGET_READELF=shutil.which('readelf') or 'readelf')
         self.ssh = ['sh', str(ROOT / 'scripts/workspace-ssh.sh'), '--password-file', str(args.password_file), '--', args.host]
