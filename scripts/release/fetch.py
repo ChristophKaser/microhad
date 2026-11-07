@@ -128,6 +128,9 @@ def fetch_toolchain(root):
 
 
 def fetch(root, env, toolchain, toolchain_archives=True):
+    # Source exports omit host tools; install the checksum-pinned LLVM tools
+    # required by the shared build configuration before compiling applications.
+    subprocess.run(['python3', 'scripts/install-llvm.py'], cwd=root, env=env, check=True)
     records = json.loads((root / '.release/fetch-manifest.json').read_text())
     for record in records['sources']:
         fetch_tree(root, record)
