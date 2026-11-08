@@ -4,7 +4,10 @@
 `GCORE1` TCP crash stream, and uploads them to an FTP directory. Both listeners
 bind only to loopback. The paired supervisor starts it when the executable and
 configuration exist next to MicroHAD and restarts it if it exits. The local
-BusyBox 512 KiB log ring remains the dashboard's log source.
+BusyBox 512 KiB log ring remains the dashboard's log source. FTP upload and
+retention workers use nice +10 (or retain an inherited lower priority). The UDP
+receiver, syslog daemon, and stderr draining keep normal priority. This reduces
+CPU contention without deliberately slowing collection into the bounded queue.
 
 ## Configuration
 
@@ -78,3 +81,20 @@ diagnostic streams to loopback, and deploys the paired supervisor using the
 guarded selective maintenance flow. It refuses to overwrite an existing
 collector installation. Gateway access and the service restart require an
 explicit deployment request.
+
+## Update an installed collector
+
+After building and testing, update an explicitly selected gateway through the
+shared guarded deployment flow:
+
+```sh
+./deploy.sh --host GATEWAY_IP --services ftp --target /tuya/native
+```
+
+`--ftp-collector PATH` overrides the default target artifact. This selection
+preserves the private collector configuration, applies the normal flash reserve
+and hash checks, stops the paired owner and exact collector executable owners
+before replacement, then restarts and verifies the gateway. This also handles
+collectors retained by older supervisors across stack restarts. An unchanged
+binary skips upload and restart. Configuration, archive retention, and saved
+network state are not rewritten by this update.

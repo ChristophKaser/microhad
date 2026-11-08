@@ -109,6 +109,8 @@ elif 'dd bs=64k of=' in command and os.environ.get('SELECTED_UPLOAD_FAIL'):
     sys.exit(1)
 elif 'chmod 700' in command and '.new' in command and os.environ.get('SELECTED_VERIFY_FAIL'):
     sys.exit(1)
+elif 'FTP collector remains active' in command and os.environ.get('SELECTED_FTP_STOP_FAIL'):
+    sys.exit(1)
 elif 'df -k /tuya' in command:
     print(os.environ.get('FLASH_AVAILABLE_KIB','1000000'))
 """)
@@ -151,6 +153,28 @@ echo '{"available":true,"controller_initialized":true,"fabric_ready":true,"state
             self.assertEqual(len(uploads), 2)
             self.assertIn('/mthread-matter.new', uploads[0]['command'])
             self.assertIn('/ziggurat.new', uploads[1]['command'])
+
+    def test_selected_ftp_upload_stops_exact_collector_before_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); artifact=root/'collector';artifact.write_bytes(b'FTP priority build');artifact.chmod(0o700)
+            result,calls=self.selected_deployment(root,['--services','ftp','--ftp-collector',str(artifact)])
+            self.assertEqual(result.returncode,0,result.stderr)
+            uploads=[row for row in calls if row['bytes']]
+            self.assertEqual(len(uploads),1)
+            self.assertIn('/ftp-log-collector.new',uploads[0]['command'])
+            stop=next(i for i,row in enumerate(calls) if 'FTP collector remains active' in row['command'])
+            upload=next(i for i,row in enumerate(calls) if row['bytes'])
+            self.assertLess(stop,upload)
+            self.assertIn(' -> /tuya/native/ftp-log-collector',calls[stop]['command'])
+            self.assertFalse(any('config.json' in row['command'] for row in calls))
+
+    def test_selected_ftp_never_replaces_a_still_running_collector(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);artifact=root/'collector';artifact.write_bytes(b'FTP priority build');artifact.chmod(0o700)
+            result,calls=self.selected_deployment(root,['--services','ftp','--ftp-collector',str(artifact)],SELECTED_FTP_STOP_FAIL='1')
+            self.assertNotEqual(result.returncode,0)
+            self.assertFalse(any(row['bytes'] for row in calls))
+            self.assertFalse(any('( /tuya/tuya_start.sh ' in row['command'] for row in calls))
 
     def test_selected_supervisor_uploads_only_supervisor_and_control(self):
         with tempfile.TemporaryDirectory() as directory:

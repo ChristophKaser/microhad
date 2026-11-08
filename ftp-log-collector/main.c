@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -130,8 +131,17 @@ static void trim_logs(struct ftp_session *s) {
     for(i=0;i<n.count;i++)free(n.v[i]);
     free(n.v);
 }
+/* CPU scheduling is per kernel thread on Linux. Keep the UDP receiver at
+ * normal priority and lower only the workers doing FTP I/O and retention. */
+static void lower_upload_priority(void) {
+    int priority;
+    errno=0;priority=getpriority(PRIO_PROCESS,0);
+    if(errno || (priority<10 && setpriority(PRIO_PROCESS,0,10)))
+        syslog(LOG_WARNING,"cannot lower FTP upload priority: %s",strerror(errno));
+}
 static void *logs(void *unused) {
     unsigned char packet[MAX_PACKET+1]; struct ftp_session ftp;size_t bytes=0,n=0;time_t opened=0,last_error=0;char tmp[160],final[160],id[80];int active=0; (void)unused;
+    lower_upload_priority();
     ftp.control=ftp.data=-1;
     while(!stopping) {
         if(!active) {
@@ -184,7 +194,7 @@ static void capture(int fd) {
     send(fd,"K",1,MSG_NOSIGNAL);
 out: ftp_close(&ftp);if(!saved)syslog(LOG_WARNING,"FTP crash capture failed");
 }
-static void *cores(void *arg) { int server=*(int*)arg;while(!stopping){int fd=accept(server,0,0);if(fd<0){if(errno==EINTR)continue;break;}capture(fd);close(fd);}return 0; }
+static void *cores(void *arg) { int server=*(int*)arg;lower_upload_priority();while(!stopping){int fd=accept(server,0,0);if(fd<0){if(errno==EINTR)continue;break;}capture(fd);close(fd);}return 0; }
 int main(int argc,char **argv) {
     int udp,tcp;pthread_t log_thread,core_thread;unsigned char packet[MAX_PACKET];struct sigaction sa;unsigned long reported=0;
     if(argc==3&&!strcmp(argv[1],"--check-config"))return read_config(argv[2])?2:0;

@@ -15,6 +15,7 @@ target=/tuya/native
 build_subdir=$(python3 "$repo_root/scripts/toolchain_config.py" TARGET_BUILD_SUBDIR)
 binary="$project_dir/build/${build_subdir}mips-ziggurat-matter/microhad"
 binary_explicit=false
+ftp_collector="$repo_root/build/${build_subdir}ftp-log-collector"
 password_file=$SSH_PASSWORD_FILE
 config=""
 deploy_binary=true
@@ -39,7 +40,7 @@ flash_reserve_kib=${DEPLOY_FLASH_RESERVE_KIB:-512}
 
 usage() {
     echo "usage: $0 --password-file PATH --maintenance-deploy --binary PATH --ziggurat PATH --matter-service PATH --maintenance-helper PATH [--webui-dir DIR] [--rollback-dir DIR] [--host HOST] [--target /tuya/native]" >&2
-    echo "       $0 --password-file PATH --services matter[,native,ziggurat,supervisor] --target /tuya/native [--matter-service PATH] [--binary PATH] [--ziggurat PATH] [--rollback-dir DIR]" >&2
+    echo "       $0 --password-file PATH --services matter[,native,ziggurat,supervisor,ftp] --target /tuya/native [--matter-service PATH] [--binary PATH] [--ziggurat PATH] [--ftp-collector PATH] [--rollback-dir DIR]" >&2
     echo "       $0 --password-file PATH [--both --supervisor --binary PATH --target /tuya/native] [existing deployment options]" >&2
     exit 2
 }
@@ -57,6 +58,7 @@ while [ "$#" -gt 0 ]; do
         --target) target=${2-}; shift 2 ;;
         --binary) binary=${2-}; binary_explicit=true; shift 2 ;;
         --matter-service) matter_service=${2-}; shift 2 ;;
+        --ftp-collector) ftp_collector=${2-}; shift 2 ;;
         --ziggurat) ziggurat=${2-}; shift 2 ;;
         --maintenance-helper) maintenance_helper=${2-}; shift 2 ;;
         --webui-dir) webui_dir=${2-}; shift 2 ;;
@@ -91,6 +93,7 @@ if [ -n "$service_selection" ]; then
             native) [ "$binary_explicit" = true ] && [ -x "$binary" ] || usage ;;
             ziggurat) [ -n "$ziggurat" ] && [ -x "$ziggurat" ] || usage ;;
             supervisor) ;;
+            ftp) [ -x "$ftp_collector" ] || usage ;;
             *) echo "Unknown service: $selected" >&2; exit 2 ;;
         esac
     done
@@ -241,6 +244,7 @@ verify_webui_assets() {
 selected_service_paths() {
     case "$1" in
         matter) service_source=$matter_service; service_name=mthread-matter ;;
+        ftp) service_source=$ftp_collector; service_name=ftp-log-collector ;;
         native) service_source=$binary; service_name=microhad ;;
         ziggurat) service_source=$ziggurat; service_name=ziggurat ;;
         supervisor) service_source="$project_dir/paired_start.sh"; service_name=paired_start.sh ;;
@@ -329,9 +333,21 @@ selected_services_deploy() {
     supervisor_pid=$(ssh_command 'cat /tmp/ziggurat-supervisor/supervisor.pid' </dev/null) || return 1
     case "$supervisor_pid" in ''|*[!0-9]*) echo 'Invalid supervisor PID' >&2; return 1 ;; esac
     [ "$supervisor_pid" -gt 1 ] || return 1
+    case " $changed_services " in *" ftp "*)
+        ssh_command "test -x \"$target/ftp-log-collector\" && \"$target/ftp-log-collector\" --check-config \"$target/ftp-log-collector.conf\"" || {
+            echo 'FTP collector update requires a valid existing private configuration' >&2; return 1;
+        }
+        ;;
+    esac
     echo "Updating services:$changed_services; quiescing the paired stack"
     ssh_command "kill -0 $supervisor_pid && : > /tmp/ziggurat-supervisor/quiesce; n=0; while [ ! -f /tmp/ziggurat-supervisor/quiesced ] && [ \$n -lt 20 ]; do sleep 1; n=\$((n+1)); done; test -f /tmp/ziggurat-supervisor/quiesced" || return 1
     ssh_command "kill -TERM $supervisor_pid; n=0; while [ -d /proc/$supervisor_pid ] && [ \$n -lt 20 ]; do sleep 1; n=\$((n+1)); done; test ! -d /proc/$supervisor_pid" || return 1
+    case " $changed_services " in *" ftp "*)
+        # Older supervisors leave their collector alive across stack restarts.
+        # Stop exact collector executable owners before replacing that inode.
+        ssh_command "for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/ftp-log-collector\") id=\${p#/proc/}; id=\${id%/exe}; kill -TERM \"\$id\" 2>/dev/null || true ;; esac; done; n=0; while [ \$n -lt 20 ]; do active=false; for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/ftp-log-collector\") active=true ;; esac; done; [ \"\$active\" = true ] || exit 0; sleep 1; n=\$((n+1)); done; echo 'FTP collector remains active' >&2; exit 1" || return 1
+        ;;
+    esac
     ssh_command "for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/microhad\"|*\" -> $target/ziggurat\"|*\" -> $target/mthread-matter\") echo 'Paired process remains active' >&2; exit 1 ;; esac; done" || return 1
     selected_upload() {
         upload_source=$1; upload_destination=$2; upload_mode=$3

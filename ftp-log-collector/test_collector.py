@@ -112,6 +112,12 @@ def main():
         try:
             wait_for(lambda: proc.poll() is not None or try_connect(tcp))
             assert proc.poll() is None
+            base_priority=os.getpriority(os.PRIO_PROCESS,proc.pid)
+            def upload_priorities():
+                tasks=Path(f'/proc/{proc.pid}/task').glob('*/stat')
+                priorities=sorted(int(p.read_text().split(') ',1)[1].split()[16]) for p in tasks)
+                return priorities==sorted([base_priority,max(base_priority,10),max(base_priority,10)])
+            wait_for(upload_priorities)
             s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
             s.sendto(b'<13>test log',( '127.0.0.1',udp));s.close()
             wait_for(lambda: any(k.endswith('.log') for k in server.files))
