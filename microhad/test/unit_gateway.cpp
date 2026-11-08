@@ -32,6 +32,31 @@
 class GatewayTestPeer {
 public:
 
+    static void electricalMeasurements() {
+        char directory[]="/tmp/microhad-electrical-XXXXXX";assert(mkdtemp(directory));
+        Gateway gateway("/dev/null",115200,directory,"","","",0,std::string(directory)+"/history.values");
+        const std::string node="matter:0000000000000001:0000000000000028";
+        MatterEndpoint actor;actor.node="0000000000000028";actor.id=node+":0001";actor.endpoint=1;actor.online=true;actor.servers.push_back(6);actor.servers.push_back(29);
+        MatterEndpoint meter=actor;meter.id=node+":0002";meter.endpoint=2;meter.servers.clear();meter.servers.push_back(29);meter.servers.push_back(144);meter.servers.push_back(145);
+        std::vector<MatterEndpoint> endpoints;endpoints.push_back(actor);endpoints.push_back(meter);std::string error;
+        assert(gateway.reconcileMatterDevices(endpoints,&error));
+        assert(gateway.history_.initialize(&error));
+        MatterReading reading;reading.node=actor.node;reading.endpoint=2;reading.cluster=144;reading.attribute=8;
+        MatterProto::ElectricalReading e;MatterProto::ElectricalQuantityList list;MatterProto::ElectricalQuantity q;
+        q.key=std::string("active_power");q.unit=std::string("W");q.known=true;q.value=-12.345;list.items.push_back(q);e.quantities=list;reading.electricalValue=e;
+        assert(gateway.applyMatterReading(reading,&error));
+        const Device& plug=gateway.devices_[actor.id];assert(plug.actor.present()&&plug.power.present()&&plug.power.read().known&&plug.power.read().watts==-12.345);
+        assert(plug.electrical.read().values.find("active_power")->second.endpoint==2);
+        Automation::Value snapshot=Automation::snapshot(plug);assert(snapshot.fields["power_watts"].number==-12.345);
+        assert(snapshot.fields["electrical"].fields["active_power"].fields["value"].number==-12.345);
+        Automation::Catalog catalog;catalog.devices[actor.id]=Automation::capture(plug);assert(catalog.resolve(node,&error)->metadata->id==actor.id);
+        std::string history;assert(gateway.history_.readForDevice(actor.id,0,&history,&error));assert(history.find("-12.345")!=std::string::npos);
+        assert(gateway.reconcileMatterDevices(endpoints,&error));assert(gateway.devices_[actor.id].power.read().watts==-12.345);
+        q.known=false;q.value=MatterProto::Optional<double>();list.items[0]=q;e.quantities=list;reading.electricalValue=e;
+        assert(gateway.applyMatterReading(reading,&error));assert(!gateway.devices_[actor.id].power.read().known);
+        assert(gateway.statusJson().find("\"has_power\":true")!=std::string::npos);
+    }
+
     static void deviceCacheBatching() {
         char directory[]="/tmp/microhad-cache-batch-XXXXXX";assert(mkdtemp(directory));
         const std::string cache="/tmp/microhad-values.pb";
@@ -4169,6 +4194,7 @@ static void testDeviceComponents() {
 void runUnitTests() {
     {DeviceCacheIsolation cache;testDeviceComponents();}
     { DeviceCacheIsolation cache; GatewayTestPeer::deviceCacheBatching(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::electricalMeasurements(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::genericThermostats(); }
     { DeviceCacheIsolation cache; testTrvzbProtocol(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::trvzb(); }

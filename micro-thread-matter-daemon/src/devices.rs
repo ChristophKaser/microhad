@@ -1176,7 +1176,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             if subscription.id.is_some() {
                 log::warn!("Matter subscription overdue: node={:016x} endpoint={} cluster={} interval={}s; restoring", key.node, key.endpoint, key.cluster, subscription.max_interval);
             }
-            let max_interval = if self.snapshots.iter().any(|snapshot| {
+            let max_interval = if matches!(key.cluster,144|145) { 60 } else if self.snapshots.iter().any(|snapshot| {
                 snapshot.node == key.node && snapshot.model == "ALPSTUGA air quality monitor"
             }) { 900 } else { crate::subscriptions::MAX_REPORT_INTERVAL_SECONDS };
             // Stop acknowledging this ID before asking for its replacement.
@@ -1872,6 +1872,9 @@ fn subscription_keys(snapshots: &[Snapshot], maximum: usize) -> Vec<Subscription
                     keys.push(SubscriptionKey { node: snapshot.node, endpoint: endpoint.id, cluster, attribute: 0,
                     });
                 }
+            }
+            for cluster in [144,145] {
+                if endpoint.servers.contains(&cluster) { keys.push(SubscriptionKey{node:snapshot.node,endpoint:endpoint.id,cluster,attribute:u32::MAX}); }
             }
             if endpoint.servers.contains(&47) {
                 keys.push(SubscriptionKey { node: snapshot.node, endpoint: endpoint.id, cluster: 47, attribute: 12,

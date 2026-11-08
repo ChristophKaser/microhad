@@ -170,13 +170,14 @@ fn matter_report_valid(reading: &crate::operations::ResultValue) -> bool {
     use crate::operations::Value;
     if reading.node.0 < 2
         || reading.endpoint == u16::MAX
-        || (reading.cluster != 513
+        || (!matches!(reading.cluster,513|144|145)
             && reading.attribute != 0
             && !(reading.cluster == 47 && reading.attribute == 12))
     {
         return false;
     }
     match (reading.cluster, &reading.value) {
+        (144|145, Value::Electrical(_)) => crate::electrical::supported(reading.cluster,reading.attribute),
         (513, _) => crate::thermostat::value_valid(reading.attribute, &reading.value),
         (6, Value::Bool(_)) => true,
         (69, Value::Bool(_)) => true,
@@ -477,6 +478,11 @@ pub fn reading(v: &crate::operations::ResultValue) -> p::AttributeReading {
     use crate::operations::Value;
     use p::ReadingValueChoice as R;
     let (kind, value) = match &v.value {
+        Value::Electrical(v) => ("electrical", R::Electrical(p::ElectricalReading{
+            quantities:Some(p::ElectricalQuantityList{items:v.quantities.iter().map(|q|p::ElectricalQuantity{key:Some(q.key.clone()),value:q.value,unit:Some(q.unit.clone()),known:Some(q.known)}).collect()}),
+            start_timestamp:v.start_timestamp,end_timestamp:v.end_timestamp,start_systime:v.start_systime,end_systime:v.end_systime,
+            imported_reset_timestamp:v.imported_reset_timestamp,exported_reset_timestamp:v.exported_reset_timestamp,imported_reset_systime:v.imported_reset_systime,exported_reset_systime:v.exported_reset_systime,
+        })),
         Value::Bool(v) => ("bool", R::Boolean(*v)),
         Value::U8(v) => (
             "u8",

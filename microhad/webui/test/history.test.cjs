@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { loadHistoryPages, historyWindow, mergeHistorySamples } = require(process.env.HISTORY_WEBUI_MODULE);
+global.sessionStorage = global.localStorage = { getItem: () => null };
 const sample = (cursor, timestamp = cursor, metric = 1, value = 20, unit = 'celsius') => [cursor, timestamp, metric, value, unit];
 const response = (samples, next_before = 0) => ({ ok: true, json: async () => ({ samples, next_before }) });
 

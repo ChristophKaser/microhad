@@ -376,6 +376,7 @@ fn normalize(
                 }
                 Value::Text(_) => "text",
                 Value::Array(_) => "list",
+                _ if msg=="ReadingValue" && has(&v,"quantities") => "electrical",
                 _ => "measurement",
             }
             .into(),

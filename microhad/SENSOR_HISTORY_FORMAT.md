@@ -205,3 +205,14 @@ remain dirty. Failures are reported through the coordinator and retried after
 60 seconds. Invalid flash headers are preserved and disable persistence for the
 run; invalid pages are skipped. CRC8 is the chosen, limited protection against
 torn writes, without a new format, migration, or additional checksums.
+
+## Electrical metric additions
+
+Metric 4 remains active power in watts, including signed readings. Metrics
+21–44 extend the V3 catalog with voltage, current, other power quantities,
+frequency, power factor, and cumulative/periodic imported/exported electrical
+energy. Their IDs and normalized units are defined by
+`config/electrical-measurements.def`. Existing metric IDs, page layout, cursor
+semantics, and records are unchanged. Electrical values use the existing
+floating-point sample representation; energy counters are samples rather
+than reset-spanning usage calculations. Unknown values do not append samples.

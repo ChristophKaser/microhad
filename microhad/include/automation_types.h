@@ -34,7 +34,11 @@ typedef std::tr1::shared_ptr<const Device> DevicePtr;
 // when a consumer needs them. Unchanged device metadata is shared across versions.
 enum Field { ActorOn, AirQuality, Battery, Brightness, Co2, ContactOpen, Humidity,
     Id, Kind, LastSeen, LightOn, LinkQuality, Name, Occupied, Online, Pm25, Power,
-    Source, Temperature, WaterDetected, WifiSignal, Thermostat, FieldCount };
+    Source, Temperature, WaterDetected, WifiSignal, Thermostat, Electrical,
+#define ELECTRICAL(c,a,s,k,u,d,m) Electrical_##k,
+#include "../../config/electrical-measurements.def"
+#undef ELECTRICAL
+    FieldCount };
 struct DeviceMetadata {
     std::string id,name,lookupName,source,kind,matterNode;
     int matterEndpoint;
@@ -46,12 +50,12 @@ typedef std::tr1::shared_ptr<const DeviceMetadata> MetadataPtr;
 struct DeviceSnapshot {
     DevicePtr record;
     MetadataPtr metadata;
-    uint32_t present;
+    uint64_t present;
     double values[FieldCount];
     std::string airQuality;
-    Value thermostat;
+    Value thermostat,electrical;
     DeviceSnapshot();
-    bool has(Field field) const { return (present & (1U<<field))!=0; }
+    bool has(Field field) const { return (present & (1ULL<<field))!=0; }
 };
 typedef std::tr1::shared_ptr<const DeviceSnapshot> SnapshotPtr;
 SnapshotPtr capture(const Device& device,const SnapshotPtr& previous=SnapshotPtr(),const DevicePtr& record=DevicePtr());

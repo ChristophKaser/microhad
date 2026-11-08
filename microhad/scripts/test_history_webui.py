@@ -13,4 +13,5 @@ with tempfile.TemporaryDirectory(prefix='history-webui-') as build:
                     '--outDir', build], check=True, cwd=root)
     subprocess.run(['node', '--test', str(root / 'webui/test/history.test.cjs')],
                    check=True, cwd=root,
-                   env=dict(os.environ, HISTORY_WEBUI_MODULE=str(Path(build) / 'historyLoader.js')))
+                   env=dict(os.environ, HISTORY_WEBUI_MODULE=str(Path(build) / 'historyLoader.js'),
+                            NODE_PATH=str(root / 'webui/node_modules')))

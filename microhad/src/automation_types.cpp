@@ -50,7 +50,11 @@ bool dimmable(const Device& d) {
         if(d.zigbee.read().endpoints[i].inputClusters[j]==8)return true;
     return false;
 }
-const char* names[]={"actor_on","air_quality","battery_percent","brightness_percent","co2_ppm","contact_open","humidity_percent","id","kind","last_seen","light_on","link_quality","name","occupied","online","pm25_micrograms_m3","power_watts","source","temperature_celsius","water_detected","wifi_signal_percent","thermostat"};
+const char* names[]={"actor_on","air_quality","battery_percent","brightness_percent","co2_ppm","contact_open","humidity_percent","id","kind","last_seen","light_on","link_quality","name","occupied","online","pm25_micrograms_m3","power_watts","source","temperature_celsius","water_detected","wifi_signal_percent","thermostat","electrical",
+#define ELECTRICAL(c,a,s,k,u,d,m) "electrical." #k,
+#include "../../config/electrical-measurements.def"
+#undef ELECTRICAL
+};
 bool booleanField(Field f) { return f==ActorOn||f==ContactOpen||f==LightOn||f==Occupied||f==Online||f==WaterDetected; }
 }
 DeviceMetadata::DeviceMetadata(const Device& d):id(d.ieeeAddress),name(d.name),lookupName(folded(d.name)),source(d.source.empty()?"zigbee":d.source),kind(d.kind),matterNode(d.matter.read().node),matterEndpoint(d.matter.read().endpoint),light(d.light.present()),actor(d.actor.present()),brightness(dimmable(d)),contact(d.contact.present()),humidity(d.humidity.present()) {}
@@ -69,6 +73,7 @@ bool sameField(const DeviceSnapshot& a,const DeviceSnapshot& b,Field field) {
     case Kind:return a.metadata->kind==b.metadata->kind;
     case Source:return a.metadata->source==b.metadata->source;
     case AirQuality:return a.airQuality==b.airQuality;
+    case Electrical:return a.electrical==b.electrical;
     case Thermostat:return a.thermostat==b.thermostat;
     default:return a.values[field]==b.values[field];
     }
@@ -130,7 +135,7 @@ SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr&
     DeviceSnapshot next;next.record=record;
     next.metadata=previous&&previous->metadata->matches(d)?previous->metadata:MetadataPtr(new DeviceMetadata(d));
     const bool zigbee=d.source.empty()||d.source=="zigbee";
-#define F(field,known,value) if(known){next.present|=1U<<field;next.values[field]=value;}
+#define F(field,known,value) if(known){next.present|=1ULL<<field;next.values[field]=value;}
     F(Id,true,0);F(Name,true,0);F(Kind,true,0);F(Source,true,0);
     F(Online,true,d.online||(!zigbee&&d.source!="matter"&&d.lastSeen>0)||(zigbee&&d.lastSeen>0));
     F(LastSeen,true,d.lastSeen);
@@ -144,8 +149,12 @@ SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr&
     F(Co2,d.co2.present()&&d.co2.read().known,d.co2.read().ppm);F(Pm25,d.pm25.present()&&d.pm25.read().known,d.pm25.read().microgramsM3);
     F(Brightness,d.brightness.present()&&(d.brightness.read().known||zigbee),d.brightness.read().percent);
     F(Battery,d.battery.present(),d.battery.read().percent);F(WifiSignal,d.wifiSignal.present(),d.wifiSignal.read().percent);F(LinkQuality,zigbee,d.zigbee.read().linkQuality);
+    if(d.electrical.present()) { next.present|=1ULL<<Electrical;parse(electricalJson(d.electrical.read()),&next.electrical); }
+#define ELECTRICAL(c,a,s,k,u,div,m) {std::map<std::string,ElectricalMeasurement>::const_iterator e=d.electrical.read().values.find(#k);if(e!=d.electrical.read().values.end()) {F(Electrical_##k,e->second.known,e->second.value);}}
+#include "../../config/electrical-measurements.def"
+#undef ELECTRICAL
     const bool thermostat=isThermostat(d);
-    if(thermostat)next.present|=1U<<Thermostat;
+    if(thermostat)next.present|=1ULL<<Thermostat;
     const bool sameThermostat=thermostat&&previous&&previous->has(Thermostat)&&previous->record&&sameThermostatInput(d,*previous->record);
 #undef F
     bool same=previous&&(!record||record==previous->record)&&next.metadata==previous->metadata&&next.present==previous->present;
@@ -164,22 +173,29 @@ Value fieldValue(const DeviceSnapshot& d,Field field) {
     case Id:return Value(d.metadata->id);case Name:return Value(d.metadata->name);
     case Kind:return Value(d.metadata->kind);case Source:return Value(d.metadata->source);
     case AirQuality:return Value(d.airQuality);
+    case Electrical:return d.electrical;
     case Thermostat:return d.thermostat;
     default:return booleanField(field)?Value(d.values[field]!=0):Value(d.values[field]);
     }
 }
 Value snapshot(const DeviceSnapshot& d) {
-    Value result=Value::object();for(unsigned i=0;i<FieldCount;++i)if(d.has(static_cast<Field>(i)))result.fields[names[i]]=fieldValue(d,static_cast<Field>(i));return result;
+    Value result=Value::object();for(unsigned i=0;i<FieldCount;++i)if(i<=Electrical&&d.has(static_cast<Field>(i)))result.fields[names[i]]=fieldValue(d,static_cast<Field>(i));return result;
 }
 Value snapshot(const Device& d) { return snapshot(*capture(d)); }
 Catalog::Catalog():ordered(new SnapshotList),names(new NameIndex),groups(new SceneCatalog) {}
 const DeviceSnapshot* Catalog::resolve(const std::string& target,std::string* error) const {
+    if(target.size()==40&&target.compare(0,7,"matter:")==0){
+        const DeviceSnapshot* primary=0;unsigned count=0;
+        for(std::map<std::string,SnapshotPtr>::const_iterator i=devices.begin();i!=devices.end();++i)
+            if(i->first.compare(0,target.size(),target)==0&&i->first.size()>target.size()&&(i->second->metadata->actor||i->second->metadata->light)){primary=i->second.get();++count;}
+        if(count==1)return primary;
+    }
     std::map<std::string,SnapshotPtr>::const_iterator direct=devices.find(target);
     if(direct!=devices.end())return direct->second.get();
     NameIndex::const_iterator name=names->find(folded(target));
     if(name==names->end()){*error="unknown device: "+target;return 0;}
     if(name->second.empty()){*error="ambiguous name; use stable IDs";return 0;}
-    direct=devices.find(name->second);return direct==devices.end()?0:direct->second.get();
+    return resolve(name->second,error);
 }
 Value eventValue(const Event& e) {
     if(!e.device)return e.data;

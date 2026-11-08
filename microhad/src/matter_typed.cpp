@@ -22,9 +22,21 @@ bool reading(const AttributeReading& d,MatterReading* out,bool report){
     if(!d.node.present||d.node.value<2||!d.endpoint.present||d.endpoint.value>65534||!d.cluster.present||!d.attribute.present||!d.value.present){ return false; }
     const AttributeValue& a=d.value.value;if(!a.type.present||!a.value.present){ return false; }
     const ReadingValue& v=a.value.value;const uint32_t cluster=d.cluster.value;
-    if(cluster!=513&&d.attribute.value!=(cluster==47?12U:0U)){ return false; }
+    if(cluster!=513&&cluster!=144&&cluster!=145&&d.attribute.value!=(cluster==47?12U:0U)){ return false; }
     MatterReading r;r.node=MatterWire::hexId(d.node.value);r.endpoint=d.endpoint.value;r.cluster=cluster;r.attribute=d.attribute.value;
-    if(cluster==513){if(!thermostatWireValue(d.attribute.value,a)){ return false; }r.thermostatValue=a;r.known=!isNull(v);r.unit=a.type.value;}
+    if(cluster==144||cluster==145){
+        if(a.type.value!="electrical"||!v.electrical.present||!electricalAttribute(cluster,d.attribute.value))return false;
+        const ElectricalReading& e=v.electrical.value;
+        if(e.quantities.value.items.size()>3 || (cluster==144&&e.quantities.value.items.size()!=1) || (cluster==145&&d.attribute.value!=5&&e.quantities.value.items.empty()))return false;
+        std::map<std::string,bool> seen;
+        for(size_t i=0;i<e.quantities.value.items.size();++i){const ElectricalQuantity& q=e.quantities.value.items[i];
+            if(!q.key.present||!q.unit.present||!q.known.present||seen[q.key.value])return false;
+            seen[q.key.value]=true;const ElectricalDefinition* def=electricalDefinition(q.key.value);
+            if(!def||def->cluster!=cluster||def->attribute!=d.attribute.value||def->unit!=q.unit.value||q.known.value!=q.value.present||(q.value.present&&!std::isfinite(q.value.value)))return false;
+        }
+        r.electricalValue=e;
+    }
+    else if(cluster==513){if(!thermostatWireValue(d.attribute.value,a)){ return false; }r.thermostatValue=a;r.known=!isNull(v);r.unit=a.type.value;}
     else if(cluster==6||cluster==69||(!report&&(cluster==3||cluster==30||cluster==56||cluster==62))){if(a.type.value!="bool"||!v.boolean.present){ return false; }r.known=true;r.booleanValue=v.boolean.value;}
     else if(cluster==8||cluster==47){if(a.type.value!="u8"){ return false; }r.known=!isNull(v);if(r.known){if(!v.unsigned_value.present||v.unsigned_value.value>(cluster==47?200U:254U)){ return false; }r.numberValue=v.unsigned_value.value;}}
     else if(cluster==91){

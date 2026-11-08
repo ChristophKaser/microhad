@@ -68,7 +68,7 @@ CACHE_NUMBER("temperature_celsius", temperature.read().celsius, temperature.ensu
 CACHE_NUMBER("humidity_percent", humidity.read().percent, humidity.ensure().percent=value, d->humidity.present(), 0, 100)
 CACHE_NUMBER("co2_ppm", co2.read().ppm, co2.ensure().ppm=value, d->co2.present(), 0, 3.402823466e38)
 CACHE_NUMBER("pm25_micrograms_m3", pm25.read().microgramsM3, pm25.ensure().microgramsM3=value, d->pm25.present(), 0, 3.402823466e38)
-CACHE_NUMBER("power_watts", power.read().watts, power.ensure().watts=value, d->power.present(), 0, 6553.5)
+CACHE_NUMBER("power_watts", power.read().watts, power.ensure().watts=value, d->power.present(), -1.0e15, 1.0e15)
 CACHE_NUMBER("low_temperature_alert", lowTemperatureAlert, lowTemperatureAlert=value, true, -100, 200)
 CACHE_NUMBER("high_temperature_alert", highTemperatureAlert, highTemperatureAlert=value, true, -100, 200)
 

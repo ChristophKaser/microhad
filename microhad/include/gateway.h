@@ -2,6 +2,7 @@
 #define MICROHAD_ZIGBEE_GATEWAY_H
 
 #include <map>
+#include "electrical_measurements.h"
 #include "device_components.h"
 #include <string>
 #include <vector>
@@ -45,6 +46,7 @@ struct MatterReading {
     std::string textValue;
     std::string unit;
     MatterProto::Optional<MatterProto::AttributeValue> thermostatValue;
+    MatterProto::Optional<MatterProto::ElectricalReading> electricalValue;
     MatterReading() : endpoint(0), cluster(0), attribute(0), known(false), booleanValue(false), numberValue(0) {}
 };
 
@@ -84,6 +86,7 @@ struct Device {
     ClonePtr<RemoteState> remote;
     ClonePtr<ActorState> actor;
     ClonePtr<PowerState> power;
+    ClonePtr<ElectricalState> electrical;
     ClonePtr<WifiSignalState> wifiSignal;
     ClonePtr<ThermostatState> thermostat;
     ClonePtr<ZigbeeDeviceState> zigbee;

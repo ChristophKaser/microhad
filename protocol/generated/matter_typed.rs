@@ -466,8 +466,45 @@ Null(bool),
 Integer(i64),
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ElectricalQuantity {
+#[prost(string, optional, tag="1")]
+pub key: Option<String>,
+#[prost(double, optional, tag="2")]
+pub value: Option<f64>,
+#[prost(string, optional, tag="3")]
+pub unit: Option<String>,
+#[prost(bool, optional, tag="4")]
+pub known: Option<bool>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ElectricalQuantityList {
+#[prost(message, repeated, tag="1")]
+pub items: Vec<ElectricalQuantity>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ElectricalReading {
+#[prost(message, optional, tag="1")]
+pub quantities: Option<ElectricalQuantityList>,
+#[prost(uint64, optional, tag="2")]
+pub start_timestamp: Option<u64>,
+#[prost(uint64, optional, tag="3")]
+pub end_timestamp: Option<u64>,
+#[prost(uint64, optional, tag="4")]
+pub start_systime: Option<u64>,
+#[prost(uint64, optional, tag="5")]
+pub end_systime: Option<u64>,
+#[prost(uint64, optional, tag="6")]
+pub imported_reset_timestamp: Option<u64>,
+#[prost(uint64, optional, tag="7")]
+pub exported_reset_timestamp: Option<u64>,
+#[prost(uint64, optional, tag="8")]
+pub imported_reset_systime: Option<u64>,
+#[prost(uint64, optional, tag="9")]
+pub exported_reset_systime: Option<u64>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReadingValue {
-#[prost(oneof="ReadingValueChoice", tags="1,2,3,4,5,6,7,8")]
+#[prost(oneof="ReadingValueChoice", tags="1,2,3,4,5,6,7,8,9")]
 pub choice: Option<ReadingValueChoice>,
 }
 #[derive(Clone, PartialEq, ::prost::Oneof)]
@@ -488,6 +525,8 @@ Text(String),
 Measurement(Measurement),
 #[prost(message, tag="8")]
 List(ThermostatCapabilityList),
+#[prost(message, tag="9")]
+Electrical(ElectricalReading),
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperationResult {
@@ -835,7 +874,7 @@ pub hysteresis: Option<f64>,
 pub unit: Option<String>,
 }
 pub(super) const MAX_FIELDS: usize = 15;
-pub(super) const IPC_ENVELOPE_SCHEMA: usize = 45;
+pub(super) const IPC_ENVELOPE_SCHEMA: usize = 48;
 pub(super) struct Field {pub tag:u32,pub kind:u32,pub message:usize,pub repeated:bool,pub oneof:bool}
 pub(super) fn schema(id:usize)->&'static [Field]{SCHEMAS[id]}
 const SCHEMAS:&[&[Field]]=&[
@@ -898,7 +937,7 @@ Field{tag:6,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:7,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:8,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:9,kind:4,message:0,repeated:false,oneof:false},
-Field{tag:10,kind:11,message:46,repeated:false,oneof:false},
+Field{tag:10,kind:11,message:49,repeated:false,oneof:false},
 Field{tag:11,kind:8,message:0,repeated:false,oneof:false},
 Field{tag:12,kind:8,message:0,repeated:false,oneof:false},
 ],
@@ -918,12 +957,12 @@ Field{tag:10,kind:18,message:0,repeated:false,oneof:false},
 Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:2,kind:8,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:9,message:0,repeated:false,oneof:false},
-Field{tag:4,kind:11,message:41,repeated:false,oneof:false},
+Field{tag:4,kind:11,message:44,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:2,kind:9,message:0,repeated:false,oneof:false},
-Field{tag:3,kind:11,message:42,repeated:false,oneof:false},
+Field{tag:3,kind:11,message:45,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:8,message:0,repeated:false,oneof:false},
@@ -961,7 +1000,7 @@ Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
-Field{tag:2,kind:11,message:47,repeated:false,oneof:false},
+Field{tag:2,kind:11,message:50,repeated:false,oneof:false},
 Field{tag:3,kind:11,message:38,repeated:false,oneof:false},
 ],
 &[
@@ -970,12 +1009,12 @@ Field{tag:2,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:8,message:0,repeated:false,oneof:false},
 Field{tag:4,kind:11,message:37,repeated:false,oneof:false},
 Field{tag:5,kind:11,message:38,repeated:false,oneof:false},
-Field{tag:6,kind:11,message:48,repeated:false,oneof:false},
-Field{tag:7,kind:11,message:48,repeated:false,oneof:false},
+Field{tag:6,kind:11,message:51,repeated:false,oneof:false},
+Field{tag:7,kind:11,message:51,repeated:false,oneof:false},
 Field{tag:8,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:9,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:10,kind:11,message:39,repeated:false,oneof:false},
-Field{tag:11,kind:11,message:48,repeated:false,oneof:false},
+Field{tag:11,kind:11,message:51,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
@@ -992,14 +1031,14 @@ Field{tag:5,kind:11,message:23,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:9,message:0,repeated:false,oneof:false},
-Field{tag:2,kind:11,message:40,repeated:false,oneof:false},
+Field{tag:2,kind:11,message:43,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:11,message:36,repeated:false,oneof:false},
 Field{tag:2,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:4,kind:13,message:0,repeated:false,oneof:false},
-Field{tag:5,kind:11,message:49,repeated:false,oneof:false},
+Field{tag:5,kind:11,message:52,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
@@ -1018,7 +1057,7 @@ Field{tag:5,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
 Field{tag:2,kind:11,message:38,repeated:false,oneof:false},
 Field{tag:3,kind:11,message:38,repeated:false,oneof:false},
-Field{tag:4,kind:11,message:50,repeated:false,oneof:false},
+Field{tag:4,kind:11,message:53,repeated:false,oneof:false},
 Field{tag:5,kind:13,message:0,repeated:false,oneof:false},
 ],
 &[
@@ -1031,7 +1070,7 @@ Field{tag:2,kind:11,message:20,repeated:false,oneof:false},
 Field{tag:3,kind:13,message:0,repeated:false,oneof:false},
 ],
 &[
-Field{tag:1,kind:11,message:51,repeated:false,oneof:false},
+Field{tag:1,kind:11,message:54,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
@@ -1042,7 +1081,7 @@ Field{tag:2,kind:8,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:8,message:0,repeated:false,oneof:false},
 Field{tag:4,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:5,kind:11,message:38,repeated:false,oneof:false},
-Field{tag:6,kind:11,message:52,repeated:false,oneof:false},
+Field{tag:6,kind:11,message:55,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
@@ -1057,7 +1096,7 @@ Field{tag:9,kind:9,message:0,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
-Field{tag:2,kind:11,message:49,repeated:false,oneof:false},
+Field{tag:2,kind:11,message:52,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
@@ -1083,6 +1122,26 @@ Field{tag:1,kind:8,message:0,repeated:false,oneof:true},
 Field{tag:2,kind:18,message:0,repeated:false,oneof:true},
 ],
 &[
+Field{tag:1,kind:9,message:0,repeated:false,oneof:false},
+Field{tag:2,kind:1,message:0,repeated:false,oneof:false},
+Field{tag:3,kind:9,message:0,repeated:false,oneof:false},
+Field{tag:4,kind:8,message:0,repeated:false,oneof:false},
+],
+&[
+Field{tag:1,kind:11,message:40,repeated:true,oneof:false},
+],
+&[
+Field{tag:1,kind:11,message:41,repeated:false,oneof:false},
+Field{tag:2,kind:4,message:0,repeated:false,oneof:false},
+Field{tag:3,kind:4,message:0,repeated:false,oneof:false},
+Field{tag:4,kind:4,message:0,repeated:false,oneof:false},
+Field{tag:5,kind:4,message:0,repeated:false,oneof:false},
+Field{tag:6,kind:4,message:0,repeated:false,oneof:false},
+Field{tag:7,kind:4,message:0,repeated:false,oneof:false},
+Field{tag:8,kind:4,message:0,repeated:false,oneof:false},
+Field{tag:9,kind:4,message:0,repeated:false,oneof:false},
+],
+&[
 Field{tag:1,kind:8,message:0,repeated:false,oneof:true},
 Field{tag:2,kind:8,message:0,repeated:false,oneof:true},
 Field{tag:3,kind:4,message:0,repeated:false,oneof:true},
@@ -1090,7 +1149,8 @@ Field{tag:4,kind:18,message:0,repeated:false,oneof:true},
 Field{tag:5,kind:1,message:0,repeated:false,oneof:true},
 Field{tag:6,kind:9,message:0,repeated:false,oneof:true},
 Field{tag:7,kind:11,message:24,repeated:false,oneof:true},
-Field{tag:8,kind:11,message:44,repeated:false,oneof:true},
+Field{tag:8,kind:11,message:47,repeated:false,oneof:true},
+Field{tag:9,kind:11,message:42,repeated:false,oneof:true},
 ],
 &[
 Field{tag:1,kind:11,message:15,repeated:false,oneof:true},
@@ -1136,7 +1196,7 @@ Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:2,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:4,kind:13,message:0,repeated:false,oneof:false},
-Field{tag:5,kind:11,message:43,repeated:false,oneof:false},
+Field{tag:5,kind:11,message:46,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:11,message:27,repeated:true,oneof:false},
@@ -1327,6 +1387,19 @@ Some(NullableIntChoice::Integer(value))=>{let _=value;true},
 None=>true,
 }
 }}
+impl Bounded for ElectricalQuantity {fn bounded(&self,depth:usize)->bool{if depth>16{return false;}
+if let Some(value)=&self.value{if !value.is_finite(){return false;}}
+true
+}}
+impl Bounded for ElectricalQuantityList {fn bounded(&self,depth:usize)->bool{if depth>16{return false;}
+if self.items.len()>512{return false;}
+for value in &self.items{if !value.bounded(depth+1){return false;}}
+true
+}}
+impl Bounded for ElectricalReading {fn bounded(&self,depth:usize)->bool{if depth>16{return false;}
+if let Some(value)=&self.quantities{if !value.bounded(depth+1){return false;}}
+true
+}}
 impl Bounded for ReadingValue {fn bounded(&self,depth:usize)->bool{if depth>16{return false;}
 match self.choice.as_ref(){
 Some(ReadingValueChoice::Null(value))=>{let _=value;true},
@@ -1337,6 +1410,7 @@ Some(ReadingValueChoice::Number(value))=>{let _=value;value.is_finite()},
 Some(ReadingValueChoice::Text(value))=>{let _=value;true},
 Some(ReadingValueChoice::Measurement(value))=>{let _=value;value.bounded(depth+1)},
 Some(ReadingValueChoice::List(value))=>{let _=value;value.bounded(depth+1)},
+Some(ReadingValueChoice::Electrical(value))=>{let _=value;value.bounded(depth+1)},
 None=>true,
 }
 }}

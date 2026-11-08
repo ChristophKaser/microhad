@@ -102,6 +102,7 @@ export interface Device {
   has_actor: boolean
   actor_known: boolean
   actor_on: boolean
+  electrical?: Record<string, {value: number | null; unit: string; quality: 'measured' | 'unknown'; observed_at: number; endpoint: number}>
   has_power: boolean
   power_known: boolean
   power_watts: number
@@ -230,7 +231,7 @@ export interface DeviceConfiguration {
   }[]
 }
 
-export type HistoryMetric = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20
+export type HistoryMetric = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44
 export type HistorySample = [cursor: number, timestamp: number, metric: HistoryMetric, value: number | string, unit?: string]
 export interface HistoryPage {
   samples: HistorySample[]

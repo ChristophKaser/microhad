@@ -1,3 +1,4 @@
+import { electricalDefinitions } from './electrical'
 import { startVisiblePolling } from './visiblePolling'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
@@ -45,6 +46,7 @@ export const sensorMetrics: SensorMetric[] = [
   { id: 18, name: 'PM2.5 activity concentration', unit: 'Bq/m3', scale: 1, color: '#536981', available: d => d.has_pm25 },
   { id: 20, name: 'Heating', unit: '', scale: 1, color: '#d97543', available: d => !!d.has_thermostat },
   { id: 19, name: 'PM2.5 attenuation', unit: 'dB/m', scale: 1, color: '#445a72', available: d => d.has_pm25 },
+  ...electricalDefinitions.filter(d => d.metric !== 4).map(d => ({ id: d.metric, name: d.label, unit: d.unit, scale: 1, color: '#b77928', available: (device: Device) => Boolean(device.electrical?.[d.key]) })),
 ]
 ChartJS.register(LineController, LineElement, LinearScale, PointElement, Tooltip)
 

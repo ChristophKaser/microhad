@@ -141,6 +141,7 @@ bool normalize(Value* v,const std::string& msg,unsigned kind,unsigned op,const s
         else if(v->type==Value::Null)key="null";
         else if(msg=="NullableText")key="text";
         else if(msg=="NullableUint"||msg=="NullableInt")key="integer";
+        else if(msg=="ReadingValue"&&field(*v,"quantities"))key="electrical";
         else key=v->type==Value::Bool?"boolean":v->type==Value::Float?"number":v->type==Value::UInt?(msg=="ReadingValue"?"unsigned":"integer"):v->type==Value::Int?"integer":v->type==Value::Text?"text":v->type==Value::Array?"list":"measurement";
         const ProtoField* f=byName(msg,key);if(!f)return false;Value item;item.swap(*v);if(key=="null"){item.type=Value::Bool;item.u=1;}else if(f->type==11&&!normalize(&item,f->child,kind,op,ev,false))return false;
         Value result;result.type=Value::Map;result.keys.push_back(key);result.items.resize(1);result.items[0].swap(item);v->swap(result);return true;

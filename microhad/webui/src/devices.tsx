@@ -1,3 +1,4 @@
+import { electricalDefinitions } from './electrical'
 import { OtaUpdate } from './OtaUpdate'
 import { useEffect, useState } from 'react'
 import { ThermostatPanel, ThermostatSettingsButton } from './ThermostatPanel'
@@ -492,6 +493,10 @@ function DeviceCard({
         </div>
       )}
       {device.has_power && <div className="extra-readings"><span>Power: {device.power_known ? `${device.power_watts.toFixed(1)} W` : 'Unknown'}</span></div>}
+      {electricalDefinitions.filter(d => d.metric !== 4 && device.electrical?.[d.key]).map(d => {
+        const value = device.electrical![d.key]
+        return <div className="extra-readings" key={d.key}><span>{d.label}: {value.quality === 'measured' && value.value !== null ? `${value.value.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${d.unit}` : 'Unknown'}</span></div>
+      })}
       {device.has_actor && <div className="light-panel"><button className={`button light-toggle ${device.actor_known && device.actor_on ? 'primary' : ''}`} disabled={!controlsAvailable} onClick={() => action(`${url}/actor`, form({ state: device.actor_known && device.actor_on ? 'off' : 'on' }))}>{device.actor_known && device.actor_on ? 'Turn off' : 'Turn on'}</button></div>}
       {device.has_thermostat && <ThermostatPanel device={device} />}
       {device.has_light && (

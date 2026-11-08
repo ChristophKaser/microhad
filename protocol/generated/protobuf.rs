@@ -468,8 +468,45 @@ Null(bool),
 Integer(i64),
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ElectricalQuantity {
+#[prost(string, optional, tag="1")]
+pub key: Option<String>,
+#[prost(double, optional, tag="2")]
+pub value: Option<f64>,
+#[prost(string, optional, tag="3")]
+pub unit: Option<String>,
+#[prost(bool, optional, tag="4")]
+pub known: Option<bool>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ElectricalQuantityList {
+#[prost(message, repeated, tag="1")]
+pub items: Vec<ElectricalQuantity>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ElectricalReading {
+#[prost(message, optional, tag="1")]
+pub quantities: Option<ElectricalQuantityList>,
+#[prost(uint64, optional, tag="2")]
+pub start_timestamp: Option<u64>,
+#[prost(uint64, optional, tag="3")]
+pub end_timestamp: Option<u64>,
+#[prost(uint64, optional, tag="4")]
+pub start_systime: Option<u64>,
+#[prost(uint64, optional, tag="5")]
+pub end_systime: Option<u64>,
+#[prost(uint64, optional, tag="6")]
+pub imported_reset_timestamp: Option<u64>,
+#[prost(uint64, optional, tag="7")]
+pub exported_reset_timestamp: Option<u64>,
+#[prost(uint64, optional, tag="8")]
+pub imported_reset_systime: Option<u64>,
+#[prost(uint64, optional, tag="9")]
+pub exported_reset_systime: Option<u64>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReadingValue {
-#[prost(oneof="ReadingValueChoice", tags="1,2,3,4,5,6,7,8")]
+#[prost(oneof="ReadingValueChoice", tags="1,2,3,4,5,6,7,8,9")]
 pub choice: Option<ReadingValueChoice>,
 }
 #[derive(Clone, PartialEq, ::prost::Oneof)]
@@ -490,6 +527,8 @@ Text(String),
 Measurement(Measurement),
 #[prost(message, tag="8")]
 List(ThermostatCapabilityList),
+#[prost(message, tag="9")]
+Electrical(ElectricalReading),
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperationResult {
@@ -1542,6 +1581,61 @@ NullableIntChoice::Integer(v) => ("integer", Value::Integer(i128::from(v))),
 }; fields.push((Value::Text(key.into()),v)); }
 Value::Map(fields)
 }
+fn to_ElectricalQuantity(v: &Value) -> std::result::Result<ElectricalQuantity, ProtocolError> {
+let mut m=ElectricalQuantity::default();
+let fields=object(v)?;
+if let Some(v)=lookup(fields,"key") { m.key=Some(text(v)?); }
+if let Some(v)=lookup(fields,"value") { m.value=Some(float(v)?); }
+if let Some(v)=lookup(fields,"unit") { m.unit=Some(text(v)?); }
+if let Some(v)=lookup(fields,"known") { m.known=Some(boolean(v)?); }
+Ok(m)
+}
+fn from_ElectricalQuantity(m: ElectricalQuantity) -> Value {
+let mut fields=Vec::new();
+if let Some(v)=m.key { fields.push((Value::Text("key".into()), Value::Text(v))); }
+if let Some(v)=m.value { fields.push((Value::Text("value".into()), Value::Float(v))); }
+if let Some(v)=m.unit { fields.push((Value::Text("unit".into()), Value::Text(v))); }
+if let Some(v)=m.known { fields.push((Value::Text("known".into()), Value::Bool(v))); }
+Value::Map(fields)
+}
+fn to_ElectricalQuantityList(v: &Value) -> std::result::Result<ElectricalQuantityList, ProtocolError> {
+let mut m=ElectricalQuantityList::default();
+let fields=object(v)?;
+if let Some(v)=lookup(fields,"items") { m.items=array(v)?.iter().map(|v| Ok(to_ElectricalQuantity(v)?)).collect::<std::result::Result<_,ProtocolError>>()?; }
+Ok(m)
+}
+fn from_ElectricalQuantityList(m: ElectricalQuantityList) -> Value {
+let mut fields=Vec::new();
+if !m.items.is_empty() { fields.push((Value::Text("items".into()),Value::Array(m.items.into_iter().map(|v| from_ElectricalQuantity(v)).collect()))); }
+Value::Map(fields)
+}
+fn to_ElectricalReading(v: &Value) -> std::result::Result<ElectricalReading, ProtocolError> {
+let mut m=ElectricalReading::default();
+let fields=object(v)?;
+if let Some(v)=lookup(fields,"quantities") { m.quantities=Some(to_ElectricalQuantityList(v)?); }
+if let Some(v)=lookup(fields,"start_timestamp") { m.start_timestamp=Some(unsigned(v)?); }
+if let Some(v)=lookup(fields,"end_timestamp") { m.end_timestamp=Some(unsigned(v)?); }
+if let Some(v)=lookup(fields,"start_systime") { m.start_systime=Some(unsigned(v)?); }
+if let Some(v)=lookup(fields,"end_systime") { m.end_systime=Some(unsigned(v)?); }
+if let Some(v)=lookup(fields,"imported_reset_timestamp") { m.imported_reset_timestamp=Some(unsigned(v)?); }
+if let Some(v)=lookup(fields,"exported_reset_timestamp") { m.exported_reset_timestamp=Some(unsigned(v)?); }
+if let Some(v)=lookup(fields,"imported_reset_systime") { m.imported_reset_systime=Some(unsigned(v)?); }
+if let Some(v)=lookup(fields,"exported_reset_systime") { m.exported_reset_systime=Some(unsigned(v)?); }
+Ok(m)
+}
+fn from_ElectricalReading(m: ElectricalReading) -> Value {
+let mut fields=Vec::new();
+if let Some(v)=m.quantities { fields.push((Value::Text("quantities".into()), from_ElectricalQuantityList(v))); }
+if let Some(v)=m.start_timestamp { fields.push((Value::Text("start_timestamp".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.end_timestamp { fields.push((Value::Text("end_timestamp".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.start_systime { fields.push((Value::Text("start_systime".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.end_systime { fields.push((Value::Text("end_systime".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.imported_reset_timestamp { fields.push((Value::Text("imported_reset_timestamp".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.exported_reset_timestamp { fields.push((Value::Text("exported_reset_timestamp".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.imported_reset_systime { fields.push((Value::Text("imported_reset_systime".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.exported_reset_systime { fields.push((Value::Text("exported_reset_systime".into()), Value::Integer(i128::from(v)))); }
+Value::Map(fields)
+}
 fn to_ReadingValue(v: &Value) -> std::result::Result<ReadingValue, ProtocolError> {
 let mut m=ReadingValue::default();
 let (key,v)=single(v)?;
@@ -1554,6 +1648,7 @@ m.choice=Some(match key {
 "text" => ReadingValueChoice::Text(text(v)?),
 "measurement" => ReadingValueChoice::Measurement(to_Measurement(v)?),
 "list" => ReadingValueChoice::List(to_ThermostatCapabilityList(v)?),
+"electrical" => ReadingValueChoice::Electrical(to_ElectricalReading(v)?),
 _ => return Err(ProtocolError::Malformed),
 });
 Ok(m)
@@ -1569,6 +1664,7 @@ ReadingValueChoice::Number(v) => ("number", Value::Float(v)),
 ReadingValueChoice::Text(v) => ("text", Value::Text(v)),
 ReadingValueChoice::Measurement(v) => ("measurement", from_Measurement(v)),
 ReadingValueChoice::List(v) => ("list", from_ThermostatCapabilityList(v)),
+ReadingValueChoice::Electrical(v) => ("electrical", from_ElectricalReading(v)),
 }; fields.push((Value::Text(key.into()),v)); }
 Value::Map(fields)
 }
@@ -2290,6 +2386,26 @@ Field { name:"integer", tag:2, kind:4, message:"", repeated:false, oneof:true },
 Field { name:"null", tag:1, kind:8, message:"", repeated:false, oneof:true },
 Field { name:"integer", tag:2, kind:18, message:"", repeated:false, oneof:true },
 ],
+"ElectricalQuantity" => &[
+Field { name:"key", tag:1, kind:9, message:"", repeated:false, oneof:false },
+Field { name:"value", tag:2, kind:1, message:"", repeated:false, oneof:false },
+Field { name:"unit", tag:3, kind:9, message:"", repeated:false, oneof:false },
+Field { name:"known", tag:4, kind:8, message:"", repeated:false, oneof:false },
+],
+"ElectricalQuantityList" => &[
+Field { name:"items", tag:1, kind:11, message:"ElectricalQuantity", repeated:true, oneof:false },
+],
+"ElectricalReading" => &[
+Field { name:"quantities", tag:1, kind:11, message:"ElectricalQuantityList", repeated:false, oneof:false },
+Field { name:"start_timestamp", tag:2, kind:4, message:"", repeated:false, oneof:false },
+Field { name:"end_timestamp", tag:3, kind:4, message:"", repeated:false, oneof:false },
+Field { name:"start_systime", tag:4, kind:4, message:"", repeated:false, oneof:false },
+Field { name:"end_systime", tag:5, kind:4, message:"", repeated:false, oneof:false },
+Field { name:"imported_reset_timestamp", tag:6, kind:4, message:"", repeated:false, oneof:false },
+Field { name:"exported_reset_timestamp", tag:7, kind:4, message:"", repeated:false, oneof:false },
+Field { name:"imported_reset_systime", tag:8, kind:4, message:"", repeated:false, oneof:false },
+Field { name:"exported_reset_systime", tag:9, kind:4, message:"", repeated:false, oneof:false },
+],
 "ReadingValue" => &[
 Field { name:"null", tag:1, kind:8, message:"", repeated:false, oneof:true },
 Field { name:"boolean", tag:2, kind:8, message:"", repeated:false, oneof:true },
@@ -2299,6 +2415,7 @@ Field { name:"number", tag:5, kind:1, message:"", repeated:false, oneof:true },
 Field { name:"text", tag:6, kind:9, message:"", repeated:false, oneof:true },
 Field { name:"measurement", tag:7, kind:11, message:"Measurement", repeated:false, oneof:true },
 Field { name:"list", tag:8, kind:11, message:"ThermostatCapabilityList", repeated:false, oneof:true },
+Field { name:"electrical", tag:9, kind:11, message:"ElectricalReading", repeated:false, oneof:true },
 ],
 "OperationResult" => &[
 Field { name:"session", tag:1, kind:11, message:"CommissioningSession", repeated:false, oneof:true },

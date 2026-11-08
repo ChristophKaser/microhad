@@ -33,3 +33,38 @@ dashboard and sensor history. Supported units retain separate history series;
 unknown/null samples do not fabricate measurements. See the
 [history contract](../microhad/SENSOR_HISTORY_FORMAT.md) and
 [HTTP API](../microhad/docs/matter-native-api-v1.md).
+
+## Electrical measurements
+
+Electrical Power Measurement (`0x0090`) and Electrical Energy Measurement
+(`0x0091`) are discovered using AttributeList and FeatureMap. Subscriptions
+request only supported scalar attributes, with a maximum report interval of
+60 seconds (the device may negotiate a different interval). Harmonic arrays
+remain outside the measurement catalog. No periodic quantity is accumulated
+into a synthetic lifetime counter.
+
+The shared `config/electrical-measurements.def` defines power, voltage,
+current, frequency, power factor, and cumulative/periodic imported/exported
+energy quantities. Values are normalized to W, V, A, Hz, a unitless ratio,
+and kWh/kVAh/kvarh. Signed and zero readings are preserved; null is unknown.
+Energy-period timestamps and cumulative-reset metadata are retained in their
+Matter epoch/systime units; `observed_at` uses Unix receipt time.
+
+Public status includes an `electrical` map. Each measurement has `value`,
+`unit`, `quality`, `observed_at` (gateway receipt time), and its actual Matter
+`endpoint`. Energy entries also contain the optional period timestamps.
+`electrical.cumulative_energy_reset` contains reset metadata rather than a
+numeric measurement. Existing `has_power`, `power_known`, and `power_watts`
+continue to describe active watts.
+
+When exactly one actuator exists on a node, electrical measurements from a
+separate endpoint are attached to that actuator. Multi-actuator nodes retain
+measurements on their original endpoints. Reports never change the address
+used for switch commands. Fresh inventory snapshots retain measured values;
+after service restart subscriptions refresh the measurements.
+
+Electrical reads use the existing `/api/matter/devices/read` endpoint with
+the actual measurement endpoint, cluster, and attribute (for example endpoint
+2, cluster 144, attribute 8 for active power). IPC values use the additive
+`electrical` variant, carrying quantities plus optional energy metadata;
+update native and Matter services together.

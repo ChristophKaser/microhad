@@ -456,3 +456,33 @@ never recursively during an action call.
 The API excludes arbitrary HTTP/webhooks, custom native modules, shell and
 filesystem access, raw Zigbee/Matter commands, pairing, and network
 administration. Those need separate security and lifecycle designs.
+
+### Matter electrical measurements
+
+For a Matter node with one actuator, the node ID resolves to that actuator in
+`devices.get`, event `device` filters, and history queries. Explicit endpoint
+IDs remain available. Electrical values are exposed on the same plug snapshot:
+
+```lua
+local plug = assert(devices.get("matter:FABRIC_ID:NODE_ID"))
+local watts = plug.power_watts -- nil when unknown; zero is a measured value
+local voltage = plug.electrical and plug.electrical.voltage
+if voltage and voltage.quality == "measured" then
+  log.info("Supply voltage", {volts = voltage.value})
+end
+```
+
+Each `electrical` entry includes its normalized value, unit, quality, receipt
+time, and original Matter endpoint. Supported unknown values have a null/nil
+value and quality `unknown`. Energy entries retain period timestamps; the
+`cumulative_energy_reset` entry is metadata.
+
+`device.value` and `device.changed` fields use `electrical.<key>` with a
+numeric value (or nil for unknown). Active power also supplies the compatible
+`power_watts` field. Reset metadata updates use field `electrical`.
+`history.query(plug.id, {field = "electrical.voltage", limit = 100})` queries
+the corresponding electrical history. `electrical.active_power` and
+`power_watts` share the existing watts series. Other keys follow the shared
+electrical measurement registry, including `active_current`, `frequency`,
+`power_factor`, and `cumulative_imported_energy`. Energy history records the
+reported counter or period quantity and does not infer usage across resets.

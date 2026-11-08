@@ -28,6 +28,7 @@ use serde::Serialize;
 
 #[derive(Clone)]
 pub enum Action {
+    ReadElectrical { cluster:u32, attribute:u32 },
     Delete { local: bool,
     },
     Read,
@@ -78,6 +79,7 @@ pub enum Failure {
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Value {
+    Electrical(crate::electrical::Reading),
     Thermostat(Option<i64>),
     ThermostatList(Vec<u32>),
     ThermostatSchedule(crate::thermostat::Schedule),
@@ -115,6 +117,7 @@ fn same_report_number(a: Option<f32>, b: Option<f32>) -> bool {
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
+            (Self::Electrical(a),Self::Electrical(b))=>a==b,
             (Self::Thermostat(a),Self::Thermostat(b))=>a==b,
             (Self::ThermostatList(a),Self::ThermostatList(b))=>a==b,
             (Self::ThermostatSchedule(a),Self::ThermostatSchedule(b))=>a==b,
@@ -207,6 +210,7 @@ pub fn report_values(
     report: &rs_matter::im::ReportDataResp<'_>,
 ) -> Result<Vec<ResultValue>, Error> {
     let mut values = crate::thermostat::report_values(node, report)?;
+    values.extend(crate::electrical::report_values(node,report)?);
     for (endpoint, value) in report.attrs::<bool>(6, 0) {
         values.push(ResultValue {
             node: Id(node),
@@ -382,6 +386,7 @@ impl Operation {
             }) if matches!(cluster, 69 | 91 | 1026 | 1029 | 1037 | 1066) => {
                 (node, endpoint, Action::ReadSensor { cluster })
             }
+            Request::Device(DeviceRequest::Read { node,endpoint,cluster,attribute,.. }) if crate::electrical::supported(cluster,attribute) => (node,endpoint,Action::ReadElectrical{cluster,attribute}),
             Request::Device(DeviceRequest::Read { node, endpoint, cluster: 513, attribute, .. })
                 if crate::thermostat::readable(attribute) => {
                 (node, endpoint, Action::ThermostatRead { attribute })
@@ -452,7 +457,7 @@ impl Operation {
             Action::Delete { .. } => unreachable!(),
             Action::Read | Action::On | Action::Off | Action::Toggle => 6,
             Action::ReadLevel | Action::MoveToLevel { .. } => 8,
-            Action::ReadSensor { cluster } => *cluster,
+            Action::ReadSensor { cluster } | Action::ReadElectrical { cluster,.. } => *cluster,
             Action::Bind { .. } => 59,
             Action::Identify => 3,
             Action::SyncTime { .. } => 56,
@@ -512,6 +517,9 @@ impl Operation {
         timeout: embassy_time::Duration,
     ) -> Result<ResultValue, Failure> {
         let transaction = async {
+            if let Action::ReadElectrical{cluster,attribute}=self.action {
+                return crate::electrical::read(matter,&crypto,fabric,self.node,self.endpoint,cluster,attribute).await;
+            }
             if let Action::Thermostat { ref field, ref value,
             } = self.action {
                 return crate::thermostat::operate(matter, &crypto, fabric, self.node, self.endpoint, field, value,
@@ -599,7 +607,7 @@ impl Operation {
             }
             if !matches!(
                 self.action,
-                Action::Read | Action::ReadLevel | Action::ReadSensor { .. }
+                Action::Read | Action::ReadLevel | Action::ReadSensor { .. } | Action::ReadElectrical { .. }
             ) {
                 let exchange = Exchange::initiate(matter, &crypto, fabric, self.node).await?;
                 match self.action {
@@ -677,7 +685,7 @@ impl Operation {
                         }).await?
                     }
                     Action::Thermostat { .. } | Action::ThermostatRead { .. } | Action::Bind { .. } | Action::Delete { .. } => unreachable!(),
-                    Action::Read | Action::ReadLevel | Action::ReadSensor { .. } => unreachable!(),
+                    Action::Read | Action::ReadLevel | Action::ReadSensor { .. } | Action::ReadElectrical { .. } => unreachable!(),
                 }
             }
             if matches!(self.action, Action::SyncTime { .. }) {

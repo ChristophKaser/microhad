@@ -90,6 +90,7 @@ bool requestValid(unsigned char opcode, const std::string& text) {
             (fields["restore"] == "false" || fields["cursor"] == "0");
         if (fields["action"] == "\"delete\"") return fields.size() == 4 && hex(fields["node"], 16, 16) &&
             fields["node"] > "\"0000000000000001\"" && booleanField(fields, "local");
+        if(fields["action"]=="\"read\"" && (fields["cluster"]=="144"||fields["cluster"]=="145")) return fields.size()==6 && hex(fields["node"],16,16) && fields["node"]>"\"0000000000000001\"" && number(fields["endpoint"],0,65534) && number(fields["attribute"],0,18) && electricalAttribute(static_cast<unsigned>(strtoul(fields["cluster"].c_str(),0,10)),static_cast<unsigned>(strtoul(fields["attribute"].c_str(),0,10)));
         if(fields["action"]=="\"read\"" && fields["cluster"]=="513") return fields.size()==6 && hex(fields["node"],16,16) && fields["node"]>"\"0000000000000001\"" &&
             number(fields["endpoint"],0,65534) && number(fields["attribute"],0,65542) &&
             (thermostatWireValue(static_cast<unsigned int>(strtoul(fields["attribute"].c_str(),0,10)),"thermostat","null") || fields["attribute"]=="65529" || fields["attribute"]=="65531" || number(fields["attribute"],65536,65542));
@@ -491,7 +492,7 @@ bool MatterChannel::threadChannel(const std::string& input, unsigned char channe
 bool MatterChannel::deviceReadRequest(const std::string& input, std::string* body) {
     body->clear();
     Fields fields;
-    if(StatusJson(input).parse(&fields) && fields.size()==5 && fields["cluster"]=="513") {
+    if(StatusJson(input).parse(&fields) && fields.size()==5 && (fields["cluster"]=="513"||fields["cluster"]=="144"||fields["cluster"]=="145")) {
         *body="{\"action\":\"read\","+input.substr(1);return requestValid(10,*body);
     }
     fields.clear();

@@ -1,3 +1,4 @@
+import { electricalDefinitions } from './electrical'
 import type { Device, SceneGroupSummary } from './api'
 
 export interface Completion { stringStart?: number; delimiter?: string; caption: string; value: string; meta: string; score: number; docText?: string; snippet?: string }
@@ -32,7 +33,7 @@ export const gatewayApi: Record<string, Spec> = {
 }
 export const eventNames = ['device.added', 'device.removed', 'device.value', 'device.changed', 'remote.action', 'device.online', 'device.offline', 'timer.fired', 'automation.error']
 export const filterKeys = ['type', 'device', 'device_id', 'source', 'field', 'value', 'action', 'endpoint', 'position', 'press_count', 'value_below', 'value_at_most', 'value_above', 'value_at_least']
-export const snapshotFields = ['id', 'name', 'source', 'kind', 'online', 'last_seen', 'temperature_celsius', 'humidity_percent', 'contact_open', 'water_detected', 'occupied', 'light_on', 'actor_on', 'power_watts', 'air_quality', 'co2_ppm', 'pm25_micrograms_m3', 'brightness_percent', 'battery_percent', 'wifi_signal_percent', 'link_quality', 'thermostat']
+export const snapshotFields = ['electrical', ...electricalDefinitions.map(d => `electrical.${d.key}`), 'id', 'name', 'source', 'kind', 'online', 'last_seen', 'temperature_celsius', 'humidity_percent', 'contact_open', 'water_detected', 'occupied', 'light_on', 'actor_on', 'power_watts', 'air_quality', 'co2_ppm', 'pm25_micrograms_m3', 'brightness_percent', 'battery_percent', 'wifi_signal_percent', 'link_quality', 'thermostat']
 export const remoteActions = ['on', 'off', 'toggle', 'move-to-level', 'move', 'step', 'stop', 'arrow_left', 'arrow_right', 'arrow_left_hold', 'arrow_right_hold', 'arrow_left_release', 'arrow_right_release', 'matter_press', 'matter_hold', 'matter_release', 'matter_multi_press']
 const sources = ['zigbee', 'shelly', 'fritz_box', 'matter']
 const keywords = ['and','break','do','else','elseif','end','false','for','function','goto','if','in','local','nil','not','or','repeat','return','then','true','until','while']
@@ -51,7 +52,7 @@ const fieldCapabilities: Record<string, keyof Device> = {
   temperature_celsius:'has_temperature', humidity_percent:'has_humidity', contact_open:'has_contact', water_detected:'has_water_leak', occupied:'has_occupancy', light_on:'has_light', actor_on:'has_actor', power_watts:'has_power', air_quality:'has_air_quality', co2_ppm:'has_co2', pm25_micrograms_m3:'has_pm25', brightness_percent:'has_brightness', battery_percent:'has_battery', wifi_signal_percent:'has_wifi_signal', thermostat:'has_thermostat',
 }
 const entry = (value: string, meta = 'Lua', score = 1000): Completion => ({ caption: value, value, meta, score })
-const fieldType = (name: string) => ['id','name','source','kind','type','field','action','reason','message','operation','timer_id','chain_id','device_id','air_quality'].includes(name) ? 'string' : name === 'recipients' ? 'client ID or unique label, or a list of IDs/labels' : name === 'tag' ? 'string (user-defined)' : ['online','contact_open','water_detected','occupied','light_on','actor_on'].includes(name) ? 'boolean' : name === 'thermostat' ? 'immutable thermostat snapshot' : name === 'device' ? 'immutable device snapshot' : ['value','old','payload'].includes(name) ? 'event-dependent value' : 'number'
+const fieldType = (name: string) => name === 'electrical' ? 'immutable electrical measurement map' : name.startsWith('electrical.') ? 'measurement snapshot; numeric in events and history' : ['id','name','source','kind','type','field','action','reason','message','operation','timer_id','chain_id','device_id','air_quality'].includes(name) ? 'string' : name === 'recipients' ? 'client ID or unique label, or a list of IDs/labels' : name === 'tag' ? 'string (user-defined)' : ['online','contact_open','water_detected','occupied','light_on','actor_on'].includes(name) ? 'boolean' : name === 'thermostat' ? 'immutable thermostat snapshot' : name === 'device' ? 'immutable device snapshot' : ['value','old','payload'].includes(name) ? 'event-dependent value' : 'number'
 const documentation = (name: string, spec: Spec) => `${name}(${spec[0].split(', ').filter(Boolean).map(arg => `${arg}: ${argumentTypes[arg]}`).join(', ')}): ${spec[1]}\n${spec[2]}`
 const quote = (value: string, delimiter = '"') => delimiter + value.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(new RegExp(delimiter, 'g'), '\\' + delimiter) + delimiter
 
@@ -121,7 +122,7 @@ export function completions(source: string, offset: number, catalog: Catalog): C
   else if (key === 'source') result = values(sources, 'device source')
   else if (key === 'kind') result = values([...new Set(catalog.devices.map(d => d.kind))], 'device kind')
   else if (key === 'name' && call?.call === 'devices.list') result = values([...new Set(catalog.devices.map(d => d.name))], 'device name')
-  else if (key === 'field' && call?.call === 'history.query') result = values(['temperature_celsius','humidity_percent','contact_open','power_watts','occupied','battery_percent','co2_ppm','pm25_micrograms_m3','air_quality'], 'history field')
+  else if (key === 'field' && call?.call === 'history.query') result = values(['temperature_celsius','humidity_percent','contact_open','power_watts','occupied','battery_percent','co2_ppm','pm25_micrograms_m3','air_quality', ...electricalDefinitions.map(d => `electrical.${d.key}`)], 'history field')
   else if (key === 'field' && eventCall) result = values(snapshotFields.filter(field => !selectedDevice || !fieldCapabilities[field] || selectedDevice[fieldCapabilities[field]]), 'snapshot field')
   else if (key === 'action' && eventCall) result = values(remoteActions.filter(action => !selectedDevice || (selectedDevice.source === 'matter') === action.startsWith('matter_')), 'remote action')
   else if (call?.call === 'devices.actor' && call.argument === 1 || ['on', 'online'].includes(key ?? '') || key === 'value' && /(?:contact_open|water_detected|occupied|light_on|actor_on|online)/.test(tableText)) result = ['true','false'].map(v => entry(v, 'boolean'))

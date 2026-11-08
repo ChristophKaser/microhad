@@ -34,7 +34,7 @@ void* sensorHistoryQueryPageHookData = 0;
 
 namespace {
 enum { fileHeaderBytes = 16, pageHeaderBytes = 86, recordBytes = 9, recordsPerPage = 218,
-       pageBytes = 2048, pageLimit = 1023, apiPageLimit = 2000, maximumMetric = 20,
+       pageBytes = 2048, pageLimit = 1023, apiPageLimit = 2000, maximumMetric = 44,
        maximumFileBytes = fileHeaderBytes + pageLimit * pageBytes };
 const unsigned char fileTemplate[fileHeaderBytes] = {
     'T', 'Z', 'H', '3', 3, fileHeaderBytes, pageHeaderBytes, recordBytes,
@@ -136,6 +136,7 @@ bool fileHeaderValid(const unsigned char* bytes) {
     expected[15] = crc8(expected, 15); return memcmp(bytes, expected, sizeof(expected)) == 0;
 }
 const char* unitForMetric(unsigned char metric) {
+    if(metric>20){const ElectricalDefinition* d=electricalMetric(metric);if(d)return d->unit;}
     switch (metric) {
     case SensorHistory::Temperature: return "celsius";
     case SensorHistory::Humidity: case SensorHistory::Battery: case SensorHistory::Brightness: return "percent";
@@ -155,6 +156,7 @@ bool metricDiscrete(unsigned char metric) {
 }
 bool normalizeNumeric(unsigned char inputMetric,double v,const std::string& unit,unsigned char* metric,float* number) {
     if(!std::isfinite(v)||!plainText(unit,16,true))return false;
+    if(inputMetric>20){const ElectricalDefinition* d=electricalMetric(inputMetric);if(!d||unit!=d->unit)return false;*metric=inputMetric;*number=static_cast<float>(v);return std::isfinite(*number);}
     if(inputMetric==SensorHistory::Heating||inputMetric==SensorHistory::Contact||inputMetric==SensorHistory::Occupancy||inputMetric==SensorHistory::Light){
         if(!unit.empty()||(v!=0&&v!=1))return false;
         *metric=inputMetric;*number=static_cast<float>(v);return true;
@@ -181,7 +183,7 @@ bool normalizeNumeric(unsigned char inputMetric,double v,const std::string& unit
         if (inputMetric == SensorHistory::Temperature && (unit != "celsius" || v < -327.68 || v > 327.67)) return false;
         if (inputMetric == SensorHistory::Humidity && (unit != "percent" || v < 0 || v > 100)) return false;
         if (inputMetric == SensorHistory::Battery && (unit != "percent" || v < 0 || v > 100)) return false;
-        if (inputMetric == SensorHistory::Power && (unit != "watts" || v < 0 || v > 6553.5)) return false;
+        if (inputMetric == SensorHistory::Power && (unit != "watts" || v < -1.0e15 || v > 1.0e15)) return false;
         if (inputMetric == SensorHistory::Brightness && (unit != "percent" || v < 0 || v > 100)) return false;
         if (inputMetric < SensorHistory::Temperature || inputMetric > SensorHistory::Brightness) return false;
     }

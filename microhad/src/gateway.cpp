@@ -634,6 +634,13 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         device.light.setPresent(std::find(endpoint.servers.begin(), endpoint.servers.end(), 6U) != endpoint.servers.end() &&
                           std::find(endpoint.servers.begin(), endpoint.servers.end(), 8U) != endpoint.servers.end());
         device.brightness.setPresent(device.light.present());
+        bool electricalNode=false;unsigned actuatorCount=0;
+        for(size_t e=0;e<endpoints.size();++e)if(endpoints[e].node==endpoint.node){
+            if(std::find(endpoints[e].servers.begin(),endpoints[e].servers.end(),144U)!=endpoints[e].servers.end())electricalNode=true;
+            if(std::find(endpoints[e].servers.begin(),endpoints[e].servers.end(),6U)!=endpoints[e].servers.end())++actuatorCount;
+        }
+        const bool electricalEndpoint=std::find(endpoint.servers.begin(),endpoint.servers.end(),144U)!=endpoint.servers.end();
+        device.power.setPresent(electricalEndpoint || (electricalNode&&actuatorCount==1&&std::find(endpoint.servers.begin(),endpoint.servers.end(),6U)!=endpoint.servers.end()));
         device.actor.setPresent(std::find(endpoint.servers.begin(), endpoint.servers.end(), 6U) != endpoint.servers.end() && !device.light.present());
         device.contact.setPresent(std::find(endpoint.servers.begin(), endpoint.servers.end(), 69U) != endpoint.servers.end());
         device.waterLeak.setPresent(std::find(endpoint.deviceTypes.begin(), endpoint.deviceTypes.end(), 67U) != endpoint.deviceTypes.end());
@@ -699,7 +706,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
                 current.contact.present() != fresh.contact.present() || current.waterLeak.present() != fresh.waterLeak.present() ||
                 current.temperature.present() != fresh.temperature.present() || current.humidity.present() != fresh.humidity.present() ||
                 current.airQuality.present() != fresh.airQuality.present() || current.co2.present() != fresh.co2.present() ||
-                current.pm25.present() != fresh.pm25.present()) persistentChanged = true;
+                current.pm25.present() != fresh.pm25.present() || current.power.present() != fresh.power.present()) persistentChanged = true;
             // Discovery owns capability presence; copy values only into retained capabilities.
             if(fresh.light.present())fresh.light.ensure()=current.light.read();
             if(fresh.actor.present())fresh.actor.ensure()=current.actor.read();
@@ -712,6 +719,8 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             if(fresh.airQuality.present())fresh.airQuality.ensure()=current.airQuality.read();
             if(fresh.co2.present())fresh.co2.ensure()=current.co2.read();
             if(fresh.pm25.present())fresh.pm25.ensure()=current.pm25.read();
+            fresh.electrical=current.electrical;
+            if(fresh.power.present()&&current.power.present())fresh.power.ensure()=current.power.read();
             fresh.contactInitialAlertMinutes=current.contactInitialAlertMinutes;
             fresh.contactReminderAlertMinutes=current.contactReminderAlertMinutes;
             fresh.contactTriggerMode=current.contactTriggerMode;
@@ -770,8 +779,35 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         if (error) *error = "Matter endpoint not found";
         return false;
     }
+    const bool electricalReport=reading.cluster==144||reading.cluster==145;
+    if(electricalReport){
+        const std::vector<unsigned>& servers=target->second.matter.read().servers;
+        if(std::find(servers.begin(),servers.end(),reading.cluster)==servers.end()||!reading.electricalValue.present){if(error)*error="unadvertised electrical report";return false;}
+        std::map<std::string,Device>::iterator actor=devices_.end();unsigned actors=0;
+        for(std::map<std::string,Device>::iterator it=devices_.begin();it!=devices_.end();++it)
+            if(it->second.source=="matter"&&it->second.matter.read().node==reading.node&&(it->second.actor.present()||it->second.light.present())){actor=it;++actors;}
+        if(actors==1)target=actor;
+    }
     Device& device = target->second;
     Device before = device;
+    if(electricalReport){
+        const MatterProto::ElectricalReading& e=reading.electricalValue.value;
+        std::ostringstream metadata;
+#define ELECTRICAL_TIME(field) if(e.field.present)metadata<<",\"" #field "\":"<<e.field.value;
+        ELECTRICAL_TIME(start_timestamp) ELECTRICAL_TIME(end_timestamp) ELECTRICAL_TIME(start_systime) ELECTRICAL_TIME(end_systime)
+        ELECTRICAL_TIME(imported_reset_timestamp) ELECTRICAL_TIME(exported_reset_timestamp) ELECTRICAL_TIME(imported_reset_systime) ELECTRICAL_TIME(exported_reset_systime)
+#undef ELECTRICAL_TIME
+        if(reading.cluster==145&&reading.attribute==5){device.electrical.ensure().resetMetadata=metadata.str();automationReport(device,"electrical");}
+        for(size_t i=0;i<e.quantities.value.items.size();++i){const MatterProto::ElectricalQuantity& q=e.quantities.value.items[i];
+            const ElectricalDefinition* def=electricalDefinition(q.key.value);if(!def)continue;
+            ElectricalMeasurement& v=device.electrical.ensure().values[q.key.value];
+            v.known=q.known.value;v.value=q.value.value;v.unit=q.unit.value;v.observedAt=time(0);v.endpoint=reading.endpoint;v.metadata=metadata.str();
+            if(q.key.value=="active_power"){device.power.ensure().known=v.known;device.power.ensure().watts=v.value;}
+            if(v.known)history_.appendNumeric(device.external.read().externalId,def->metric,v.value,def->metric==SensorHistory::Power?"watts":v.unit,time(0));
+            automationReport(device,"electrical."+q.key.value);
+        }
+    }
+    else
     if (reading.cluster == 513 && isThermostat(device)) {
         if (!(reading.thermostatValue.present?applyMatterThermostat(&device,reading.attribute,reading.thermostatValue.value,time(0)):applyMatterThermostat(&device,reading.attribute,reading.unit,reading.textValue,time(0)))) { *error="invalid thermostat report"; return false; }
         if(before.thermostat.read().scheduleDetails!=device.thermostat.read().scheduleDetails)savePersistentState();
@@ -844,7 +880,8 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         updateContactAlert(device.ieeeAddress, before.contact.read().open, before.contact.read().known);
     }
     updateValueAlerts(device, before);
-    automationReport(device, reading.cluster==1026?"temperature_celsius":reading.cluster==1029?"humidity_percent":reading.cluster==69?(device.waterLeak.present()?"water_detected":"contact_open"):reading.cluster==8?"brightness_percent":reading.cluster==6?(device.actor.present()?"actor_on":"light_on"):reading.cluster==47?"battery_percent":reading.cluster==91?"air_quality":reading.cluster==1037?"co2_ppm":reading.cluster==1066?"pm25_micrograms_m3":"temperature_celsius");
+    if(electricalReport){if(reading.cluster==144&&reading.attribute==8)automationReport(device,"power_watts");}
+    else automationReport(device, reading.cluster==1026?"temperature_celsius":reading.cluster==1029?"humidity_percent":reading.cluster==69?(device.waterLeak.present()?"water_detected":"contact_open"):reading.cluster==8?"brightness_percent":reading.cluster==6?(device.actor.present()?"actor_on":"light_on"):reading.cluster==47?"battery_percent":reading.cluster==91?"air_quality":reading.cluster==1037?"co2_ppm":reading.cluster==1066?"pm25_micrograms_m3":"temperature_celsius");
     markDeviceDirty(device.ieeeAddress);
     bool volatileChanged = before.light.read().known != device.light.read().known || before.light.read().on != device.light.read().on ||
         before.actor.read().known != device.actor.read().known || before.actor.read().on != device.actor.read().on ||
@@ -857,7 +894,8 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
         before.co2.read().known != device.co2.read().known || before.co2.read().ppm != device.co2.read().ppm || before.co2.read().unit != device.co2.read().unit ||
         before.pm25.read().known != device.pm25.read().known || before.pm25.read().microgramsM3 != device.pm25.read().microgramsM3 ||
         before.pm25.read().unit != device.pm25.read().unit ||
-        before.battery.present() != device.battery.present() || before.battery.read().percent != device.battery.read().percent;
+        before.battery.present() != device.battery.present() || before.battery.read().percent != device.battery.read().percent ||
+        before.power.present()!=device.power.present() || before.power.read().known!=device.power.read().known || before.power.read().watts!=device.power.read().watts;
     if (volatileChanged) saveState(device.ieeeAddress);
     return true;
 }
@@ -3327,6 +3365,8 @@ std::string GatewayView::statusJson() const {
             if (endpoint.airQuality.present()) { node.airQuality.setPresent(true); node.airQuality.ensure().known=endpoint.airQuality.read().known; node.airQuality.ensure().value=endpoint.airQuality.read().value; }
             if (endpoint.co2.present()) { node.co2.setPresent(true); node.co2.ensure().known=endpoint.co2.read().known; node.co2.ensure().ppm=endpoint.co2.read().ppm; node.co2.ensure().unit=endpoint.co2.read().unit; }
             if (endpoint.pm25.present()) { node.pm25.setPresent(true); node.pm25.ensure().known=endpoint.pm25.read().known; node.pm25.ensure().microgramsM3=endpoint.pm25.read().microgramsM3; node.pm25.ensure().unit=endpoint.pm25.read().unit; }
+            if(endpoint.electrical.present()&&!endpoint.electrical.read().values.empty())node.electrical=endpoint.electrical;
+            if(endpoint.power.present()&&(!node.power.present()||endpoint.power.read().known)){node.power=endpoint.power;}
             if (endpoint.battery.present()) { node.battery.setPresent(true); node.battery.ensure().percent=endpoint.battery.read().percent; }
         }
         node.ieeeAddress=node.external.ensure().externalId=it->first;
@@ -3381,6 +3421,7 @@ std::string GatewayView::statusJson() const {
              << ",\"has_actor\":" << (device.actor.present() ? "true" : "false")
              << ",\"actor_known\":" << (device.actor.read().known ? "true" : "false")
              << ",\"actor_on\":" << (device.actor.read().on ? "true" : "false")
+             << ",\"electrical\":" << electricalJson(device.electrical.read())
              << ",\"has_power\":" << (device.power.present() ? "true" : "false")
              << ",\"power_known\":" << (device.power.read().known ? "true" : "false")
              << ",\"power_watts\":" << device.power.read().watts

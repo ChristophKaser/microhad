@@ -1,13 +1,16 @@
+import { electricalDefinitions } from './electrical'
 import type { Device, HistoryMetric, HistorySample } from './api'
 
-const names: Record<HistoryMetric, string> = {
+const names: Record<number, string> = {
+  ...Object.fromEntries(electricalDefinitions.filter(d => d.metric !== 4).map(d => [d.metric, d.label])),
   1: 'Temperature', 2: 'Humidity', 3: 'Contact', 4: 'Power', 5: 'Occupancy', 6: 'Battery',
   7: 'CO₂', 8: 'PM2.5', 9: 'Air quality', 10: 'Light', 11: 'Brightness',
   12: 'CO₂ mass concentration', 13: 'CO₂ particle concentration', 14: 'CO₂ activity concentration',
   15: 'CO₂ attenuation', 16: 'PM2.5', 17: 'PM2.5 particle concentration',
   18: 'PM2.5 activity concentration', 19: 'PM2.5 attenuation', 20: 'Heating',
 }
-const defaultUnits: Record<HistoryMetric, string> = {
+const defaultUnits: Record<number, string> = {
+  ...Object.fromEntries(electricalDefinitions.filter(d => d.metric !== 4).map(d => [d.metric, d.unit])),
   1: '°C', 2: '%', 3: '', 4: 'W', 5: '', 6: '%', 7: 'ppm', 8: 'ug/m3', 9: '', 10: '', 11: '%',
   12: 'ug/m3', 13: 'particles/m3', 14: 'Bq/m3', 15: 'dB/m', 16: 'ppm', 17: 'particles/m3',
   18: 'Bq/m3', 19: 'dB/m', 20: '',

@@ -1381,6 +1381,124 @@
       "oneof": true
     }
   ],
+  "ElectricalQuantity": [
+    {
+      "name": "key",
+      "tag": 1,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "value",
+      "tag": 2,
+      "type": 1,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "unit",
+      "tag": 3,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "known",
+      "tag": 4,
+      "type": 8,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
+  "ElectricalQuantityList": [
+    {
+      "name": "items",
+      "tag": 1,
+      "type": 11,
+      "message": "ElectricalQuantity",
+      "repeated": true,
+      "oneof": false
+    }
+  ],
+  "ElectricalReading": [
+    {
+      "name": "quantities",
+      "tag": 1,
+      "type": 11,
+      "message": "ElectricalQuantityList",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "start_timestamp",
+      "tag": 2,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "end_timestamp",
+      "tag": 3,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "start_systime",
+      "tag": 4,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "end_systime",
+      "tag": 5,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "imported_reset_timestamp",
+      "tag": 6,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "exported_reset_timestamp",
+      "tag": 7,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "imported_reset_systime",
+      "tag": 8,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "exported_reset_systime",
+      "tag": 9,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
   "ReadingValue": [
     {
       "name": "null",
@@ -1443,6 +1561,14 @@
       "tag": 8,
       "type": 11,
       "message": "ThermostatCapabilityList",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "electrical",
+      "tag": 9,
+      "type": 11,
+      "message": "ElectricalReading",
       "repeated": false,
       "oneof": true
     }

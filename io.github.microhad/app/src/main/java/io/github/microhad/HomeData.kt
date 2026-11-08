@@ -57,7 +57,7 @@ internal data class HistoryPoint(val cursor: Long, val time: Long, val metric: I
     val displayUnit get() = when (unit) { "celsius" -> "°C"; "percent" -> "%"; "watts" -> "W"; null -> when(metric) { 1 -> "°C"; 2,6,11 -> "%"; 4 -> "W"; 7,16 -> "ppm"; 8,12 -> "ug/m3"; 13,17 -> "particles/m3"; 14,18 -> "Bq/m3"; 15,19 -> "dB/m"; else -> "" }; else -> unit }
     val label get() = when(metric) { 3 -> if (y != 0.0) "Open" else "Closed"; 5 -> if(y != 0.0) "Occupied" else "Clear"; 10 -> if(y != 0.0) "On" else "Off"; 9 -> value.toString().replace('_', ' '); else -> "${"%.2f".format(y)} $displayUnit" }
 }
-internal val metricNames = listOf("", "Temperature", "Humidity", "Contact", "Power", "Occupancy", "Battery", "CO₂", "PM2.5", "Air quality", "Light", "Brightness", "CO₂ mass concentration", "CO₂ particle concentration", "CO₂ activity concentration", "CO₂ attenuation", "PM2.5 (ppm)", "PM2.5 particle concentration", "PM2.5 activity concentration", "PM2.5 attenuation")
+internal val metricNames = listOf("", "Temperature", "Humidity", "Contact", "Power", "Occupancy", "Battery", "CO₂", "PM2.5", "Air quality", "Light", "Brightness", "CO₂ mass concentration", "CO₂ particle concentration", "CO₂ activity concentration", "CO₂ attenuation", "PM2.5 (ppm)", "PM2.5 particle concentration", "PM2.5 activity concentration", "PM2.5 attenuation") + listOf("Heating") + (21..44).map { electricalMetricNames[it] ?: "Electrical $it" }
 internal class HomeRepository(private val api: GatewayApi) {
     suspend fun json(path: String) = withContext(Dispatchers.Default) { JSONObject(api.request(path, maxBytes = 2 * 1024 * 1024)) }
     suspend fun status() = withContext(Dispatchers.Default) { HomeSnapshot(json("/api/status")) }

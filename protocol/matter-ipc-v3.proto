@@ -253,6 +253,24 @@ message NullableInt {
     sint64 integer = 2;
   }
 }
+message ElectricalQuantity {
+  optional string key = 1;
+  optional double value = 2;
+  optional string unit = 3;
+  optional bool known = 4;
+}
+message ElectricalQuantityList { repeated ElectricalQuantity items = 1; }
+message ElectricalReading {
+  optional ElectricalQuantityList quantities = 1;
+  optional uint64 start_timestamp = 2;
+  optional uint64 end_timestamp = 3;
+  optional uint64 start_systime = 4;
+  optional uint64 end_systime = 5;
+  optional uint64 imported_reset_timestamp = 6;
+  optional uint64 exported_reset_timestamp = 7;
+  optional uint64 imported_reset_systime = 8;
+  optional uint64 exported_reset_systime = 9;
+}
 message ReadingValue {
   oneof choice {
     bool null = 1;
@@ -263,6 +281,7 @@ message ReadingValue {
     string text = 6;
     Measurement measurement = 7;
     ThermostatCapabilityList list = 8;
+    ElectricalReading electrical = 9;
   }
 }
 message OperationResult {

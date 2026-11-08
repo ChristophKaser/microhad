@@ -176,6 +176,15 @@ internal fun deviceCardReadings(d: HomeDevice, label: (String) -> String = { it 
     reading("temperature", "temperature_celsius", "Temperature", "°C")
     reading("humidity", "humidity_percent", "Humidity", "%", true)
     reading("power", "power_watts", "Power", "W")
+    r.optJSONObject("electrical")?.let { electrical ->
+        electrical.keys().forEach { key ->
+            val sensor = electrical.optJSONObject(key)
+            if (key != "active_power" && sensor != null && sensor.has("quality")) {
+                val known = sensor.optString("quality") == "measured" && !sensor.isNull("value")
+                add(CardReading("electrical.$key", label(key.replace('_', ' ')), if (known) "${sensor.opt("value")} ${sensor.optString("unit")}" else label("Unknown"), known))
+            }
+        }
+    }
     if (d.has("water_leak")) state("water_leak", "Water", r.flag("water_leak_known"), if (r.flag("water_detected")) "Wet" else "Dry", r.flag("water_detected"))
     else if (d.has("contact")) {
         val trigger = r.flag("contact_trigger_mode")

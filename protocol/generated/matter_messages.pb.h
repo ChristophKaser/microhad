@@ -222,6 +222,29 @@ struct ThermostatCapabilityList {
     std::vector<uint32_t> items;
     bool operator==(const ThermostatCapabilityList& other) const {return items==other.items;}
 };
+struct ElectricalQuantity {
+    Optional<std::string> key;
+    Optional<double> value;
+    Optional<std::string> unit;
+    Optional<bool> known;
+    bool operator==(const ElectricalQuantity& other) const {return key==other.key&&value==other.value&&unit==other.unit&&known==other.known;}
+};
+struct ElectricalQuantityList {
+    std::vector<ElectricalQuantity> items;
+    bool operator==(const ElectricalQuantityList& other) const {return items==other.items;}
+};
+struct ElectricalReading {
+    Optional<ElectricalQuantityList> quantities;
+    Optional<uint64_t> start_timestamp;
+    Optional<uint64_t> end_timestamp;
+    Optional<uint64_t> start_systime;
+    Optional<uint64_t> end_systime;
+    Optional<uint64_t> imported_reset_timestamp;
+    Optional<uint64_t> exported_reset_timestamp;
+    Optional<uint64_t> imported_reset_systime;
+    Optional<uint64_t> exported_reset_systime;
+    bool operator==(const ElectricalReading& other) const {return quantities==other.quantities&&start_timestamp==other.start_timestamp&&end_timestamp==other.end_timestamp&&start_systime==other.start_systime&&end_systime==other.end_systime&&imported_reset_timestamp==other.imported_reset_timestamp&&exported_reset_timestamp==other.exported_reset_timestamp&&imported_reset_systime==other.imported_reset_systime&&exported_reset_systime==other.exported_reset_systime;}
+};
 struct ReadingValue {
     Optional<bool> null_value;
     Optional<bool> boolean;
@@ -231,7 +254,8 @@ struct ReadingValue {
     Optional<std::string> text;
     Optional<Measurement> measurement;
     Optional<ThermostatCapabilityList> list;
-    bool operator==(const ReadingValue& other) const {return null_value==other.null_value&&boolean==other.boolean&&unsigned_value==other.unsigned_value&&integer==other.integer&&number==other.number&&text==other.text&&measurement==other.measurement&&list==other.list;}
+    Optional<ElectricalReading> electrical;
+    bool operator==(const ReadingValue& other) const {return null_value==other.null_value&&boolean==other.boolean&&unsigned_value==other.unsigned_value&&integer==other.integer&&number==other.number&&text==other.text&&measurement==other.measurement&&list==other.list&&electrical==other.electrical;}
 };
 struct AttributeValue {
     Optional<std::string> type;

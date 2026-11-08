@@ -320,3 +320,6 @@ $(MIPS_BIN): $(SNAPSHOT_OBJECTS)
 endif
 
 $(MIPS_C_OBJECTS) $(SNAPSHOT_OBJECTS): Makefile
+
+# Shared electrical units and history identities are build inputs.
+$(HOST_BIN) $(HOST_TEST_BIN) $(UNIT_TEST_BIN) $(INTEGRATION_TEST_BIN) $(MIPS_BIN): ../config/electrical-measurements.def

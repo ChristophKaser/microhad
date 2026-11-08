@@ -38,6 +38,7 @@ def normalize(v,msg,kind,op,event='',incoming=False):
         elif isinstance(v,int):key='integer' if v<0 else 'unsigned' if msg=='ReadingValue' else 'integer'
         elif isinstance(v,str):key='text'
         elif isinstance(v,list):key='list'
+        elif msg=='ReadingValue' and isinstance(v,dict) and 'quantities' in v:key='electrical'
         else:key='measurement'
         f=next(f for f in fields if f['name']==key)
         x=True if key=='null' else v

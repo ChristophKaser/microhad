@@ -64,6 +64,12 @@ bool fromValue(const Proto::Value&,Measurement*);
 Proto::Value toValue(const Measurement&);
 bool fromValue(const Proto::Value&,ThermostatCapabilityList*);
 Proto::Value toValue(const ThermostatCapabilityList&);
+bool fromValue(const Proto::Value&,ElectricalQuantity*);
+Proto::Value toValue(const ElectricalQuantity&);
+bool fromValue(const Proto::Value&,ElectricalQuantityList*);
+Proto::Value toValue(const ElectricalQuantityList&);
+bool fromValue(const Proto::Value&,ElectricalReading*);
+Proto::Value toValue(const ElectricalReading&);
 bool fromValue(const Proto::Value&,ReadingValue*);
 Proto::Value toValue(const ReadingValue&);
 bool fromValue(const Proto::Value&,AttributeValue*);
@@ -864,6 +870,91 @@ Proto::Value toValue(const ThermostatCapabilityList& v){
     if(!v.items.empty()){Proto::Value a;a.type=Proto::Value::Array;for(size_t i=0;i<v.items.size();++i)a.items.push_back(jsonUInt(v.items[i]));Proto::add(&out,"items",a);}
     return out;
 }
+bool fromValue(const Proto::Value& v,ElectricalQuantity* out){
+    if(v.type!=Proto::Value::Map)return false;
+    ElectricalQuantity result;
+    if(const Proto::Value* p=Proto::field(v,"key")){
+        result.key.present=true;if(!getText(*p,&result.key.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"value")){
+        result.value.present=true;if(!getFloat(*p,&result.value.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"unit")){
+        result.unit.present=true;if(!getText(*p,&result.unit.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"known")){
+        result.known.present=true;if(!getBool(*p,&result.known.value))return false;
+    }
+    *out=result;return true;
+}
+Proto::Value toValue(const ElectricalQuantity& v){
+    Proto::Value out;out.type=Proto::Value::Map;(void)v;
+    if(v.key.present)Proto::add(&out,"key",jsonText(v.key.value));
+    if(v.value.present)Proto::add(&out,"value",jsonFloat(v.value.value));
+    if(v.unit.present)Proto::add(&out,"unit",jsonText(v.unit.value));
+    if(v.known.present)Proto::add(&out,"known",jsonBool(v.known.value));
+    return out;
+}
+bool fromValue(const Proto::Value& v,ElectricalQuantityList* out){
+    if(v.type!=Proto::Value::Map)return false;
+    ElectricalQuantityList result;
+    if(const Proto::Value* p=Proto::field(v,"items")){
+        if(p->type!=Proto::Value::Array)return false;
+        result.items.resize(p->items.size());
+        for(size_t i=0;i<p->items.size();++i)if(!fromValue(p->items[i],&result.items[i]))return false;
+    }
+    *out=result;return true;
+}
+Proto::Value toValue(const ElectricalQuantityList& v){
+    Proto::Value out;out.type=Proto::Value::Map;(void)v;
+    if(!v.items.empty()){Proto::Value a;a.type=Proto::Value::Array;for(size_t i=0;i<v.items.size();++i)a.items.push_back(toValue(v.items[i]));Proto::add(&out,"items",a);}
+    return out;
+}
+bool fromValue(const Proto::Value& v,ElectricalReading* out){
+    if(v.type!=Proto::Value::Map)return false;
+    ElectricalReading result;
+    if(const Proto::Value* p=Proto::field(v,"quantities")){
+        result.quantities.present=true;if(!fromValue(*p,&result.quantities.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"start_timestamp")){
+        result.start_timestamp.present=true;if(!getUInt(*p,&result.start_timestamp.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"end_timestamp")){
+        result.end_timestamp.present=true;if(!getUInt(*p,&result.end_timestamp.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"start_systime")){
+        result.start_systime.present=true;if(!getUInt(*p,&result.start_systime.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"end_systime")){
+        result.end_systime.present=true;if(!getUInt(*p,&result.end_systime.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"imported_reset_timestamp")){
+        result.imported_reset_timestamp.present=true;if(!getUInt(*p,&result.imported_reset_timestamp.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"exported_reset_timestamp")){
+        result.exported_reset_timestamp.present=true;if(!getUInt(*p,&result.exported_reset_timestamp.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"imported_reset_systime")){
+        result.imported_reset_systime.present=true;if(!getUInt(*p,&result.imported_reset_systime.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"exported_reset_systime")){
+        result.exported_reset_systime.present=true;if(!getUInt(*p,&result.exported_reset_systime.value))return false;
+    }
+    *out=result;return true;
+}
+Proto::Value toValue(const ElectricalReading& v){
+    Proto::Value out;out.type=Proto::Value::Map;(void)v;
+    if(v.quantities.present)Proto::add(&out,"quantities",toValue(v.quantities.value));
+    if(v.start_timestamp.present)Proto::add(&out,"start_timestamp",jsonUInt(v.start_timestamp.value));
+    if(v.end_timestamp.present)Proto::add(&out,"end_timestamp",jsonUInt(v.end_timestamp.value));
+    if(v.start_systime.present)Proto::add(&out,"start_systime",jsonUInt(v.start_systime.value));
+    if(v.end_systime.present)Proto::add(&out,"end_systime",jsonUInt(v.end_systime.value));
+    if(v.imported_reset_timestamp.present)Proto::add(&out,"imported_reset_timestamp",jsonUInt(v.imported_reset_timestamp.value));
+    if(v.exported_reset_timestamp.present)Proto::add(&out,"exported_reset_timestamp",jsonUInt(v.exported_reset_timestamp.value));
+    if(v.imported_reset_systime.present)Proto::add(&out,"imported_reset_systime",jsonUInt(v.imported_reset_systime.value));
+    if(v.exported_reset_systime.present)Proto::add(&out,"exported_reset_systime",jsonUInt(v.exported_reset_systime.value));
+    return out;
+}
 bool fromValue(const Proto::Value& v,ReadingValue* out){
     if(v.type!=Proto::Value::Map)return false;
     ReadingValue result;
@@ -891,6 +982,9 @@ bool fromValue(const Proto::Value& v,ReadingValue* out){
     if(const Proto::Value* p=Proto::field(v,"list")){
         result.list.present=true;if(!fromValue(*p,&result.list.value))return false;
     }
+    if(const Proto::Value* p=Proto::field(v,"electrical")){
+        result.electrical.present=true;if(!fromValue(*p,&result.electrical.value))return false;
+    }
     *out=result;return true;
 }
 Proto::Value toValue(const ReadingValue& v){
@@ -903,6 +997,7 @@ Proto::Value toValue(const ReadingValue& v){
     if(v.text.present)Proto::add(&out,"text",jsonText(v.text.value));
     if(v.measurement.present)Proto::add(&out,"measurement",toValue(v.measurement.value));
     if(v.list.present)Proto::add(&out,"list",toValue(v.list.value));
+    if(v.electrical.present)Proto::add(&out,"electrical",toValue(v.electrical.value));
     return out;
 }
 bool fromValue(const Proto::Value& v,AttributeValue* out){

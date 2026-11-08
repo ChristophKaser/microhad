@@ -394,6 +394,10 @@ pub async fn establish_device_paths_cached<C: Crypto>(
             path_units.push((endpoint, cluster, crate::operations::read_measurement_unit(
                 matter, crypto, fabric, node, endpoint, cluster).await?));
         }
+        if matches!(cluster,144|145) && attribute==u32::MAX {
+            paths.extend(crate::electrical::paths(matter,crypto,fabric,node,endpoint,cluster).await?);
+            continue;
+        }
         paths.push(AttrPath { endpoint: Some(endpoint), cluster: Some(cluster),
             attr: if cluster == 513 && attribute == u32::MAX { None } else { Some(attribute) },
             ..AttrPath::default() });

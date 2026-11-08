@@ -1,3 +1,4 @@
+import { electricalDefinitions } from './electrical'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Chart as ChartJS, LineController, LineElement, LinearScale, PointElement, Tooltip } from 'chart.js'
 import type { Device, HistoryMetric, HistorySample } from './api'
@@ -6,7 +7,8 @@ import { historyDeviceId, historyDiscrete, historyLabel, historyName, historyTic
 import { historyRangeSeconds, historyWindow } from './historyLoader'
 import type { HistoryRange } from './historyLoader'
 import { useHistory } from './useHistory'
-const metricColor: Record<HistoryMetric, string> = {
+const metricColor: Record<number, string> = {
+  ...Object.fromEntries(electricalDefinitions.map(d => [d.metric, '#b77928'])),
   1: '#d97543', 2: '#3384aa', 3: '#7554a4', 4: '#b77928', 5: '#4b956a', 6: '#71859a',
   7: '#9a5b99', 8: '#6d8293', 9: '#368578', 10: '#d2a635', 11: '#427fb0',
   12: '#ad74a8', 13: '#865c91', 14: '#774c81', 15: '#674170', 16: '#8295a6',
@@ -101,9 +103,10 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
     ...(device.has_air_quality ? [9 as const] : []),
     ...(device.has_light || device.has_actor ? [10 as const] : []),
     ...(device.has_brightness ? [11 as const] : []),
+    ...electricalDefinitions.filter(d => d.metric !== 4 && device.electrical?.[d.key]).map(d => d.metric),
     ...([...new Set(samples.map((sample) => sample[2]).filter((metric) => metric >= 12))] as HistoryMetric[]),
     ...([...new Set(samples.map((sample) => sample[2]).filter((metric) => metric === 7 || metric === 8))] as HistoryMetric[]),
-  ], [device, samples])
+  ].filter((metric, index, all) => all.indexOf(metric) === index), [device, samples])
   const series = useMemo(() => metrics.flatMap((metric) => {
     const units = [...new Set(samples.filter((sample) => sample[2] === metric).map((sample) => historyUnit(metric, sample)))]
     return (units.length ? units : [historyUnit(metric)]).map((unit) => ({ metric, unit }))

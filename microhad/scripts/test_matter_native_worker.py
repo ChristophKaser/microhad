@@ -275,11 +275,11 @@ class MatterPeer:
                         if opcode == 1 and not self.deleted:
                             base = dict(node='0000000000000002', state='complete', online=True,
                                 id='matter:0000000000000001:0000000000000002',endpoint=None,servers=[],clients=[])
-                            records=[dict(kind='identity',device=base,endpoint_count=2)]
-                            for endpoint, servers in [(0,[29]),(1,[6,8,29,1026])]:
-                                records.append(dict(kind='endpoint',endpoint_count=2,device=dict(base,
+                            records=[dict(kind='identity',device=base,endpoint_count=3)]
+                            for endpoint, servers in [(0,[29]),(1,[6,8,29,1026]),(2,[29,144,145])]:
+                                records.append(dict(kind='endpoint',endpoint_count=3,device=dict(base,
                                     id=base['id']+f':{endpoint:04x}',endpoint=endpoint,servers=servers)))
-                            records.append(dict(kind='commit',device=base,endpoint_count=2))
+                            records.append(dict(kind='commit',device=base,endpoint_count=3))
                             for record in records:
                                 wire.extend(matter_wire.frame(12,2,0,dict(schema=1,event='matter_inventory',data=record)))
                         if not self.send(peer, wire):
@@ -307,6 +307,10 @@ class MatterPeer:
                             payload = json.dumps(sensor_report).encode()
                             if not self.send(peer, matter_wire.frame(12, 2, 0, payload)):
                                 break
+                            for cluster, attribute, key, number, unit in [(144,8,'active_power',12.345,'W'),(144,4,'voltage',230.125,'V'),(145,1,'cumulative_imported_energy',123.456789,'kWh')]:
+                                report = dict(schema=1,event='matter_report',data=dict(node='0000000000000002',endpoint=2,cluster=cluster,attribute=attribute,value=dict(type='electrical',value=dict(quantities=[dict(key=key,value=number,unit=unit,known=True)]))))
+                                if not self.send(peer,matter_wire.frame(12,2,0,report)):break
+
         except Exception as error:
             if not self.stop.is_set():
                 self.error = type(error).__name__
@@ -673,7 +677,7 @@ def device_inventory_http(fixture, real):
             return devices if len(devices)==1 and devices[0].get('endpoint_metadata_state')=='ready' else None
         devices=wait_for(inventory)
         assert devices[0]['id']=='matter:0000000000000001:0000000000000002'
-        assert [entry['endpoint'] for entry in devices[0]['endpoint_descriptors']]==[0,1]
+        assert [entry['endpoint'] for entry in devices[0]['endpoint_descriptors']]==[0,1,2]
 
 
 def device_operations_http(fixture):
@@ -865,8 +869,15 @@ def main():
                 return next((device for device in devices
                     if device['source'] == 'matter' and device['matter_node'] == '0000000000000002' and
                     device['matter_endpoint'] == 1 and device['light_known'] and device['light_on'] and
-                    device['sensor_values']['temperature'] == dict(value=21.5, unit='°C', quality='measured')), None)
+                    device['sensor_values']['temperature'] == dict(value=21.5, unit='°C', quality='measured') and
+                    device['power_known'] and device['power_watts'] == 12.345 and
+                    device.get('electrical',{}).get('voltage',{}).get('value') == 230.125 and
+                    device.get('electrical',{}).get('cumulative_imported_energy',{}).get('value') == 123.456789), None)
             assert wait_for(report_applied), 'Unsolicited Matter reports did not update shared device state'
+            plug = report_applied()
+            history = fixture.request('/api/devices/' + urllib.parse.quote(plug['id'], safe='') + '/history')
+            assert {4, 21, 33}.issubset({sample[2] for sample in history['samples']}), history
+
         begin = time.monotonic()
         for _ in range(20):
             assert fixture.request('/api/thread/status')['available']

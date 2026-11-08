@@ -216,6 +216,7 @@ struct AutomationWorker::Impl {
         if(field.type!=Value::String)return failure(L,"history field must be a string");
         static const char* names[]={"temperature_celsius","humidity_percent","contact_open","power_watts","occupied","battery_percent","co2_ppm","pm25_micrograms_m3","air_quality"};
         unsigned char metric=0;for(unsigned int i=0;i<sizeof(names)/sizeof(names[0]);++i)if(field.string==names[i])metric=i+1;
+        if(!metric&&field.string.compare(0,11,"electrical.")==0){const ElectricalDefinition* d=electricalDefinition(field.string.substr(11));if(d)metric=d->metric;}
         if(!metric)return failure(L,"field has no recorded history");
         const bool boolean=metric==SensorHistory::Contact||metric==SensorHistory::Occupancy;
         bool filtered=options.fields.count("value")!=0;float number=0;

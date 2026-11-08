@@ -160,7 +160,16 @@
     "unit": "",
     "quality": "",
     "mode": "",
-    "transitions": "thermostat-transition"
+    "transitions": "thermostat-transition",
+    "quantities": "electrical-quantity",
+    "start_timestamp": "",
+    "end_timestamp": "",
+    "start_systime": "",
+    "end_systime": "",
+    "imported_reset_timestamp": "",
+    "exported_reset_timestamp": "",
+    "imported_reset_systime": "",
+    "exported_reset_systime": ""
   },
   "ble-write": {
     "session": "@id",
@@ -342,5 +351,11 @@
     "time": "",
     "heat": "",
     "cool": ""
+  },
+  "electrical-quantity": {
+    "key": "",
+    "value": "",
+    "unit": "",
+    "known": ""
   }
 }
