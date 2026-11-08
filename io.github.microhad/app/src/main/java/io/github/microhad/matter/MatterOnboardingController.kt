@@ -14,6 +14,7 @@ internal class MatterOnboardingController(
         suspend fun availability(): MatterGatewayWire.Availability
         suspend fun createThread()
         suspend fun start(discriminator: Int, pin: Int, timeoutSeconds: Int): MatterGatewayWire.Session
+        suspend fun status(session: String): MatterGatewayWire.Session
         suspend fun cancel(session: String)
         fun relay(session: String, scope: CoroutineScope, listener: MatterGatewayRelay.Listener): Relay
     }
@@ -55,6 +56,7 @@ internal class MatterOnboardingController(
     private var relay: Relay? = null
     private var session: String? = null
     private var generation = 0L
+    private var threadHandover = false
     private var deadline = 0L
     private var scanDeadline = 0L
     private val model = MatterBleRelayModel(object : MatterBleRelayModel.Ports {
@@ -133,6 +135,7 @@ internal class MatterOnboardingController(
             emit(); return
         }
         attempt++
+        threadHandover = false
         val owner = attempt
         setup = code
         scanDeadline = now() + 60000
@@ -150,18 +153,37 @@ internal class MatterOnboardingController(
                     try { bind(owner, mtu) } catch (e: Exception) { fail(error(e)) }
                 }
                 override fun indication(data: ByteArray) {
-                    if (!current(owner)) return
+                    if (!current(owner) || threadHandover) return
                     if (generation == 0L) fail("ble_protocol") else { model.indication(model.epoch, generation, data); modelState() }
                 }
                 override fun written(write: Long, success: Boolean) {
-                    if (!current(owner) || generation == 0L) return
+                    if (!current(owner) || threadHandover || generation == 0L) return
                     model.gattWritten(model.epoch, generation, write, success); modelState()
                 }
                 override fun failed(error: MatterBleAdapter.Error) {
                     if (!current(owner)) return
+                    if (threadHandover) {
+                        MatterDiagnostics.record("BLE disconnected during Thread handover; awaiting gateway completion")
+                        ble?.close(); ble = null
+                        return
+                    }
                     if (error == MatterBleAdapter.Error.SCAN_TIMEOUT && snapshot.state == State.SCANNING && snapshot.candidates.isNotEmpty()) {
                         snapshot = snapshot.copy(state = State.SELECTING); emit()
-                    } else if (!model.awaitingFailedWrite) fail("ble_${error.name.lowercase()}")
+                    } else if (!model.awaitingFailedWrite) {
+                        // BLE and relay callbacks can arrive in either order. Ask the
+                        // gateway before cancelling on an apparently early disconnect.
+                        val id = session
+                        if (id == null) fail("ble_${error.name.lowercase()}") else launch {
+                            try {
+                                val value = withTimeout(3000) { gateway.status(id) }
+                                if (!current(owner)) return@launch
+                                progress(value)
+                                if (current(owner) && !threadHandover) fail("ble_${error.name.lowercase()}")
+                            } catch (_: Exception) {
+                                if (current(owner) && !threadHandover) fail("ble_${error.name.lowercase()}")
+                            }
+                        }
+                    }
                 }
             })
             ble!!.scan { it.matches(code) }
@@ -224,6 +246,8 @@ internal class MatterOnboardingController(
     }
     private fun progress(value: MatterGatewayWire.Session) {
         if (value.id != session) { fail("protocol"); return }
+        // These phases follow a successful ConnectNetwork response. BLE is no longer required.
+        if (value.state in setOf("case", "completing")) threadHandover = true
         deadline = minOf(deadline, now() + value.remainingSeconds * 1000L)
         if (value.terminal) {
             val state = when (value.state) {
@@ -239,7 +263,7 @@ internal class MatterOnboardingController(
         if (!foreground || closed) return
         if (snapshot.state in setOf(State.SCANNING, State.SELECTING) && now() >= scanDeadline) fail("ble_scan_timeout")
         if (session != null && now() >= deadline) end(State.TIMED_OUT, "timeout", null, true)
-        model.tick(); modelState()
+        if (!threadHandover) { model.tick(); modelState() }
         if (session != null) { snapshot = snapshot.copy(remainingSeconds = ((deadline - now()).coerceAtLeast(0) + 999).div(1000).toInt()); emit() }
     }
     private fun modelState() {

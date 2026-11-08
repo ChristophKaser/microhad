@@ -47,6 +47,7 @@ private:
     uint64_t abandonedSession_;
     bool phoneQueue(unsigned char opcode, const std::string& payload);
     void phonePump();
+    bool continuingOverThread(uint64_t session);
     void dropPhone(bool cancel, unsigned int code);
 
     MatterChannel client_;

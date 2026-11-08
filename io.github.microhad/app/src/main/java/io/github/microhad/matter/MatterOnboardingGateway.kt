@@ -7,6 +7,7 @@ internal class MatterOnboardingGateway(base: String, fingerprint: String = "") :
     override suspend fun availability() = client.availability()
     override suspend fun createThread() = client.createThread()
     override suspend fun start(discriminator: Int, pin: Int, timeoutSeconds: Int) = client.start(discriminator, pin, timeoutSeconds)
+    override suspend fun status(session: String) = client.status(session)
     override suspend fun cancel(session: String) { client.cancel(session) }
     override fun relay(session: String, scope: CoroutineScope, listener: MatterGatewayRelay.Listener): MatterOnboardingController.Relay {
         val connection = MatterGatewayRelay(client, session, scope, listener)

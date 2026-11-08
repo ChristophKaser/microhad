@@ -384,7 +384,7 @@ void MatterWorker::run() {
             bool valid=client_.call(9,body,&response,&error);
             if(!running())break;
             if(valid&&abandonedSession_!=0){
-                valid=client_.call(5,cancelBody(abandonedSession_),&response,&error);if(valid)abandonedSession_=0;
+                valid=continuingOverThread(abandonedSession_) || client_.call(5,cancelBody(abandonedSession_),&response,&error);if(valid)abandonedSession_=0;
             }
             body=MatterProto::MessageBody();body.matter_status_request.present=true;
             if(valid)valid=client_.call(1,body,&response,&error);
@@ -434,6 +434,18 @@ bool MatterWorker::phoneQueue(unsigned char opcode, const std::string& payload) 
     if (phoneOutput_.empty()) phoneWriteSince_ = tick();
     phoneOutput_.push_back(frame); return true;
 }
+bool MatterWorker::continuingOverThread(uint64_t session) {
+    // Explicit Cancel uses opcode 5 directly; only lost transports use this check.
+    MatterProto::MessageBody request,status;
+    MatterProto::CommissioningStatusRequest query; query.schema=1; query.session=session; query.subscribe=false;
+    request.commissioning_status_request=query;
+    std::string error;
+    if (!client_.call(4,request,&status,&error) || MatterChannel::relayResponseSession(status)!=session) return false;
+    const std::string phase=status.reply.value.result.value.session.value.state.value;
+    if (phase!="case" && phase!="completing" && phase!="complete") return false;
+    syslog(LOG_INFO,"Matter commissioning continuing over Thread after relay disconnect");
+    return true;
+}
 void MatterWorker::dropPhone(bool cancel, unsigned int code) {
     const uint64_t session=phoneSession_;phoneSession_=0;
     if (phoneFd_ >= 0) {
@@ -454,6 +466,7 @@ void MatterWorker::dropPhone(bool cancel, unsigned int code) {
     pthread_mutex_unlock(&mutex_);
     if (session!=0 && !cancel) abandonedSession_ = session;
     if (cancel && session!=0) {
+        if (continuingOverThread(session)) return;
         MatterProto::MessageBody response;std::string error;
         if(!client_.call(5,cancelBody(session),&response,&error)) {
             abandonedSession_ = session;

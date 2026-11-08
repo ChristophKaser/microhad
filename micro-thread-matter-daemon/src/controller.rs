@@ -293,9 +293,11 @@ impl<'a, C: Crypto + 'a> Controller<'a, C> {
         };
         if !ipc.has_peer(peer) {
             if let Some(snapshot) = self.sessions.current_snapshot(now) {
-                if snapshot.state < Phase::Complete {
+                if snapshot.state < Phase::Case {
                     log::info!("Commissioning cancelled because owning IPC peer disconnected");
                     let _ = self.sessions.cancel(snapshot.session, now);
+                } else if snapshot.state < Phase::Complete {
+                    log::info!("Commissioning continuing over Thread after owning IPC peer disconnected");
                 }
             }
             self.peer = None;

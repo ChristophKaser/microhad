@@ -589,6 +589,18 @@ def relay_tests(fixture, matter):
     assert relay.call(4, dict(schema=1, session=session))['ok']
     relay.close()
     wait_for(lambda: cancelled(session))
+    # Losing the phone after Thread provisioning must not undo commissioning.
+    for phase in ('case', 'completing'):
+        session = start()
+        relay = RelaySocket(fixture)
+        assert relay.call(4, dict(schema=1, session=session))['ok']
+        matter.session.update(state=phase)
+        relay.close()
+        time.sleep(.4)
+        result = relay_http_call(fixture, 'status', dict(schema=1, session=session))
+        assert result['result']['state'] == phase, result
+        result = relay_http_call(fixture, 'cancel', dict(schema=1, session=session))
+        assert result['result']['state'] == 'cancelled', result
     session = start()
     relay = RelaySocket(fixture)
     try:

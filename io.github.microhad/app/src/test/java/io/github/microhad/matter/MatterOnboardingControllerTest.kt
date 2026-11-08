@@ -21,6 +21,7 @@ class MatterOnboardingControllerTest {
         var cancelWait: CompletableDeferred<Unit>? = null
         var startFailure = false
         var relayFailure = false
+        var statusResult = session()
         val cancelled = mutableListOf<String>()
         val bles = mutableListOf<FakeBle>()
         val relays = mutableListOf<FakeRelay>()
@@ -36,6 +37,7 @@ class MatterOnboardingControllerTest {
             if (startFailure) throw MatterGatewayWire.Failure(MatterGatewayWire.Error.TRANSPORT)
             return startWait?.await() ?: session()
         }
+        override suspend fun status(session: String) = statusResult
         override suspend fun cancel(session: String) { cancelled.add(session); cancelWait?.await() }
         override fun relay(session: String, scope: CoroutineScope, listener: MatterGatewayRelay.Listener): MatterOnboardingController.Relay {
             if (relayFailure) throw IllegalStateException("fixture")
@@ -148,6 +150,58 @@ class MatterOnboardingControllerTest {
             assertEquals(MatterOnboardingController.State.FAILED, f.controller.snapshot.state)
             assertTrue(relay.closes > 0)
         } finally { f.dispose() }
+    }
+
+    @Test fun bleDisconnectDuringThreadHandoverKeepsRelayUntilCompletion() {
+        val f = Fixture()
+        try {
+            f.active(); val relay = f.relays.last(); val ble = f.bles.last()
+            relay.listener.progress(session("case"))
+            ble.listener.failed(MatterBleAdapter.Error.GATT)
+            assertEquals(MatterOnboardingController.State.ACTIVE, f.controller.snapshot.state)
+            assertTrue(f.cancelled.isEmpty()); assertEquals(0, relay.closes)
+            f.time = 15000; f.controller.tick()
+            relay.listener.progress(session("complete", 0))
+            assertEquals(MatterOnboardingController.State.COMPLETE, f.controller.snapshot.state)
+            assertTrue(f.cancelled.isEmpty())
+        } finally { f.dispose() }
+    }
+
+    @Test fun bleDisconnectBeforeQueuedProgressChecksGatewayHandover() {
+        val f = Fixture()
+        try {
+            f.active(); f.statusResult = session("case")
+            f.bles.last().listener.failed(MatterBleAdapter.Error.GATT)
+            assertEquals(MatterOnboardingController.State.ACTIVE, f.controller.snapshot.state)
+            assertEquals("case", f.controller.snapshot.phase)
+            assertTrue(f.cancelled.isEmpty()); assertEquals(0, f.relays.last().closes)
+            f.relays.last().listener.progress(session("complete", 0))
+            assertEquals(MatterOnboardingController.State.COMPLETE, f.controller.snapshot.state)
+        } finally { f.dispose() }
+    }
+
+    @Test fun bleFailureBeforeThreadHandoverStillCancels() {
+        val f = Fixture()
+        try {
+            f.active(); f.relays.last().listener.progress(session("provisioning"))
+            f.bles.last().listener.failed(MatterBleAdapter.Error.GATT)
+            assertEquals(MatterOnboardingController.State.FAILED, f.controller.snapshot.state)
+            assertEquals(listOf(id), f.cancelled)
+        } finally { f.dispose() }
+    }
+
+    @Test fun threadHandoverStillAllowsExplicitCancelAndDeadline() {
+        for (cancel in listOf(true, false)) {
+            val f = Fixture()
+            try {
+                f.active(); f.relays.last().listener.progress(session("case"))
+                f.bles.last().listener.failed(MatterBleAdapter.Error.GATT)
+                if (cancel) f.controller.cancel() else { f.time = 120000; f.controller.tick() }
+                assertEquals(if (cancel) MatterOnboardingController.State.CANCELLED else MatterOnboardingController.State.TIMED_OUT,
+                    f.controller.snapshot.state)
+                assertEquals(listOf(id), f.cancelled)
+            } finally { f.dispose() }
+        }
     }
 
     @Test fun progressCannotRenewTheOverallDeadline() {
