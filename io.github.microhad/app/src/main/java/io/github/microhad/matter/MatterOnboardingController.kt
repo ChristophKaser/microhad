@@ -57,6 +57,9 @@ internal class MatterOnboardingController(
     private var session: String? = null
     private var generation = 0L
     private var threadHandover = false
+    private var relayUnavailable = false
+    private var statusPollPending = false
+    private var statusPollAt = 0L
     private var deadline = 0L
     private var scanDeadline = 0L
     private val model = MatterBleRelayModel(object : MatterBleRelayModel.Ports {
@@ -136,6 +139,7 @@ internal class MatterOnboardingController(
         }
         attempt++
         threadHandover = false
+        relayUnavailable = false; statusPollPending = false; statusPollAt = 0
         val owner = attempt
         setup = code
         scanDeadline = now() + 60000
@@ -231,17 +235,46 @@ internal class MatterOnboardingController(
                 snapshot = snapshot.copy(state = State.ACTIVE); emit()
             }
             override fun write(generation: Long, write: Long, data: ByteArray) {
-                if (current(owner)) { model.write(model.epoch, id, generation, write, data); modelState() }
+                if (current(owner) && !threadHandover && !relayUnavailable) { model.write(model.epoch, id, generation, write, data); modelState() }
             }
             override fun writeAccepted(generation: Long, write: Long) {
-                if (current(owner)) { model.writeAcknowledged(model.epoch, generation, write); modelState() }
+                if (current(owner) && !threadHandover && !relayUnavailable) { model.writeAcknowledged(model.epoch, generation, write); modelState() }
             }
-            override fun failed(error: MatterGatewayWire.Error) { if (current(owner)) fail(error.wire) }
+            override fun failed(error: MatterGatewayWire.Error) { if (current(owner)) recoverRelay(owner, error.wire) }
         })
         relay = connection
         launch {
             try { connection.open(); if (current(owner)) connection.attach(candidate.address.replace(":", "").lowercase(), mtu) }
             catch (e: Exception) { if (current(owner)) fail(error(e)) }
+        }
+    }
+    private fun recoverRelay(owner: Long, error: String) {
+        if (!current(owner) || relayUnavailable) return
+        relayUnavailable = true
+        relay?.close(); relay = null
+        MatterDiagnostics.record("Commissioning relay lost; checking gateway handover state")
+        pollStatus(owner, error)
+    }
+    private fun pollStatus(owner: Long, relayError: String = "transport") {
+        val id = session ?: return
+        if (!current(owner) || statusPollPending) return
+        statusPollPending = true
+        launch {
+            try {
+                val value = withTimeout(3000) { gateway.status(id) }
+                if (!current(owner)) return@launch
+                progress(value)
+                if (current(owner) && !threadHandover) fail(relayError)
+            } catch (_: Exception) {
+                // During Thread verification a broken phone connection does not
+                // undo pairing. Keep the original deadline and retry HTTP status.
+                if (current(owner) && !threadHandover) fail(relayError)
+            } finally {
+                if (owner == attempt) {
+                    statusPollPending = false
+                    statusPollAt = now() + 1000
+                }
+            }
         }
     }
     private fun progress(value: MatterGatewayWire.Session) {
@@ -263,7 +296,8 @@ internal class MatterOnboardingController(
         if (!foreground || closed) return
         if (snapshot.state in setOf(State.SCANNING, State.SELECTING) && now() >= scanDeadline) fail("ble_scan_timeout")
         if (session != null && now() >= deadline) end(State.TIMED_OUT, "timeout", null, true)
-        if (!threadHandover) { model.tick(); modelState() }
+        if (!threadHandover && !relayUnavailable) { model.tick(); modelState() }
+        if (session != null && relayUnavailable && now() >= statusPollAt) pollStatus(attempt)
         if (session != null) { snapshot = snapshot.copy(remainingSeconds = ((deadline - now()).coerceAtLeast(0) + 999).div(1000).toInt()); emit() }
     }
     private fun modelState() {

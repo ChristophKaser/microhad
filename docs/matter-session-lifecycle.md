@@ -6,8 +6,10 @@ The current service is `mthread-matter` in `micro-thread-matter-daemon/`, using
 ## Disconnect and cancellation
 
 The controller checks the selected commissioning event peer on every
-publish turn. When that IPC connection closes, it cancels the active session
-and drops its commissioner task immediately. This also covers a lost start
+publish turn. Before Thread handover, closing that IPC connection cancels the
+active session and drops its commissioner task immediately. Once successful
+Thread provisioning advances to `case`, loss of the phone or IPC peer leaves
+CASE and CommissioningComplete running under the original session deadline. This also covers a lost start
 response where the native worker never learned the session ID; the worker's
 cancel-on-reconnect path handles sessions whose IDs it already received.
 Reconnection starts a fresh attempt with a new BLE generation; old requests
@@ -65,9 +67,14 @@ and zeroizing passcodes before invalidating callbacks.
 Start/attach select the persistent IPC event peer. Valid status with optional
 `subscribe:true` can select a new peer; status without it does not retarget.
 Commissioning snapshots and opaque C1 writes use the targeted bounded event
-queue. Missing IPC peers cancel their active commissioning session;
-write/session deadlines remain additional bounds. Reconnection must attach a
-new BLE generation when a pending write was lost.
+queue. Missing IPC peers cancel commissioning only before `case`. Before that
+phase, BLE write deadlines remain additional bounds and reconnecting requires
+a fresh BLE generation. From `case` onward, no new C1 writes are scheduled,
+current-generation late BLE callbacks are ignored, and an unconfirmed final BTP
+ACK cannot expire the commissioning future. Explicit Cancel and the overall
+session deadline remain effective. The app falls back to read-only HTTP status
+polling once per second after relay loss during Thread verification; failed
+polls do not extend that deadline.
 The native persistent worker consumes these events and retires relay ownership
 on disconnect. Verify with the synthetic service and native worker fixtures;
 the deployed stack can also be checked for phone loss and service/radio restart.

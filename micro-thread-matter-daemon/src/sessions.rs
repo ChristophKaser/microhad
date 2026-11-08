@@ -366,6 +366,8 @@ impl<'a> Sessions<'a> {
         now: Instant,
     ) -> Result<(), SessionError> {
         let session = self.check_ticket(ticket, now)?;
+        // ConnectNetwork has completed: late BLE traffic cannot affect CASE.
+        if session.phase >= Phase::Case { return Ok(()); }
         if sequence != session.indication {
             return Err(SessionError::StaleGeneration);
         }
@@ -394,7 +396,7 @@ impl<'a> Sessions<'a> {
         success: bool,
         now: Instant,
     ) -> Result<(), SessionError> {
-        self.check_ticket(ticket, now)?;
+        if self.check_ticket(ticket, now)?.phase >= Phase::Case { return Ok(()); }
         if let Err(error) = self
             .relay
             .write_complete(u64::from(ticket.generation), write, success)
@@ -417,6 +419,7 @@ impl<'a> Sessions<'a> {
         let Some(session) = self.current.as_ref().filter(|s| !s.phase.terminal()) else {
             return Ok(None);
         };
+        if session.phase >= Phase::Case { return Ok(None); }
         let Some(generation) = session.generation else {
             return Ok(None);
         };
@@ -444,7 +447,10 @@ impl<'a> Sessions<'a> {
         if self.current.as_ref().is_none_or(|s| s.phase.terminal()) {
             return;
         }
-        if self.relay.check_timeout().is_err() {
+        // A final BTP ACK may remain unconfirmed after the accessory closes BLE.
+        // Thread phase is bounded by the overall commissioning deadline instead.
+        if self.current.as_ref().is_some_and(|s| s.phase < Phase::Case)
+            && self.relay.check_timeout().is_err() {
             self.finish(Phase::Failed, Some(SessionError::Timeout), None);
             return;
         }
@@ -671,6 +677,31 @@ mod tests {
             assert!(relay.network(u64::from(ticket.generation)).is_err());
         }
     }
+    #[test]
+    fn thread_handover_ignores_expired_ble_ack_but_keeps_deadline_and_cancel() {
+        let relay=BleRelay::new();let mut sessions=Sessions::new(&relay);
+        let now=Instant::now();let id=start(&mut sessions,now);
+        let ticket=sessions.attach(id,BtAddr([1;6]),23,now).unwrap();
+        let packet=sessions.next_write(now).unwrap().unwrap();
+        sessions.current.as_ref().unwrap().progress.set(Phase::Case);
+        sessions.poll(now,&mut Context::from_waker(Waker::noop()));
+        assert!(sessions.next_write(now).unwrap().is_none());
+        assert!(sessions.write_complete(Ticket{generation:ticket.generation+1,..ticket},packet.write,false,now).is_err());
+        // The real pending ACK timeout uses wall clock rather than Sessions' test clock.
+        std::thread::sleep(Duration::from_millis(10050));
+        sessions.poll(Instant::now(),&mut Context::from_waker(Waker::noop()));
+        assert!(sessions.snapshot(id,Instant::now()).unwrap().state==Phase::Case);
+        assert!(sessions.write_complete(ticket,packet.write,false,Instant::now()).is_ok());
+        assert!(sessions.indication(ticket,1,&[0xff],Instant::now()).is_ok());
+        assert!(sessions.cancel(id,Instant::now()).unwrap().state==Phase::Cancelled);
+        let id=start(&mut sessions,now);let ticket=sessions.attach(id,BtAddr([1;6]),23,now).unwrap();
+        sessions.current.as_ref().unwrap().progress.set(Phase::Case);
+        sessions.poll(now,&mut Context::from_waker(Waker::noop()));
+        sessions.tick(now+Duration::from_secs(31));
+        assert!(sessions.snapshot(id,now+Duration::from_secs(31)).unwrap().state==Phase::TimedOut);
+        assert!(relay.network(u64::from(ticket.generation)).is_err());
+    }
+
     #[test]
     fn backwards_phase_and_failed_gatt_write_fail_closed() {
         let relay = BleRelay::new();

@@ -22,6 +22,8 @@ class MatterOnboardingControllerTest {
         var startFailure = false
         var relayFailure = false
         var statusResult = session()
+        var statusFailure = false
+        var statusCalls = 0
         val cancelled = mutableListOf<String>()
         val bles = mutableListOf<FakeBle>()
         val relays = mutableListOf<FakeRelay>()
@@ -37,7 +39,11 @@ class MatterOnboardingControllerTest {
             if (startFailure) throw MatterGatewayWire.Failure(MatterGatewayWire.Error.TRANSPORT)
             return startWait?.await() ?: session()
         }
-        override suspend fun status(session: String) = statusResult
+        override suspend fun status(session: String): MatterGatewayWire.Session {
+            statusCalls++
+            if (statusFailure) throw MatterGatewayWire.Failure(MatterGatewayWire.Error.TRANSPORT)
+            return statusResult
+        }
         override suspend fun cancel(session: String) { cancelled.add(session); cancelWait?.await() }
         override fun relay(session: String, scope: CoroutineScope, listener: MatterGatewayRelay.Listener): MatterOnboardingController.Relay {
             if (relayFailure) throw IllegalStateException("fixture")
@@ -177,6 +183,49 @@ class MatterOnboardingControllerTest {
             assertTrue(f.cancelled.isEmpty()); assertEquals(0, f.relays.last().closes)
             f.relays.last().listener.progress(session("complete", 0))
             assertEquals(MatterOnboardingController.State.COMPLETE, f.controller.snapshot.state)
+        } finally { f.dispose() }
+    }
+
+    @Test fun relayLossDuringThreadVerificationPollsUntilComplete() {
+        val f = Fixture()
+        try {
+            f.active(); val relay = f.relays.last(); f.statusResult = session("case")
+            relay.listener.progress(session("case"))
+            relay.listener.failed(MatterGatewayWire.Error.TRANSPORT)
+            assertEquals(MatterOnboardingController.State.ACTIVE, f.controller.snapshot.state)
+            assertTrue(f.cancelled.isEmpty()); assertTrue(relay.closes > 0)
+            relay.listener.write(1, 99, byteArrayOf(1))
+            assertTrue(f.bles.last().writes.isEmpty())
+            f.statusFailure = true; f.time = 1001; f.controller.tick()
+            assertEquals(MatterOnboardingController.State.ACTIVE, f.controller.snapshot.state)
+            f.statusFailure = false; f.statusResult = session("complete", 0)
+            f.time = 2002; f.controller.tick()
+            assertEquals(MatterOnboardingController.State.COMPLETE, f.controller.snapshot.state)
+            assertTrue(f.cancelled.isEmpty())
+        } finally { f.dispose() }
+    }
+
+    @Test fun relayLossBeforeQueuedProgressUsesGatewayPhase() {
+        val f = Fixture()
+        try {
+            f.active(); f.statusResult = session("case")
+            f.relays.last().listener.failed(MatterGatewayWire.Error.TRANSPORT)
+            assertEquals(MatterOnboardingController.State.ACTIVE, f.controller.snapshot.state)
+            assertEquals("case", f.controller.snapshot.phase)
+            assertTrue(f.cancelled.isEmpty())
+            f.controller.cancel(); assertEquals(listOf(id), f.cancelled)
+        } finally { f.dispose() }
+    }
+
+    @Test fun relayLossRetainsOverallDeadline() {
+        val f = Fixture()
+        try {
+            f.active(); f.statusResult = session("case")
+            f.relays.last().listener.progress(session("case"))
+            f.relays.last().listener.failed(MatterGatewayWire.Error.TRANSPORT)
+            f.time = 120000; f.controller.tick()
+            assertEquals(MatterOnboardingController.State.TIMED_OUT, f.controller.snapshot.state)
+            assertEquals(listOf(id), f.cancelled)
         } finally { f.dispose() }
     }
 
