@@ -81,6 +81,10 @@ bool jsonStringField(const std::string& input, const std::string& name, std::str
     return fieldValueStart(input, name, &at) && parseString(input, &at, value);
 }
 
+bool jsonStringAt(const std::string& input, std::string::size_type start, std::string::size_type end, std::string* value) {
+    return end <= input.size() && start < end && parseString(input, &start, value) && start == end;
+}
+
 bool jsonLongField(const std::string& input, const std::string& name, long* value) {
     std::string::size_type at;
     char* end = 0;

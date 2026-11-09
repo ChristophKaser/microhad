@@ -247,7 +247,7 @@ std::string::size_type widgetArrayStart(const std::string& content) {
         while (next < content.size() && isspace(static_cast<unsigned char>(content[next]))) ++next;
         if (depth != 1 || next == content.size() || content[next] != ':') continue;
         std::string key;
-        if (!jsonStringField("{\"key\":" + content.substr(start, at - start + 1) + "}", "key", &key)) return std::string::npos;
+        if (!jsonStringAt(content, start, at + 1, &key)) return std::string::npos;
         if (key != "widgets") continue;
         ++next;
         while (next < content.size() && isspace(static_cast<unsigned char>(content[next]))) ++next;
