@@ -30,6 +30,22 @@ local function fixture(used)
     function() return failures end, function() return clock_calls end, function(kind)return watched[kind]or 0 end, function()return latest_handle end, host
 end
 
+-- Native prefiltering may reject only events that cannot match any listener
+-- or suspended waiter; value predicates remain the full filter's job.
+do
+  local runtime, advance = fixture()
+  local env=runtime.env
+  assert(runtime.initialize(function()
+    env.events.on({type='device.value',field='battery_percent',value_below=15},function()end)
+    env.automation.after(1,function() env.events.wait_for({type='device.changed',field='thermostat'},10) end)
+  end))
+  assert(not runtime.interested({type='device.value',field='electrical.active_power'}))
+  assert(runtime.interested({type='device.value',field='battery_percent'}))
+  advance(1);runtime.tick();runtime.tick()
+  assert(runtime.interested({type='device.changed',field='thermostat'}))
+  assert(not runtime.interested({type='device.changed',field='temperature_celsius'}))
+end
+
 for _,cron in ipairs({false,true}) do
   for _,from_timer in ipairs({false,true}) do
     local runtime, advance, failures = fixture()

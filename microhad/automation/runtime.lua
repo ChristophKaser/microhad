@@ -243,6 +243,21 @@ end
 env.dump=function(value,label)return host.dump(unwrap(value,{}),label)end
 env.persistent=state_proxy('persistent',{});env.shared=state_proxy('shared',{})
 local runtime={env=env}
+-- The native worker supplies only cheap immutable identity fields here.
+-- A possible match must still pass the complete filter in runtime.event.
+function runtime.interested(e)
+  local function possible(f)
+    for _,k in ipairs({'type','device_id','source','field','action','endpoint','position','press_count'}) do
+      if f[k]~=nil and f[k]~=e[k] then return false end
+    end
+    return true
+  end
+  for _,entry in pairs(listeners) do if possible(entry.filter) then return true end end
+  for _,task in pairs(tasks) do
+    if task.wait and task.wait.kind=='event' and possible(task.wait.filter) then return true end
+  end
+  return false
+end
 function runtime.triggers()
   local out={} for id,t in pairs(registered) do out[#out+1]={id=id,label=t.label} end
   table.sort(out,function(a,b)return a.id<b.id end);return out

@@ -40,6 +40,21 @@ void typedSnapshots(){
     assert(!unknown->has(Automation::Temperature)&&!Automation::snapshot(*unknown).fields.count("temperature_celsius"));
 }
 
+void electricalSnapshots(){
+    Device d;d.ieeeAddress="plug";
+    ElectricalState& state=d.electrical.ensure();
+    ElectricalMeasurement& power=state.values["active_power"];
+    power.known=true;power.value=1.234567;power.unit="W";power.observedAt=12345;power.endpoint=2;
+    power.metadata=",\"start_timestamp\":100,\"end_systime\":200";
+    ElectricalMeasurement& voltage=state.values["voltage"];
+    voltage.unit="V";voltage.observedAt=12346;voltage.endpoint=2;
+    state.resetMetadata=",\"imported_reset_timestamp\":42";
+    Value expected;assert(Automation::parse(electricalJson(state),&expected));
+    Automation::SnapshotPtr snapshot=Automation::capture(d);
+    assert(snapshot->electrical==expected);
+    assert(Automation::snapshot(*snapshot).fields["electrical"]==expected);
+}
+
 void thermostatSnapshots(){
     Device d;d.ieeeAddress="trv";d.name="Thermostat";d.source="zigbee";
     EndpointDescriptor endpoint;endpoint.endpoint=1;endpoint.inputClusters.push_back(513);d.zigbee.ensure().endpoints.push_back(endpoint);
@@ -314,4 +329,4 @@ void callbackBudgetAndQueues(){Fixture f;
     assert(rejected>0);assert(f.worker->waitIdle());usleep(100000);assert(f.worker->logsJson("test.lua").find("limit")!=std::string::npos);assert(f.state().fields["good"].number==1);
 }
 }
-void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();typedSnapshots();thermostatSnapshots();sharedLuaState();thermostatEventBurst();globalLuaMemoryLimit();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();manualTriggers();callbackBudgetAndQueues();}
+void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();typedSnapshots();electricalSnapshots();thermostatSnapshots();sharedLuaState();thermostatEventBurst();globalLuaMemoryLimit();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();manualTriggers();callbackBudgetAndQueues();}

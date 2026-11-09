@@ -421,6 +421,12 @@ struct AutomationWorker::Impl {
     struct Invocation {Script* s;const char* method;const Value* argument;int results;};
     static int invoke(lua_State* L){Invocation* i=static_cast<Invocation*>(lua_touserdata(L,1));lua_rawgeti(L,LUA_REGISTRYINDEX,i->s->runtime);lua_getfield(L,-1,i->method);if(i->argument)push(L,*i->argument);lua_call(L,i->argument?1:0,i->results);return i->results;}
     bool call(Script* s,const char* method,const Value* argument=0){AUTOMATION_PROFILE("auto.runtime");ScriptScope scope(s);if(!s->L)return false;lua_State* L=s->L;int base=lua_gettop(L);Invocation i={s,method,argument,0};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&i);int rc=lua_pcall(L,1,0,0);if(rc!=LUA_OK){const char* msg=lua_tostring(L,-1);error(s,msg?msg:"runtime error",method);}lua_settop(L,base);return rc==LUA_OK;}
+    bool interested(Script* s,const Value& hint){
+        ScriptScope scope(s);lua_State* L=s->L;const int base=lua_gettop(L);
+        Invocation i={s,"interested",&hint,1};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&i);
+        const int rc=lua_pcall(L,1,1,0);const bool result=rc!=LUA_OK||lua_toboolean(L,-1);
+        lua_settop(L,base);return result;
+    }
     bool callbacksReady(Script* s){
         ScriptScope scope(s);lua_State* L=s->L;const int base=lua_gettop(L);
         Invocation i={s,"ready",0,1};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&i);
@@ -507,9 +513,22 @@ struct AutomationWorker::Impl {
                 std::map<std::string,Value>::const_iterator typeField=input.data.fields.find("type");
                 const std::string type=input.device?input.type:typeField==input.data.fields.end()?"":typeField->second.string;
                 Value event;bool materialized=false;const time_t at=time(0);
+                Value hint=Value::object();
+                if(input.device){
+                    hint.fields["type"]=Value(input.type);
+                    hint.fields["device_id"]=Value(input.device->metadata->id);
+                    hint.fields["source"]=Value(input.device->metadata->source);
+                    if(input.field!=Automation::FieldCount)hint.fields["field"]=Value(Automation::fieldName(input.field));
+                    if(input.type=="remote.action"){
+                        hint.fields["action"]=Value(input.action);hint.fields["endpoint"]=Value(static_cast<double>(input.endpoint));
+                        if(input.position>=0)hint.fields["position"]=Value(static_cast<double>(input.position));
+                        if(input.pressCount>=0)hint.fields["press_count"]=Value(static_cast<double>(input.pressCount));
+                    }
+                }
                 for(std::map<std::string,Script*>::iterator it=scripts.begin();it!=scripts.end();++it){
                     Script* s=it->second;if(!s->L)continue;s->lastEvent=at;
                     if(!s->watched.count(type))continue;
+                    if(input.device&&!interested(s,hint))continue;
                     if(!materialized){event=Automation::eventValue(input);materialized=true;}
                     call(s,"event",&event);
                 }

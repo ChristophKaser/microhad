@@ -87,6 +87,27 @@ bool sameThermostatInput(const Device& a,const Device& b) {
         x.schedules==y.schedules&&x.scheduleDetails==y.scheduleDetails&&x.scheduleSources==y.scheduleSources&&x.pending==y.pending&&a.thermostatSourceId==b.thermostatSourceId&&
         a.thermostatStaleMinutes==b.thermostatStaleMinutes&&x.sourceObservedAt==y.sourceObservedAt&&x.status==y.status&&x.error==y.error;
 }
+Value electricalSnapshotValue(const ElectricalState& state) {
+    Value result=Value::object();
+    for(std::map<std::string,ElectricalMeasurement>::const_iterator i=state.values.begin();i!=state.values.end();++i){
+        if(!electricalDefinition(i->first))continue;
+        const ElectricalMeasurement& v=i->second;
+        Value entry=Value::object();
+        if(!v.metadata.empty()&&!parse("{"+v.metadata.substr(1)+"}",&entry))return Value();
+        entry.fields["value"]=v.known?Value(v.value):Value();
+        entry.fields["unit"]=Value(v.unit);
+        entry.fields["quality"]=Value(v.known?"measured":"unknown");
+        entry.fields["observed_at"]=Value(static_cast<double>(v.observedAt));
+        entry.fields["endpoint"]=Value(static_cast<double>(v.endpoint));
+        result.fields[i->first]=entry;
+    }
+    if(!state.resetMetadata.empty()){
+        Value reset;
+        if(!parse("{"+state.resetMetadata.substr(1)+"}",&reset))return Value();
+        result.fields["cumulative_energy_reset"]=reset;
+    }
+    return result;
+}
 Value thermostatSnapshotValue(const Device& d) {
     const ThermostatState& t=d.thermostat.read();Value out=Value::object();
     Value& values=out.fields["values"];values=Value::object();
@@ -149,7 +170,7 @@ SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr&
     F(Co2,d.co2.present()&&d.co2.read().known,d.co2.read().ppm);F(Pm25,d.pm25.present()&&d.pm25.read().known,d.pm25.read().microgramsM3);
     F(Brightness,d.brightness.present()&&(d.brightness.read().known||zigbee),d.brightness.read().percent);
     F(Battery,d.battery.present(),d.battery.read().percent);F(WifiSignal,d.wifiSignal.present(),d.wifiSignal.read().percent);F(LinkQuality,zigbee,d.zigbee.read().linkQuality);
-    if(d.electrical.present()) { next.present|=1ULL<<Electrical;parse(electricalJson(d.electrical.read()),&next.electrical); }
+    if(d.electrical.present()) { next.present|=1ULL<<Electrical;next.electrical=electricalSnapshotValue(d.electrical.read()); }
 #define ELECTRICAL(c,a,s,k,u,div,m) {std::map<std::string,ElectricalMeasurement>::const_iterator e=d.electrical.read().values.find(#k);if(e!=d.electrical.read().values.end()) {F(Electrical_##k,e->second.known,e->second.value);}}
 #include "../../config/electrical-measurements.def"
 #undef ELECTRICAL
