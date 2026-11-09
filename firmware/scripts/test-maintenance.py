@@ -6,6 +6,7 @@ from pathlib import Path
 import pty
 import select
 import socket
+import sys
 import tempfile
 import subprocess
 import termios
@@ -18,6 +19,15 @@ BINARY=ROOT/'build/gateway-maintenance-host'
 
 
 class Maintenance(unittest.TestCase):
+    def test_logging_exec_lowers_only_child_and_preserves_lower_priority(self):
+        before = os.getpriority(os.PRIO_PROCESS, 0)
+        command = [str(BINARY), 'logging-exec', sys.executable, '-c',
+                   'import os; print(os.getpriority(os.PRIO_PROCESS, 0))']
+        self.assertEqual(int(subprocess.check_output(command)), max(before, 10))
+        self.assertEqual(os.getpriority(os.PRIO_PROCESS, 0), before)
+        inherited = subprocess.check_output(command, preexec_fn=lambda: os.nice(15))
+        self.assertEqual(int(inherited), min(19, before + 15))
+
     def test_stderr_fifo_and_bounded_syslog_preserve_final_fragment(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -31,6 +41,7 @@ class Maintenance(unittest.TestCase):
                     env=dict(os.environ,GATEWAY_TEST_SYSLOG=str(root/'syslog')))
                 try:
                     with fifo.open('wb') as output:
+                        self.assertGreaterEqual(os.getpriority(os.PRIO_PROCESS, process.pid), 10)
                         output.write(b'stack backtrace:\n'+b'x'*481+b'\nfinal frame')
                     messages = [collector.recv(256) for _ in range(6)]
                     self.assertTrue(all(len(message)<255 for message in messages))

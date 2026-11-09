@@ -116,7 +116,7 @@ class Paired(unittest.TestCase):
         syslogd=self.root/'syslogd';syslog_state=self.root/'syslogd.running'
         syslogd.write_text('#!/bin/sh\nif [ "$1" = ps ]; then [ ! -f "'+str(syslog_state)+'" ] || '
                            'cat "'+str(syslog_state)+'"\n'
-                           'elif [ "$1" = syslogd ]; then echo "999999 root 1 S /bin/busybox $*" > "'+str(syslog_state)+'"; fi\n')
+                           'elif [ "$1" = syslogd ]; then echo "999999 root 1 S N /bin/busybox $*" > "'+str(syslog_state)+'"; fi\n')
         (self.root/'config.json').write_text('{}')
         syslogd.chmod(0o700)
         self.control=self.root/'control';self.events=self.root/'events';self.events.touch()
@@ -204,7 +204,7 @@ class Paired(unittest.TestCase):
 
     def test_logging_defaults_to_local_only(self):
         self.start();self.ready()
-        self.assertEqual((self.root/'syslogd.running').read_text().strip(),
+        self.assertEqual((self.root/'syslogd.running').read_text().strip().replace(' S N ', ' S '),
                          '999999 root 1 S /bin/busybox syslogd -C512 -L -m 0')
         self.quiesce();self.stop()
 
@@ -432,6 +432,9 @@ class Paired(unittest.TestCase):
         self.run_control('matter-log-level','debug')
         wait(lambda:(self.control/'active-matter-log-level').exists() and (self.control/'active-matter-log-level').read_text().strip()=='debug')
         self.assertEqual((self.control/'active-matter-raw-frames').read_text().strip(),'on')
+        # The supervisor publishes the PID before the fake child records startup.
+        # Do not terminate that child until its expected third "on" is recorded.
+        wait(lambda:self.events.read_text().count('matter raw on')==3)
         matter_pid=int((self.control/'matter.pid').read_text())
         self.assertIn('already using on',self.run_control('matter-raw-frames','on').stdout)
         self.assertNotEqual(self.run_control('matter-raw-frames','trace',check=False).returncode,0)

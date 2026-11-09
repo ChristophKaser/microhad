@@ -6,10 +6,28 @@ use std::sync::mpsc::{self, SyncSender};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
-// At most 4 MiB of queued text, plus the entry being emitted. Long frames
+// At most 8 MiB of queued text, plus the entry being emitted. Long frames
 // remain intact; overload drops whole entries rather than orphaning fragments.
-const QUEUE_DEPTH: usize = 256;
+const QUEUE_DEPTH: usize = 512;
 const MAX_ENTRY_BYTES: usize = 16 * 1024;
+
+// Linux nice values apply to the calling kernel thread, not its siblings.
+#[cfg(target_os = "linux")]
+fn logging_priority() -> io::Result<()> {
+    unsafe extern "C" {
+        fn getpriority(which: i32, who: u32) -> i32;
+        fn setpriority(which: i32, who: u32, priority: i32) -> i32;
+    }
+    unsafe {
+        if getpriority(0, 0) < 10 && setpriority(0, 0, 10) != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn logging_priority() -> io::Result<()> { Ok(()) }
 
 enum Message {
     Entry(i32, Vec<u8>),
@@ -50,6 +68,9 @@ impl AsyncOutput {
             .name("matter-log".into())
             .stack_size(128 * 1024)
             .spawn(move || {
+                if let Err(error) = logging_priority() {
+                    eprintln!("cannot lower logging priority: {error}");
+                }
                 while let Ok(message) = receiver.recv() {
                     let shutdown = matches!(message, Message::Shutdown);
                     match message {
@@ -135,6 +156,22 @@ impl Drop for WorkerGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn logging_worker_yields_without_lowering_producer() {
+        unsafe extern "C" { fn getpriority(which: i32, who: u32) -> i32; }
+        let before = unsafe { getpriority(0, 0) };
+        let (tx, rx) = mpsc::channel();
+        let (output, guard) = AsyncOutput::start_with_sink(move |_, _| {
+            tx.send(unsafe { getpriority(0, 0) }).unwrap();
+        }).unwrap();
+        output.entry(libc::LOG_INFO).write_all(b"priority probe\n").unwrap();
+        assert!(rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap() >= 10);
+        assert_eq!(unsafe { getpriority(0, 0) }, before);
+        drop(guard);
+    }
+
 
     #[test]
     fn blocked_sink_does_not_block_producer_and_reports_whole_entry_loss() {

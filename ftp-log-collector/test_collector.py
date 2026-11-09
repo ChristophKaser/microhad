@@ -108,11 +108,15 @@ def main():
         subprocess.run(['cc','-std=gnu99','-Wall','-Wextra','-Werror','-pthread',str(ROOT/'main.c'),str(ROOT/'ftp.c'),'-o',str(binary)],check=True)
         config.write_text(f'ftp_host=127.0.0.1\nftp_port={server.port}\nftp_user=user\nftp_password=secret\nftp_directory=/\nudp_port={udp}\ntcp_port={tcp}\nrotate_seconds=1\nlog_files=2\n')
         config.chmod(0o600)
+        checks=Path(td)/'queue-checks'
+        subprocess.run(['cc','-std=gnu99','-Wall','-Wextra','-Werror','-pthread',
+                        str(ROOT/'test_queue.c'),str(ROOT/'ftp.c'),'-o',str(checks)],check=True)
+        subprocess.run([str(checks),str(config)],check=True)
         proc=subprocess.Popen([str(binary),str(config)])
         try:
             wait_for(lambda: proc.poll() is not None or try_connect(tcp))
             assert proc.poll() is None
-            base_priority=os.getpriority(os.PRIO_PROCESS,proc.pid)
+            base_priority=max(os.getpriority(os.PRIO_PROCESS,0),10)
             def upload_priorities():
                 tasks=Path(f'/proc/{proc.pid}/task').glob('*/stat')
                 priorities=sorted(int(p.read_text().split(') ',1)[1].split()[16]) for p in tasks)

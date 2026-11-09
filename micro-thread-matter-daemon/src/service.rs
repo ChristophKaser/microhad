@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 pub const MAX_CLIENTS: usize = 4;
 const MAX_RESPONSES: usize = 8;
-const REQUEST_DEADLINE: Duration = Duration::from_secs(2);
+const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Accept only established-session ICD Check-Ins. Sessionless Check-Ins are
 /// captured by the transport because they have no authenticated peer identity.

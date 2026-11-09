@@ -214,8 +214,8 @@ operational CASE recovery on the shared radio.
 These defaults apply to fresh supervisor starts and reboots; explicit environment
 settings still override them. Temporary control requests last for that supervisor
 lifetime. Both Spinel interfaces, Zigbee radio frames, Thread Spinel frames and
-Matter UDP payloads are captured through bounded 256-entry logging queues
-(up to 4 MiB each, allocated only as entries arrive); check drop
+Matter UDP payloads are captured through bounded 512-entry logging queues
+(up to 8 MiB each, allocated only as entries arrive); check drop
 markers before treating missing packets as evidence. Packet logs include keys.
 
 On MIPS, supervisor startup enables `/proc/sys/kernel/print-fatal-signals` and

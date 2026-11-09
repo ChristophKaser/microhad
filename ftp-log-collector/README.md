@@ -4,10 +4,10 @@
 `GCORE1` TCP crash stream, and uploads them to an FTP directory. Both listeners
 bind only to loopback. The paired supervisor starts it when the executable and
 configuration exist next to MicroHAD and restarts it if it exits. The local
-BusyBox 512 KiB log ring remains the dashboard's log source. FTP upload and
-retention workers use nice +10 (or retain an inherited lower priority). The UDP
-receiver, syslog daemon, and stderr draining keep normal priority. This reduces
-CPU contention without deliberately slowing collection into the bounded queue.
+BusyBox 512 KiB log ring remains the dashboard's log source. Logging and collection workers use nice +10 (or retain an inherited lower
+priority), including the UDP receiver, syslog daemon, and stderr forwarders.
+Protocol threads retain their normal priority. Queue-overflow warnings report
+cumulative loss at most once per second.
 
 ## Configuration
 
@@ -29,7 +29,7 @@ Optional settings and defaults:
 ftp_port=21
 udp_port=5514
 tcp_port=9999
-queue_bytes=131072
+queue_bytes=524288
 log_file_bytes=1048576
 log_files=100
 rotate_seconds=3600

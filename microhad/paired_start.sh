@@ -54,22 +54,22 @@ printf '%s\n' "$$" > "$control/supervisor.pid"
 # an optional collector from config.json. Replace its prior instance to apply
 # these flags. An absent/empty syslog_remote keeps logging local.
 [ -x "$syslogd" ] || { echo 'BusyBox syslogd executable missing' >&2; exit 2; }
-for old_syslog_pid in $($syslogd ps 2>/dev/null | awk '$5 == "/bin/busybox" && $6 == "syslogd" {print $1}'); do
+for old_syslog_pid in $($syslogd ps 2>/dev/null | awk '{for(i=5;i<NF;i++) if($i == "/bin/busybox" && $(i+1) == "syslogd") print $1}'); do
     kill "$old_syslog_pid" 2>/dev/null || true
 done
 sleep 1
 if [ -n "$syslog_remote" ]; then
-    "$syslogd" syslogd -C512 -L -R "$syslog_remote" -m 0
+    "$MAINTENANCE_BIN" logging-exec "$syslogd" syslogd -C512 -L -R "$syslog_remote" -m 0
 else
-    "$syslogd" syslogd -C512 -L -m 0
+    "$MAINTENANCE_BIN" logging-exec "$syslogd" syslogd -C512 -L -m 0
 fi
 sleep 1
 "$syslogd" ps 2>/dev/null | awk -v remote="$syslog_remote" '
-    $5 == "/bin/busybox" && $6 == "syslogd" && $7 == "-C512" && $8 == "-L" {
-        if (remote == "" && $9 == "-m" && $10 == "0") found=1
+    {for(i=5;i+5<=NF;i++) if($i == "/bin/busybox" && $(i+1) == "syslogd" && $(i+2) == "-C512" && $(i+3) == "-L") {
+        if (remote == "" && $(i+4) == "-m" && $(i+5) == "0") found=1
         # Stock BusyBox ps can truncate the trailing -m 0 in remote mode.
-        if (remote != "" && $9 == "-R" && $10 == remote) found=1
-    }
+        if (remote != "" && $(i+4) == "-R" && $(i+5) == remote) found=1
+    }}
     END {exit !found}' || {
     echo 'BusyBox syslogd did not start with the configured logging options' >&2
     rm -f "$control/supervisor.pid"

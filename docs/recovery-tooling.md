@@ -87,6 +87,13 @@ features require the updated binary and supervisor to be deployed. The helper
 refuses a raw-frame request against an older supervisor without the active
 state file, rather than restarting it with an unsupported request.
 
+Ziggurat and Matter each buffer up to 512 complete log entries (at most 8 MiB
+of text per worker, allocated as entries arrive). Their logging workers, BusyBox
+syslogd, stderr forwarders, and FTP collection run at nice +10; protocol threads
+keep their existing priorities. The FTP queue defaults to 512 KiB and reports
+cumulative overflow at most once per second. OpenThread allows 15 seconds for a
+radio transmit-completion event.
+
 Matter uses the same bounded asynchronous output design, retaining syslog
 severity and the existing 174-byte fragment limit. The updated service accepts
 `--log-level info --raw-frames` for packet-only diagnostics. It records incoming

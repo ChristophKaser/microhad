@@ -10,7 +10,7 @@ use zeroize::Zeroizing;
 pub const DATASET_KEY: u16 = 0x1001;
 const MAGIC: &[u8; 8] = b"TMDT\x01\0\0\0";
 const MAX_RECORD: usize = 265;
-const OBSERVATION_TTL: Duration = Duration::from_secs(5);
+const OBSERVATION_TTL: Duration = Duration::from_secs(60);
 #[derive(Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum State {
@@ -444,7 +444,7 @@ mod tests {
         let old = lifecycle.dataset_copy().unwrap();
         let persisted = std::fs::read(dir.0.join("credentials.bin")).unwrap();
         assert!(matches!(lifecycle.recreate(20, &mut entropy, &radio, now), Err(Failure::NotReady)));
-        assert!(matches!(lifecycle.recreate(15, &mut entropy, &radio, now + Duration::from_secs(5)), Err(Failure::NotReady)));
+        assert!(matches!(lifecycle.recreate(15, &mut entropy, &radio, now + Duration::from_secs(60)), Err(Failure::NotReady)));
         assert_eq!(std::fs::read(dir.0.join("credentials.bin")).unwrap(), persisted);
         lifecycle.recreate(15, &mut entropy, &radio, now).unwrap();
         assert_ne!(lifecycle.dataset_copy().unwrap().as_slice(), old.as_slice());
@@ -497,8 +497,11 @@ mod tests {
         radio.attached.set(true);
         lifecycle.tick(Some(&radio), now).unwrap();
         assert!(lifecycle.snapshot().attached);
+        lifecycle.tick(Some(&radio), now + Duration::from_secs(59)).unwrap();
+        assert!(lifecycle.snapshot().attached);
+        assert_eq!(radio.disables.get(), 0);
         lifecycle
-            .tick(Some(&radio), now + Duration::from_secs(5))
+            .tick(Some(&radio), now + Duration::from_secs(60))
             .unwrap();
         assert_eq!(radio.disables.get(), 1);
         assert!(matches!(
@@ -510,7 +513,7 @@ mod tests {
             committed
         );
         assert!(lifecycle
-            .boot_channel(now + Duration::from_secs(5))
+            .boot_channel(now + Duration::from_secs(60))
             .is_none());
     }
     #[test]
@@ -610,7 +613,7 @@ mod tests {
             std::fs::read(dir.0.join("credentials.bin")).unwrap(),
             before
         );
-        let later = now + Duration::from_secs(6);
+        let later = now + Duration::from_secs(61);
         lifecycle.tick(Some(&radio), later).unwrap();
         assert!(matches!(
             lifecycle.retry(&radio, later),

@@ -50,7 +50,7 @@ static int copy_field(char *out, size_t cap, const char *value) {
 static int read_config(const char *path) {
     FILE *f; char line[1024]; struct stat st; unsigned seen=0;
     memset(&cfg,0,sizeof(cfg)); cfg.ftp_port=21; cfg.udp_port=5514; cfg.tcp_port=9999;
-    cfg.keep=100; cfg.rotate_seconds=3600; cfg.queue_bytes=128*1024; cfg.file_bytes=1024*1024;
+    cfg.keep=100; cfg.rotate_seconds=3600; cfg.queue_bytes=512*1024; cfg.file_bytes=1024*1024;
     f=fopen(path,"r"); if (!f) return -1;
     if (fstat(fileno(f),&st) || !S_ISREG(st.st_mode) || (st.st_mode & 077) || st.st_uid != geteuid()) { fclose(f); return -1; }
     while (fgets(line,sizeof(line),f)) {
@@ -131,8 +131,7 @@ static void trim_logs(struct ftp_session *s) {
     for(i=0;i<n.count;i++)free(n.v[i]);
     free(n.v);
 }
-/* CPU scheduling is per kernel thread on Linux. Keep the UDP receiver at
- * normal priority and lower only the workers doing FTP I/O and retention. */
+/* All collector work, including UDP reception, yields to protocol threads. */
 static void lower_upload_priority(void) {
     int priority;
     errno=0;priority=getpriority(PRIO_PROCESS,0);
@@ -195,18 +194,31 @@ static void capture(int fd) {
 out: ftp_close(&ftp);if(!saved)syslog(LOG_WARNING,"FTP crash capture failed");
 }
 static void *cores(void *arg) { int server=*(int*)arg;lower_upload_priority();while(!stopping){int fd=accept(server,0,0);if(fd<0){if(errno==EINTR)continue;break;}capture(fd);close(fd);}return 0; }
+static void report_drops(struct timespec *last, unsigned long *reported, const struct timespec *now) {
+    pthread_mutex_lock(&mutex);
+    if(dropped!=*reported && (now->tv_sec>last->tv_sec+1 ||
+       (now->tv_sec==last->tv_sec+1 && now->tv_nsec>=last->tv_nsec))) {
+        *reported=dropped;*last=*now;pthread_mutex_unlock(&mutex);
+        syslog(LOG_WARNING,"UDP log queue dropped %lu packets",*reported);
+    } else pthread_mutex_unlock(&mutex);
+}
 int main(int argc,char **argv) {
     int udp,tcp;pthread_t log_thread,core_thread;unsigned char packet[MAX_PACKET];struct sigaction sa;unsigned long reported=0;
+    struct timespec last_report={0,0};
     if(argc==3&&!strcmp(argv[1],"--check-config"))return read_config(argv[2])?2:0;
     if(argc!=2||read_config(argv[1])){fprintf(stderr,"Usage: ftp-log-collector PRIVATE_CONFIG (invalid or insecure configuration)\n");return 2;}
     signal(SIGPIPE,SIG_IGN);memset(&sa,0,sizeof(sa));sa.sa_handler=stop;sigaction(SIGTERM,&sa,0);sigaction(SIGINT,&sa,0);
-    openlog("ftp-log-collector",LOG_PID,LOG_DAEMON);queue=malloc(cfg.queue_bytes);if(!queue)return 1;
+    openlog("ftp-log-collector",LOG_PID,LOG_DAEMON);lower_upload_priority();queue=malloc(cfg.queue_bytes);if(!queue)return 1;
     udp=listener(SOCK_DGRAM,cfg.udp_port);tcp=listener(SOCK_STREAM,cfg.tcp_port);if(udp<0||tcp<0){syslog(LOG_ERR,"cannot bind diagnostic listeners");return 1;}
     if(pthread_create(&log_thread,0,logs,0)||pthread_create(&core_thread,0,cores,&tcp))return 1;
     while(!stopping) {
         struct timeval tv;fd_set set;int r;FD_ZERO(&set);FD_SET(udp,&set);tv.tv_sec=2;tv.tv_usec=0;r=select(udp+1,&set,0,0,&tv);
         if(r>0){ssize_t n=recv(udp,packet,sizeof(packet)-1,0);if(n>0){packet[n]=0;if(!strstr((char*)packet,"ftp-log-collector["))enqueue(packet,(size_t)n);}}
-        pthread_mutex_lock(&mutex);if(dropped!=reported){reported=dropped;pthread_mutex_unlock(&mutex);syslog(LOG_WARNING,"UDP log queue dropped %lu packets",reported);}else pthread_mutex_unlock(&mutex);
+        {
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC,&now);
+            report_drops(&last_report,&reported,&now);
+        }
     }
     close(udp);shutdown(tcp,SHUT_RDWR);close(tcp);pthread_cond_broadcast(&ready);pthread_join(log_thread,0);pthread_join(core_thread,0);free(queue);return 0;
 }

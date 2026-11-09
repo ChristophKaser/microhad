@@ -55,6 +55,7 @@ options=(-DGATEWAY_OT_TRANSPORT_SOURCE="$experiment_root/micro-thread-matter-dae
     -DOT_PLATFORM=posix -DOT_POSIX_RCP_HDLC_BUS=ON -DOT_APP_NCP=OFF
     -DOT_APP_RCP=OFF -DOT_MTD=OFF -DOT_COMPILE_WARNING_AS_ERROR=OFF
     -DOT_LOG_LEVEL=INFO -DOT_LOG_OUTPUT=PLATFORM_DEFINED
+    -DOT_PLATFORM_DEFINES=OPENTHREAD_SPINEL_CONFIG_RCP_TX_WAIT_TIME_SECS=15
     -DOT_BORDER_ROUTER=ON -DOT_BORDER_ROUTING=OFF
     -DOT_SRP_SERVER=ON -DOT_SRP_CLIENT=ON -DOT_DNSSD_SERVER=ON -DOT_DNS_CLIENT=ON -DOT_ECDSA=ON -DOT_SERVICE=ON
     -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=MinSizeRel)
@@ -73,6 +74,7 @@ cmake --build "$build_dir" --target ot-cli --parallel "${BUILD_JOBS:-4}"
 if [[ "$mode" == host ]]; then
     cmake --build "$build_dir" --target ot-unix-adapter-test --parallel "${BUILD_JOBS:-4}"
     "$build_dir/src/posix/ot-unix-adapter-test"
+    python3 micro-thread-matter-daemon/scripts/test-radio-timeout.py "$build_dir"
 else
     "$LLVM_STRIP" --keep-section=.gnu.attributes -o "$output/ot-cli-mips" "$build_dir/src/posix/ot-cli"
     python3 scripts/verify-gateway-target.py --link-mode "$LINK_MODE" "$output/ot-cli-mips"

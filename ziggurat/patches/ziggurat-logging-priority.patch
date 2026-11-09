@@ -1,0 +1,77 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Christoph Kaser <christoph@caser.de>
+Date: Mon, 9 Nov 2026 10:00:00 +0100
+Subject: [PATCH] ziggurat: lower logging worker priority and double buffering
+
+---
+diff --git a/crates/ziggurat-server/src/async_syslog.rs b/crates/ziggurat-server/src/async_syslog.rs
+index ce4771a..de5faf1 100644
+--- a/crates/ziggurat-server/src/async_syslog.rs
++++ b/crates/ziggurat-server/src/async_syslog.rs
+@@ -6,11 +6,29 @@ use std::sync::atomic::{AtomicU32, Ordering};
+ use std::sync::mpsc::{self, SyncSender};
+ use std::thread::{self, JoinHandle};
+ 
+-// At most 4 MiB of queued text, plus the entry being emitted. Long frames
++// At most 8 MiB of queued text, plus the entry being emitted. Long frames
+ // remain intact; overload drops whole entries rather than orphaning fragments.
+-const QUEUE_DEPTH: usize = 256;
++const QUEUE_DEPTH: usize = 512;
+ const MAX_ENTRY_BYTES: usize = 16 * 1024;
+ 
++// Linux nice values apply to the calling kernel thread, not its siblings.
++#[cfg(target_os = "linux")]
++fn logging_priority() -> io::Result<()> {
++    unsafe extern "C" {
++        fn getpriority(which: i32, who: u32) -> i32;
++        fn setpriority(which: i32, who: u32, priority: i32) -> i32;
++    }
++    unsafe {
++        if getpriority(0, 0) < 10 && setpriority(0, 0, 10) != 0 {
++            return Err(io::Error::last_os_error());
++        }
++    }
++    Ok(())
++}
++
++#[cfg(not(target_os = "linux"))]
++fn logging_priority() -> io::Result<()> { Ok(()) }
++
+ enum Message {
+     Entry(Vec<u8>),
+     Shutdown,
+@@ -53,6 +71,9 @@ impl LogWriter {
+             .name("ziggurat-log".into())
+             .stack_size(128 * 1024)
+             .spawn(move || {
++                if let Err(error) = logging_priority() {
++                    eprintln!("cannot lower logging priority: {error}");
++                }
+                 while let Ok(message) = receiver.recv() {
+                     let shutdown = matches!(message, Message::Shutdown);
+                     match message {
+@@ -135,6 +156,22 @@ impl Drop for WorkerGuard {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    #[cfg(target_os = "linux")]
++    fn logging_worker_yields_without_lowering_producer() {
++        unsafe extern "C" { fn getpriority(which: i32, who: u32) -> i32; }
++        let before = unsafe { getpriority(0, 0) };
++        let (tx, rx) = mpsc::channel();
++        let (output, guard) = LogWriter::start_with_sink(move |_| {
++            tx.send(unsafe { getpriority(0, 0) }).unwrap();
++        }).unwrap();
++        output.entry().write_all(b"priority probe\n").unwrap();
++        assert!(rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap() >= 10);
++        assert_eq!(unsafe { getpriority(0, 0) }, before);
++        drop(guard);
++    }
++
++
+     #[test]
+     fn blocked_sink_does_not_block_producer_and_reports_whole_entry_loss() {
+         let (entered_tx, entered_rx) = mpsc::channel();
+-- 
+2.43.0

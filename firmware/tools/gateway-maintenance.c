@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/select.h>
+#include <sys/resource.h>
 #include <termios.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -18,6 +19,13 @@
 #include <string.h>
 #include <time.h>
 
+static void logging_priority(void) {
+    int priority;
+    errno=0;priority=getpriority(PRIO_PROCESS,0);
+    if(errno || (priority<10 && setpriority(PRIO_PROCESS,0,10)))
+        fprintf(stderr,"cannot lower logging priority: %s\n",strerror(errno));
+}
+
 /* Stock BusyBox lacks logger and mkfifo. Keep panic capture bounded and use
  * one persistent reader per service, without changing the supervised PID. */
 static int stderr_syslog(const char *tag, const char *path) {
@@ -28,6 +36,7 @@ static int stderr_syslog(const char *tag, const char *path) {
     int sock, byte, failed=0;
     size_t used=0;
     if(strcmp(tag,"ziggurat-stderr") && strcmp(tag,"mthread-matter-stderr")) return 2;
+    logging_priority();
 #ifdef HOST_TEST
     if(getenv("GATEWAY_TEST_SYSLOG")) destination=getenv("GATEWAY_TEST_SYSLOG");
 #endif
@@ -220,6 +229,11 @@ static int bridge(int fd) {
 }
 int main(int argc,char **argv) {
     int fd,result;
+    if(argc>=3 && !strcmp(argv[1],"logging-exec")) {
+        logging_priority();
+        execvp(argv[2],argv+2);
+        perror("logging-exec");return 127;
+    }
     if(argc==3 && !strcmp(argv[1],"stderr-fifo") && argv[2][0]=='/')
         return mkfifo(argv[2],0600)?1:0;
     if(argc==4 && !strcmp(argv[1],"stderr-syslog"))
