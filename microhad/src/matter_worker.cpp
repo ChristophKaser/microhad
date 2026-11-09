@@ -71,7 +71,7 @@ void MatterWorker::stop() {
     for (std::map<uint32_t, Job>::iterator it = jobs_.begin(); it != jobs_.end(); ++it) wipe(&it->second.body);
     jobs_.clear(); pending_.clear(); events_.clear();
     deferredReadings_.clear();
-    started_ = false; refreshed_ = 0; matterStatus_.clear(); threadStatus_.clear();
+    started_ = false; refreshed_ = 0; matterStatus_.reset(); threadStatus_.reset();
     pthread_mutex_unlock(&mutex_);
 }
 bool MatterWorker::running() {
@@ -82,8 +82,9 @@ bool MatterWorker::status(bool thread, std::string* json, std::string* error) {
     json->clear(); error->clear();
     pthread_mutex_lock(&mutex_);
     bool fresh = running_ && refreshed_ > 0 && now >= refreshed_ && now - refreshed_ <= 5000;
-    if (fresh) *json = thread ? threadStatus_ : matterStatus_;
+    std::tr1::shared_ptr<const MatterProto::MessageBody> snapshot=fresh?(thread?threadStatus_:matterStatus_):std::tr1::shared_ptr<const MatterProto::MessageBody>();
     pthread_mutex_unlock(&mutex_);
+    if(snapshot)*json=MatterWire::jsonBody(1,thread?2:1,*snapshot);
     if (json->empty()) { *error = "Matter service unavailable"; return false; }
     return true;
 }
@@ -128,7 +129,7 @@ bool MatterWorker::job(uint32_t id, std::string* json, int accessRole) {
         const Job& value = found->second;
         std::ostringstream out;
         out << "{\"job\":" << id << ",\"state\":\"" << value.state << "\"";
-        if (!value.response.empty()) out << ",\"response\":" << value.response;
+        if (value.response) out << ",\"response\":" << MatterWire::jsonBody(1,value.responseOpcode,*value.response);
         if (value.state == "failed") out << ",\"error\":\"" << (value.error.empty() ? "transport" : value.error) << '"';
         out << '}'; *json = out.str();
     }
@@ -146,7 +147,7 @@ void MatterWorker::unavailable() {
     std::vector<MatterEndpoint> offline;
     std::vector<Job> failedThermostats;
     pthread_mutex_lock(&mutex_);
-    matterStatus_.clear(); threadStatus_.clear(); refreshed_ = 0; events_.clear();
+    matterStatus_.reset(); threadStatus_.reset(); refreshed_ = 0; events_.clear();
     offline = snapshotDevices_;
     bool wasOnline = false;
     for (unsigned long i = 0; i < offline.size(); ++i) {
@@ -318,7 +319,7 @@ void MatterWorker::executeJob() {
     } else {
         completed.state = valid ? "complete" : "failed";
         completed.error = valid ? "" : "transport";
-        completed.response=valid?MatterWire::jsonBody(1,opcode,response):"";
+        if(valid){completed.response.reset(new MatterProto::MessageBody(response));completed.responseOpcode=opcode;}else completed.response.reset();
     }
     pthread_mutex_unlock(&mutex_);
     if(!operation && !thermostatNode.empty() && gateway_) gateway_->thermostatResult(thermostatNode,static_cast<unsigned short>(thermostatEndpoint),thermostatField,valid?"Matter device rejected request":"transport");
@@ -360,7 +361,7 @@ void MatterWorker::pollOperationJob() {
         } else if (terminal) {
             found->second.state = failed ? "failed" : "complete";
             found->second.error = operationError;
-            found->second.response=MatterWire::jsonBody(1,10,response);
+            found->second.response.reset(new MatterProto::MessageBody(response));found->second.responseOpcode=10;
             found->second.serviceJob=0;
         }
     }
@@ -380,7 +381,7 @@ void MatterWorker::run() {
             if (gateway_) gateway_->coordinatorObservation(&channel, &online);
             MatterProto::ThreadControlRequest observe;observe.schema=1;observe.action=std::string("observe");observe.zigbee_channel=channel;observe.zigbee_online=online;
             MatterProto::MessageBody body;body.thread_control_request=observe;
-            MatterProto::MessageBody response;std::string error,matter,thread;
+            MatterProto::MessageBody response;std::string error;std::tr1::shared_ptr<const MatterProto::MessageBody> matter,thread;
             bool valid=client_.call(9,body,&response,&error);
             if(!running())break;
             if(valid&&abandonedSession_!=0){
@@ -388,11 +389,11 @@ void MatterWorker::run() {
             }
             body=MatterProto::MessageBody();body.matter_status_request.present=true;
             if(valid)valid=client_.call(1,body,&response,&error);
-            if(valid)matter=MatterWire::jsonBody(1,1,response);
+            if(valid)matter.reset(new MatterProto::MessageBody(response));
             if(!running())break;
             body=MatterProto::MessageBody();body.thread_status_request.present=true;
             if(valid)valid=client_.call(2,body,&response,&error);
-            if(valid)thread=MatterWire::jsonBody(1,2,response);
+            if(valid)thread.reset(new MatterProto::MessageBody(response));
             pthread_mutex_lock(&mutex_);
             if(valid){matterStatus_=matter;threadStatus_=thread;refreshed_=tick();}
             pthread_mutex_unlock(&mutex_);

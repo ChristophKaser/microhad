@@ -56,14 +56,15 @@ private:
         int minimumRole;
         MatterProto::MessageBody body;
         std::string state;
-        std::string response;
+        std::tr1::shared_ptr<const MatterProto::MessageBody> response;
+        unsigned char responseOpcode;
         std::string error;
         uint64_t serviceJob;
         std::string thermostatNode;
         std::string thermostatField;
         unsigned short thermostatEndpoint;
         int64_t pollAt;
-        Job() : opcode(0), minimumRole(2), serviceJob(0), thermostatEndpoint(0), pollAt(0) {}
+        Job() : opcode(0), minimumRole(2), responseOpcode(0), serviceJob(0), thermostatEndpoint(0), pollAt(0) {}
     };
     std::map<uint32_t, Job> jobs_;
     std::deque<uint32_t> pending_;
@@ -84,8 +85,8 @@ private:
     pthread_t thread_;
     bool running_;
     bool started_;
-    std::string matterStatus_;
-    std::string threadStatus_;
+    std::tr1::shared_ptr<const MatterProto::MessageBody> matterStatus_;
+    std::tr1::shared_ptr<const MatterProto::MessageBody> threadStatus_;
     int64_t refreshed_;
     bool running();
     void run();
