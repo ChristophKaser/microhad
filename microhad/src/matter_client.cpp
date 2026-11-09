@@ -578,8 +578,8 @@ bool MatterChannel::deviceButtonEvent(const std::string& input,MatterButtonEvent
 
 
 bool MatterChannel::relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,
-                                std::string* session, std::string* body) {
-    *id = 0; *opcode = 0; session->clear(); body->clear();
+                                std::string* session, MatterProto::MessageBody* body) {
+    *id = 0; *opcode = 0; session->clear(); *body=MatterProto::MessageBody();
     Fields fields, request;
     if (input.size() > MatterWire::MaxPayload || !StatusJson(input).parse(&fields) || fields.size() != 4 ||
         fields["schema"] != "1" || !number(fields["id"], 1, 0xffffffffU) || !number(fields["opcode"], 4, 8) ||
@@ -590,7 +590,8 @@ bool MatterChannel::relayRequest(const std::string& input, uint32_t* id, unsigne
     for (unsigned long i = 0; i < fields["id"].size(); ++i) correlation = correlation * 10 + fields["id"][i] - '0';
     *id = static_cast<uint32_t>(correlation); *opcode = static_cast<unsigned char>(operation);
     *session = request["session"].substr(1, 16);
-    *body = operation == 4 ? "{\"schema\":1,\"session\":\"" + *session + "\",\"subscribe\":true}" : fields["body"];
+    if(!MatterWire::parseJson(0,*opcode,fields["body"],body)) return false;
+    if(operation==4) body->commissioning_status_request.value.subscribe=true;
     return true;
 }
 #ifdef MICROHAD_TESTING

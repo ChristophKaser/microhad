@@ -18,13 +18,16 @@ internal representation is being migrated; it is not a claim of completion.
   protobuf `DeviceCommandRequest.schedule` field. The service validates the
   typed values before operation. Legacy REST schedule JSON is parsed at the
   HTTP boundary, and the service rejects JSON schedule strings over IPC.
+- Lua thermostat actions still accept JSON schedule strings. Migrate these to
+  typed Lua tables carried through coordinator validation and dispatch.
 - The automation worker calculates encoded lengths for shared-state and log
   limits without constructing JSON; it serializes when writing state files.
 - Gateway settings are held as typed snapshot fields and serialized on HTTP
   reads. Status responses also use a short-lived cached HTTP response body; it
   is not parsed or exchanged between services.
 - The Matter WebSocket relay parses and serializes JSON as required by that
-  external interface. Test-only JSON fixtures and file-based configuration or
+  external interface, then carries typed requests to the Matter worker.
+  Test-only JSON fixtures and file-based configuration or
   persistence are external boundaries, not internal wire formats.
 
 This list is incomplete until all runtime serializers, parsers, and cached JSON

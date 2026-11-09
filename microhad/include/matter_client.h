@@ -88,7 +88,7 @@ public:
     static bool deviceButtonEvent(const std::string& event, MatterButtonEvent* button);
 #endif
     static bool relayRequest(const std::string& input, uint32_t* id, unsigned char* opcode,
-                             std::string* session, std::string* body);
+                             std::string* session, MatterProto::MessageBody* body);
 #ifdef MICROHAD_TESTING
     static std::string relayResponseSession(const std::string& response);
 #endif

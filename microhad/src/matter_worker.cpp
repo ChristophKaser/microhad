@@ -517,13 +517,13 @@ void MatterWorker::phonePump() {
         if (message.opcode == 9) {
             if (!phoneQueue(10, message.payload)) { dropPhone(true, 1009); return; }
         } else if (message.opcode == 1) {
-            uint32_t id;unsigned char opcode;std::string sessionText,body;
-            if(!MatterChannel::relayRequest(message.payload,&id,&opcode,&sessionText,&body)||id<=phoneLastId_){dropPhone(true,1008);return;}
+            uint32_t id;unsigned char opcode;std::string sessionText;MatterProto::MessageBody request;
+            if(!MatterChannel::relayRequest(message.payload,&id,&opcode,&sessionText,&request)||id<=phoneLastId_){dropPhone(true,1008);return;}
             const uint64_t session=strtoull(sessionText.c_str(),0,16);
             if((phoneSession_==0&&opcode!=4)||(phoneSession_!=0&&session!=phoneSession_)){dropPhone(true,1008);return;}
             phoneLastId_ = id;
-            MatterProto::MessageBody request,response;std::string error;
-            if(!MatterWire::parseJson(0,opcode,body,&request)||!client_.call(opcode,request,&response,&error)) { unavailable(); return; }
+            MatterProto::MessageBody response;std::string error;
+            if(!client_.call(opcode,request,&response,&error)) { unavailable(); return; }
             if (opcode == 4 && MatterChannel::relayResponseSession(response) == session) phoneSession_ = session;
             if (opcode == 6) { uint32_t generation = MatterChannel::relayGeneration(response); if (generation) phoneGeneration_ = generation; }
             std::ostringstream out; out << "{\"schema\":1,\"id\":" << id << ",\"response\":" << MatterWire::jsonBody(1,opcode,response) << '}';
