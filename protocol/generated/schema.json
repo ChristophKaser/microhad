@@ -441,6 +441,14 @@
       "message": "",
       "repeated": false,
       "oneof": false
+    },
+    {
+      "name": "schedule",
+      "tag": 11,
+      "type": 11,
+      "message": "Measurement",
+      "repeated": false,
+      "oneof": false
     }
   ],
   "OperationResponse": [

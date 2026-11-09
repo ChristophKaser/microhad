@@ -186,7 +186,9 @@ public:
 class GatewayView {
 public:
     std::string coordinatorBackend;
-    std::string settingsJson;
+    unsigned int broadcastQuorum, appliedBroadcastQuorum;
+    std::string broadcastQuorumState, broadcastQuorumError;
+    std::string settingsJson() const;
     std::string timeZone;
     std::string matterCountryCode;
     std::string matterRegulatoryLocation;
@@ -377,7 +379,6 @@ private:
     bool saveGatewaySettings(unsigned quorum, const std::string& country, const std::string& location, const std::string& zone, std::string* error);
     bool loadGatewaySettings(std::string* error);
     void applyBroadcastQuorum();
-    std::string gatewaySettingsJson() const;
     std::string networkRandomSource_;
     std::string networkRandomReadinessSource_;
     std::string firebaseServiceAccount_;

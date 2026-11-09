@@ -57,35 +57,31 @@ impl Schedule {
         if text.len() > 1536 {
             return Err(ErrorCode::InvalidData.into());
         }
-        let schedule = if text.starts_with('{') {
-            serde_json::from_str(text).map_err(|_| ErrorCode::InvalidData)?
-        } else {
-            let mut transitions = Vec::new();
-            for token in text.split_whitespace() {
-                let (clock, temperature) = token.split_once('/').ok_or(ErrorCode::InvalidData)?;
-                let (hour, minute) = clock.split_once(':').ok_or(ErrorCode::InvalidData)?;
-                let hour: u16 = hour.parse().map_err(|_| ErrorCode::InvalidData)?;
-                let minute: u16 = minute.parse().map_err(|_| ErrorCode::InvalidData)?;
-                if hour > 23 || minute > 59 {
-                    return Err(ErrorCode::InvalidData.into());
-                }
-                transitions.push(Transition {
-                    time: hour * 60 + minute,
-                    heat: Some(temperature.parse().map_err(|_| ErrorCode::InvalidData)?),
-                    cool: None,
-                });
+        let mut transitions = Vec::new();
+        for token in text.split_whitespace() {
+            let (clock, temperature) = token.split_once('/').ok_or(ErrorCode::InvalidData)?;
+            let (hour, minute) = clock.split_once(':').ok_or(ErrorCode::InvalidData)?;
+            let hour: u16 = hour.parse().map_err(|_| ErrorCode::InvalidData)?;
+            let minute: u16 = minute.parse().map_err(|_| ErrorCode::InvalidData)?;
+            if hour > 23 || minute > 59 {
+                return Err(ErrorCode::InvalidData.into());
             }
-            Self {
-                mode: 1,
-                transitions,
-            }
+            transitions.push(Transition {
+                time: hour * 60 + minute,
+                heat: Some(temperature.parse().map_err(|_| ErrorCode::InvalidData)?),
+                cool: None,
+            });
+        }
+        let schedule = Self {
+            mode: 1,
+            transitions,
         };
         if !schedule.valid(false) {
             return Err(ErrorCode::ConstraintError.into());
         }
         Ok(schedule)
     }
-    fn valid(&self, allow_empty: bool) -> bool {
+    pub(crate) fn valid(&self, allow_empty: bool) -> bool {
         (1..=3).contains(&self.mode)
             && (allow_empty || !self.transitions.is_empty())
             && self.transitions.len() <= 32
@@ -334,8 +330,9 @@ pub async fn operate<C: Crypto>(
     endpoint: u16,
     name: &str,
     text: &str,
+    supplied_schedule: Option<&Schedule>,
 ) -> Result<ResultValue, Error> {
-    if !request_valid(name, text) {
+    if supplied_schedule.is_none() && !request_valid(name, text) {
         return Err(ErrorCode::InvalidData.into());
     }
     let attributes = list(matter, crypto, fabric, node, endpoint, 65531).await?;
@@ -367,7 +364,7 @@ pub async fn operate<C: Crypto>(
         if !commands.contains(&1) {
             return Err(ErrorCode::InvalidAction.into());
         }
-        let schedule = Schedule::parse(text)?;
+        let schedule = match supplied_schedule { Some(s) => s.clone(), None => Schedule::parse(text)? };
         if (schedule.mode & 1 != 0 && features & 1 == 0)
             || (schedule.mode & 2 != 0 && features & 2 == 0)
         {
@@ -623,13 +620,9 @@ mod tests {
         assert!(!request_valid("external_temperature_input", "20"));
         assert!(!request_valid("system_mode", "2"));
         assert!(!request_valid("occupied_heating_setpoint", "NaN"));
-        assert!(
-            Schedule::parse(r#"{"mode":3,"transitions":[{"time":60,"heat":20,"cool":25}]}"#)
-                .is_ok()
-        );
         assert!(Schedule::parse("00:00/20 07:00/22").is_ok());
         assert!(Schedule::parse("00:00/20 00:00/21").is_err());
-        assert!(Schedule::parse(r#"{"mode":2,"transitions":[{"time":60,"heat":20}]}"#).is_err());
+        assert!(Schedule::parse(r#"{"mode":1,"transitions":[]}"#).is_err());
         assert!(!value_valid(0, &Value::Thermostat(Some(-32768))));
         assert!(value_valid(0, &Value::Thermostat(None)));
     }

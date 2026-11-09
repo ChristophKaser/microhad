@@ -30,6 +30,14 @@ bool fromValue(const Proto::Value&,BindingTargetList*);
 Proto::Value toValue(const BindingTargetList&);
 bool fromValue(const Proto::Value&,DeviceControlRequest*);
 Proto::Value toValue(const DeviceControlRequest&);
+bool fromValue(const Proto::Value&,MeasurementValue*);
+Proto::Value toValue(const MeasurementValue&);
+bool fromValue(const Proto::Value&,ThermostatTransition*);
+Proto::Value toValue(const ThermostatTransition&);
+bool fromValue(const Proto::Value&,ThermostatTransitionList*);
+Proto::Value toValue(const ThermostatTransitionList&);
+bool fromValue(const Proto::Value&,Measurement*);
+Proto::Value toValue(const Measurement&);
 bool fromValue(const Proto::Value&,DeviceCommandRequest*);
 Proto::Value toValue(const DeviceCommandRequest&);
 bool fromValue(const Proto::Value&,CommissioningSession*);
@@ -54,14 +62,6 @@ bool fromValue(const Proto::Value&,MatterDeviceList*);
 Proto::Value toValue(const MatterDeviceList&);
 bool fromValue(const Proto::Value&,DeviceSnapshotPage*);
 Proto::Value toValue(const DeviceSnapshotPage&);
-bool fromValue(const Proto::Value&,MeasurementValue*);
-Proto::Value toValue(const MeasurementValue&);
-bool fromValue(const Proto::Value&,ThermostatTransition*);
-Proto::Value toValue(const ThermostatTransition&);
-bool fromValue(const Proto::Value&,ThermostatTransitionList*);
-Proto::Value toValue(const ThermostatTransitionList&);
-bool fromValue(const Proto::Value&,Measurement*);
-Proto::Value toValue(const Measurement&);
 bool fromValue(const Proto::Value&,ThermostatCapabilityList*);
 Proto::Value toValue(const ThermostatCapabilityList&);
 bool fromValue(const Proto::Value&,ElectricalQuantity*);
@@ -469,6 +469,96 @@ Proto::Value toValue(const DeviceControlRequest& v){
     if(v.restore.present)Proto::add(&out,"restore",jsonBool(v.restore.value));
     return out;
 }
+bool fromValue(const Proto::Value& v,MeasurementValue* out){
+    if(v.type!=Proto::Value::Map)return false;
+    MeasurementValue result;
+    if(const Proto::Value* p=Proto::field(v,"null")){
+        result.null_value.present=true;if(!getBool(*p,&result.null_value.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"number")){
+        result.number.present=true;if(!getFloat(*p,&result.number.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"integer")){
+        result.integer.present=true;if(!getInt(*p,&result.integer.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"text")){
+        result.text.present=true;if(!getText(*p,&result.text.value))return false;
+    }
+    *out=result;return true;
+}
+Proto::Value toValue(const MeasurementValue& v){
+    Proto::Value out;out.type=Proto::Value::Map;(void)v;
+    if(v.null_value.present)Proto::add(&out,"null",jsonBool(v.null_value.value));
+    if(v.number.present)Proto::add(&out,"number",jsonFloat(v.number.value));
+    if(v.integer.present)Proto::add(&out,"integer",jsonInt(v.integer.value));
+    if(v.text.present)Proto::add(&out,"text",jsonText(v.text.value));
+    return out;
+}
+bool fromValue(const Proto::Value& v,ThermostatTransition* out){
+    if(v.type!=Proto::Value::Map)return false;
+    ThermostatTransition result;
+    if(const Proto::Value* p=Proto::field(v,"time")){
+        result.time.present=true;if(!getUInt32(*p,&result.time.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"heat")){
+        result.heat.present=true;if(!getFloat(*p,&result.heat.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"cool")){
+        result.cool.present=true;if(!getFloat(*p,&result.cool.value))return false;
+    }
+    *out=result;return true;
+}
+Proto::Value toValue(const ThermostatTransition& v){
+    Proto::Value out;out.type=Proto::Value::Map;(void)v;
+    if(v.time.present)Proto::add(&out,"time",jsonUInt(v.time.value));
+    if(v.heat.present)Proto::add(&out,"heat",jsonFloat(v.heat.value));
+    if(v.cool.present)Proto::add(&out,"cool",jsonFloat(v.cool.value));
+    return out;
+}
+bool fromValue(const Proto::Value& v,ThermostatTransitionList* out){
+    if(v.type!=Proto::Value::Map)return false;
+    ThermostatTransitionList result;
+    if(const Proto::Value* p=Proto::field(v,"items")){
+        if(p->type!=Proto::Value::Array)return false;
+        result.items.resize(p->items.size());
+        for(size_t i=0;i<p->items.size();++i)if(!fromValue(p->items[i],&result.items[i]))return false;
+    }
+    *out=result;return true;
+}
+Proto::Value toValue(const ThermostatTransitionList& v){
+    Proto::Value out;out.type=Proto::Value::Map;(void)v;
+    if(!v.items.empty()){Proto::Value a;a.type=Proto::Value::Array;for(size_t i=0;i<v.items.size();++i)a.items.push_back(toValue(v.items[i]));Proto::add(&out,"items",a);}
+    return out;
+}
+bool fromValue(const Proto::Value& v,Measurement* out){
+    if(v.type!=Proto::Value::Map)return false;
+    Measurement result;
+    if(const Proto::Value* p=Proto::field(v,"value")){
+        result.value.present=true;if(!fromValue(*p,&result.value.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"unit")){
+        result.unit.present=true;if(!getText(*p,&result.unit.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"quality")){
+        result.quality.present=true;if(!getText(*p,&result.quality.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"mode")){
+        result.mode.present=true;if(!getUInt32(*p,&result.mode.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"transitions")){
+        result.transitions.present=true;if(!fromValue(*p,&result.transitions.value))return false;
+    }
+    *out=result;return true;
+}
+Proto::Value toValue(const Measurement& v){
+    Proto::Value out;out.type=Proto::Value::Map;(void)v;
+    if(v.value.present)Proto::add(&out,"value",toValue(v.value.value));
+    if(v.unit.present)Proto::add(&out,"unit",jsonText(v.unit.value));
+    if(v.quality.present)Proto::add(&out,"quality",jsonText(v.quality.value));
+    if(v.mode.present)Proto::add(&out,"mode",jsonUInt(v.mode.value));
+    if(v.transitions.present)Proto::add(&out,"transitions",toValue(v.transitions.value));
+    return out;
+}
 bool fromValue(const Proto::Value& v,DeviceCommandRequest* out){
     if(v.type!=Proto::Value::Map)return false;
     DeviceCommandRequest result;
@@ -502,6 +592,9 @@ bool fromValue(const Proto::Value& v,DeviceCommandRequest* out){
     if(const Proto::Value* p=Proto::field(v,"offset_seconds")){
         result.offset_seconds.present=true;if(!getInt(*p,&result.offset_seconds.value))return false;
     }
+    if(const Proto::Value* p=Proto::field(v,"schedule")){
+        result.schedule.present=true;if(!fromValue(*p,&result.schedule.value))return false;
+    }
     *out=result;return true;
 }
 Proto::Value toValue(const DeviceCommandRequest& v){
@@ -516,6 +609,7 @@ Proto::Value toValue(const DeviceCommandRequest& v){
     if(v.value.present)Proto::add(&out,"value",jsonText(v.value.value));
     if(v.time_zone.present)Proto::add(&out,"time_zone",jsonText(v.time_zone.value));
     if(v.offset_seconds.present)Proto::add(&out,"offset_seconds",jsonInt(v.offset_seconds.value));
+    if(v.schedule.present)Proto::add(&out,"schedule",toValue(v.schedule.value));
     return out;
 }
 bool fromValue(const Proto::Value& v,CommissioningSession* out){
@@ -783,96 +877,6 @@ Proto::Value toValue(const DeviceSnapshotPage& v){
     if(v.revision.present)Proto::add(&out,"revision",jsonUInt(v.revision.value));
     if(v.devices.present)Proto::add(&out,"devices",toValue(v.devices.value));
     if(v.next_cursor.present)Proto::add(&out,"next_cursor",toValue(v.next_cursor.value));
-    return out;
-}
-bool fromValue(const Proto::Value& v,MeasurementValue* out){
-    if(v.type!=Proto::Value::Map)return false;
-    MeasurementValue result;
-    if(const Proto::Value* p=Proto::field(v,"null")){
-        result.null_value.present=true;if(!getBool(*p,&result.null_value.value))return false;
-    }
-    if(const Proto::Value* p=Proto::field(v,"number")){
-        result.number.present=true;if(!getFloat(*p,&result.number.value))return false;
-    }
-    if(const Proto::Value* p=Proto::field(v,"integer")){
-        result.integer.present=true;if(!getInt(*p,&result.integer.value))return false;
-    }
-    if(const Proto::Value* p=Proto::field(v,"text")){
-        result.text.present=true;if(!getText(*p,&result.text.value))return false;
-    }
-    *out=result;return true;
-}
-Proto::Value toValue(const MeasurementValue& v){
-    Proto::Value out;out.type=Proto::Value::Map;(void)v;
-    if(v.null_value.present)Proto::add(&out,"null",jsonBool(v.null_value.value));
-    if(v.number.present)Proto::add(&out,"number",jsonFloat(v.number.value));
-    if(v.integer.present)Proto::add(&out,"integer",jsonInt(v.integer.value));
-    if(v.text.present)Proto::add(&out,"text",jsonText(v.text.value));
-    return out;
-}
-bool fromValue(const Proto::Value& v,ThermostatTransition* out){
-    if(v.type!=Proto::Value::Map)return false;
-    ThermostatTransition result;
-    if(const Proto::Value* p=Proto::field(v,"time")){
-        result.time.present=true;if(!getUInt32(*p,&result.time.value))return false;
-    }
-    if(const Proto::Value* p=Proto::field(v,"heat")){
-        result.heat.present=true;if(!getFloat(*p,&result.heat.value))return false;
-    }
-    if(const Proto::Value* p=Proto::field(v,"cool")){
-        result.cool.present=true;if(!getFloat(*p,&result.cool.value))return false;
-    }
-    *out=result;return true;
-}
-Proto::Value toValue(const ThermostatTransition& v){
-    Proto::Value out;out.type=Proto::Value::Map;(void)v;
-    if(v.time.present)Proto::add(&out,"time",jsonUInt(v.time.value));
-    if(v.heat.present)Proto::add(&out,"heat",jsonFloat(v.heat.value));
-    if(v.cool.present)Proto::add(&out,"cool",jsonFloat(v.cool.value));
-    return out;
-}
-bool fromValue(const Proto::Value& v,ThermostatTransitionList* out){
-    if(v.type!=Proto::Value::Map)return false;
-    ThermostatTransitionList result;
-    if(const Proto::Value* p=Proto::field(v,"items")){
-        if(p->type!=Proto::Value::Array)return false;
-        result.items.resize(p->items.size());
-        for(size_t i=0;i<p->items.size();++i)if(!fromValue(p->items[i],&result.items[i]))return false;
-    }
-    *out=result;return true;
-}
-Proto::Value toValue(const ThermostatTransitionList& v){
-    Proto::Value out;out.type=Proto::Value::Map;(void)v;
-    if(!v.items.empty()){Proto::Value a;a.type=Proto::Value::Array;for(size_t i=0;i<v.items.size();++i)a.items.push_back(toValue(v.items[i]));Proto::add(&out,"items",a);}
-    return out;
-}
-bool fromValue(const Proto::Value& v,Measurement* out){
-    if(v.type!=Proto::Value::Map)return false;
-    Measurement result;
-    if(const Proto::Value* p=Proto::field(v,"value")){
-        result.value.present=true;if(!fromValue(*p,&result.value.value))return false;
-    }
-    if(const Proto::Value* p=Proto::field(v,"unit")){
-        result.unit.present=true;if(!getText(*p,&result.unit.value))return false;
-    }
-    if(const Proto::Value* p=Proto::field(v,"quality")){
-        result.quality.present=true;if(!getText(*p,&result.quality.value))return false;
-    }
-    if(const Proto::Value* p=Proto::field(v,"mode")){
-        result.mode.present=true;if(!getUInt32(*p,&result.mode.value))return false;
-    }
-    if(const Proto::Value* p=Proto::field(v,"transitions")){
-        result.transitions.present=true;if(!fromValue(*p,&result.transitions.value))return false;
-    }
-    *out=result;return true;
-}
-Proto::Value toValue(const Measurement& v){
-    Proto::Value out;out.type=Proto::Value::Map;(void)v;
-    if(v.value.present)Proto::add(&out,"value",toValue(v.value.value));
-    if(v.unit.present)Proto::add(&out,"unit",jsonText(v.unit.value));
-    if(v.quality.present)Proto::add(&out,"quality",jsonText(v.quality.value));
-    if(v.mode.present)Proto::add(&out,"mode",jsonUInt(v.mode.value));
-    if(v.transitions.present)Proto::add(&out,"transitions",toValue(v.transitions.value));
     return out;
 }
 bool fromValue(const Proto::Value& v,ThermostatCapabilityList* out){

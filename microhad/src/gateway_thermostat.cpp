@@ -82,7 +82,12 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
             if(schedule) *error="invalid or unsupported thermostat schedule";
             return false;
         }
-        MatterProto::DeviceCommandRequest request;request.schema=1;request.command=std::string("thermostat");request.node=strtoull(device.matter.read().node.c_str(),0,16);request.endpoint=device.matter.read().endpoint;request.field=field;request.value=value;
+        MatterProto::DeviceCommandRequest request;request.schema=1;request.command=std::string("thermostat");request.node=strtoull(device.matter.read().node.c_str(),0,16);request.endpoint=device.matter.read().endpoint;request.field=field;
+        if(schedule&&value!="__read__"){
+            MatterProto::Measurement typed;
+            if(!thermostatScheduleMeasurement(encoded,&typed)){*error="invalid thermostat schedule";return false;}
+            request.schedule=typed;
+        }else request.value=value;
         matterRequest->device_command_request=request; state.pending.insert(thermostatPendingId(field)); state.error.clear(); markViewDirty(); return true;
     }
     unsigned char endpoint=0;

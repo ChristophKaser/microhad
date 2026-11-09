@@ -997,16 +997,19 @@ async fn run(
             for(field,value)in [("occupied_heating_setpoint","21.5"),("occupied_cooling_setpoint","25.5"),("system_mode","1"),
             ]{
                 eprintln!("Thermostat fixture: writing {field}");
-                let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,field,value).await?;
+                let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,field,value,None).await?;
                 assert!(matches!(result.value,Value::Thermostat(Some(_))));
             }
-            assert!(tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"occupied_heating_setpoint","30").await.is_err());
+            assert!(tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"occupied_heating_setpoint","30",None).await.is_err());
             eprintln!("Thermostat fixture: schedules");
-            let schedule=r#"{"mode":3,"transitions":[{"time":60,"heat":20,"cool":26},{"time":480,"heat":21,"cool":25}]}"#;
-            let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"schedule_1",schedule,
+            let schedule=tstat::Schedule { mode:3, transitions:vec![
+                tstat::Transition { time:60, heat:Some(20.0), cool:Some(26.0) },
+                tstat::Transition { time:480, heat:Some(21.0), cool:Some(25.0) },
+            ] };
+            let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"schedule_1","",Some(&schedule),
             ).await?;
             assert!(matches!(result.value,Value::ThermostatSchedule(_)));
-            let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"schedule_1","__read__",
+            let result=tstat::operate(ctrl_matter,ctrl_crypto,fab,node,1,"schedule_1","__read__",None,
             ).await?;
             assert!(matches!(result.value,Value::ThermostatSchedule(schedule) if schedule.transitions.len()==2));
             eprintln!("Thermostat fixture: subscription");

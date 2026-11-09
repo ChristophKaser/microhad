@@ -111,6 +111,31 @@ struct DeviceControlRequest {
     Optional<bool> restore;
     bool operator==(const DeviceControlRequest& other) const {return schema==other.schema&&action==other.action&&cursor==other.cursor&&revision==other.revision&&node==other.node&&endpoint==other.endpoint&&cluster==other.cluster&&attribute==other.attribute&&job==other.job&&targets==other.targets&&local==other.local&&restore==other.restore;}
 };
+struct MeasurementValue {
+    Optional<bool> null_value;
+    Optional<double> number;
+    Optional<int64_t> integer;
+    Optional<std::string> text;
+    bool operator==(const MeasurementValue& other) const {return null_value==other.null_value&&number==other.number&&integer==other.integer&&text==other.text;}
+};
+struct ThermostatTransition {
+    Optional<uint32_t> time;
+    Optional<double> heat;
+    Optional<double> cool;
+    bool operator==(const ThermostatTransition& other) const {return time==other.time&&heat==other.heat&&cool==other.cool;}
+};
+struct ThermostatTransitionList {
+    std::vector<ThermostatTransition> items;
+    bool operator==(const ThermostatTransitionList& other) const {return items==other.items;}
+};
+struct Measurement {
+    Optional<MeasurementValue> value;
+    Optional<std::string> unit;
+    Optional<std::string> quality;
+    Optional<uint32_t> mode;
+    Optional<ThermostatTransitionList> transitions;
+    bool operator==(const Measurement& other) const {return value==other.value&&unit==other.unit&&quality==other.quality&&mode==other.mode&&transitions==other.transitions;}
+};
 struct DeviceCommandRequest {
     Optional<uint32_t> schema;
     Optional<uint64_t> node;
@@ -122,7 +147,8 @@ struct DeviceCommandRequest {
     Optional<std::string> value;
     Optional<std::string> time_zone;
     Optional<int64_t> offset_seconds;
-    bool operator==(const DeviceCommandRequest& other) const {return schema==other.schema&&node==other.node&&endpoint==other.endpoint&&command==other.command&&level==other.level&&transition_deciseconds==other.transition_deciseconds&&field==other.field&&value==other.value&&time_zone==other.time_zone&&offset_seconds==other.offset_seconds;}
+    Optional<Measurement> schedule;
+    bool operator==(const DeviceCommandRequest& other) const {return schema==other.schema&&node==other.node&&endpoint==other.endpoint&&command==other.command&&level==other.level&&transition_deciseconds==other.transition_deciseconds&&field==other.field&&value==other.value&&time_zone==other.time_zone&&offset_seconds==other.offset_seconds&&schedule==other.schedule;}
 };
 struct CommissioningSession {
     Optional<uint64_t> session;
@@ -197,31 +223,6 @@ struct DeviceSnapshotPage {
     Optional<MatterDeviceList> devices;
     Optional<NullableUint> next_cursor;
     bool operator==(const DeviceSnapshotPage& other) const {return revision==other.revision&&devices==other.devices&&next_cursor==other.next_cursor;}
-};
-struct MeasurementValue {
-    Optional<bool> null_value;
-    Optional<double> number;
-    Optional<int64_t> integer;
-    Optional<std::string> text;
-    bool operator==(const MeasurementValue& other) const {return null_value==other.null_value&&number==other.number&&integer==other.integer&&text==other.text;}
-};
-struct ThermostatTransition {
-    Optional<uint32_t> time;
-    Optional<double> heat;
-    Optional<double> cool;
-    bool operator==(const ThermostatTransition& other) const {return time==other.time&&heat==other.heat&&cool==other.cool;}
-};
-struct ThermostatTransitionList {
-    std::vector<ThermostatTransition> items;
-    bool operator==(const ThermostatTransitionList& other) const {return items==other.items;}
-};
-struct Measurement {
-    Optional<MeasurementValue> value;
-    Optional<std::string> unit;
-    Optional<std::string> quality;
-    Optional<uint32_t> mode;
-    Optional<ThermostatTransitionList> transitions;
-    bool operator==(const Measurement& other) const {return value==other.value&&unit==other.unit&&quality==other.quality&&mode==other.mode&&transitions==other.transitions;}
 };
 struct ThermostatCapabilityList {
     std::vector<uint32_t> items;

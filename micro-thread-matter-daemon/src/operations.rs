@@ -39,6 +39,7 @@ pub enum Action {
     Thermostat {
         field: String,
         value: String,
+        schedule: Option<crate::thermostat::Schedule>,
     },
     ReadSensor {
         cluster: u32,
@@ -391,9 +392,9 @@ impl Operation {
                 if crate::thermostat::readable(attribute) => {
                 (node, endpoint, Action::ThermostatRead { attribute })
             }
-            Request::Command(CommandRequest::Thermostat { node, endpoint, field, value, .. }) => {
-                if !crate::thermostat::request_valid(&field, &value) { return Err(Failure::Malformed); }
-                (node, endpoint, Action::Thermostat { field, value })
+            Request::Command(CommandRequest::Thermostat { node, endpoint, field, value, schedule, .. }) => {
+                if schedule.is_some() { if !field.starts_with("schedule_") || field.len()!=10 || !matches!(field.as_bytes()[9], b'0'..=b'6') { return Err(Failure::Malformed); } } else if !crate::thermostat::request_valid(&field, &value) { return Err(Failure::Malformed); }
+                (node, endpoint, Action::Thermostat { field, value, schedule })
             }
             Request::Command(CommandRequest::On { node, endpoint, .. }) => {
                 (node, endpoint, Action::On)
@@ -520,9 +521,9 @@ impl Operation {
             if let Action::ReadElectrical{cluster,attribute}=self.action {
                 return crate::electrical::read(matter,&crypto,fabric,self.node,self.endpoint,cluster,attribute).await;
             }
-            if let Action::Thermostat { ref field, ref value,
+            if let Action::Thermostat { ref field, ref value, ref schedule,
             } = self.action {
-                return crate::thermostat::operate(matter, &crypto, fabric, self.node, self.endpoint, field, value,
+                return crate::thermostat::operate(matter, &crypto, fabric, self.node, self.endpoint, field, value, schedule.as_ref(),
                 ).await;
             }
             if let Action::ThermostatRead { attribute } = self.action {

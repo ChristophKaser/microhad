@@ -25,6 +25,23 @@ std::string json(const Value& v) {
     out<<(v.type==Value::Object?'}':']');return out.str();
 }
 namespace {
+size_t escapedSize(const std::string& text) {
+    size_t size=2;
+    for(size_t i=0;i<text.size();++i){unsigned char c=static_cast<unsigned char>(text[i]);size+=(c=='\\'||c=='"'||c=='\b'||c=='\f'||c=='\n'||c=='\r'||c=='\t')?2:c<32?6:1;}
+    return size;
+}
+}
+size_t jsonSize(const Value& v) {
+    if(v.type==Value::Null)return 4;
+    if(v.type==Value::Boolean)return v.boolean?4:5;
+    if(v.type==Value::String)return escapedSize(v.string);
+    if(v.type==Value::Number){std::ostringstream out;out<<std::setprecision(17)<<v.number;return out.str().size();}
+    size_t size=2;
+    if(v.type==Value::Object){for(std::map<std::string,Value>::const_iterator i=v.fields.begin();i!=v.fields.end();++i){if(i!=v.fields.begin())++size;size+=escapedSize(i->first)+1+jsonSize(i->second);}}
+    else for(size_t i=0;i<v.items.size();++i){if(i)++size;size+=jsonSize(v.items[i]);}
+    return size;
+}
+namespace {
 class Parser {
     const std::string& text; size_t at; unsigned long nodes;
     void space(){while(at<text.size()&&(text[at]==' '||text[at]=='\n'||text[at]=='\t'||text[at]=='\r'))++at;}
@@ -150,7 +167,7 @@ Value thermostatSnapshotValue(const Device& d) {
             }
         }
         details.items.push_back(detail);std::map<int,std::string>::const_iterator text=t.schedules.find(day);
-        schedules.items.push_back(text!=t.schedules.end()?Value(text->second):it!=t.scheduleDetails.end()?Value(thermostatScheduleJson(it->second)):Value());
+        schedules.items.push_back(text!=t.schedules.end()?Value(text->second):detail);
         text=t.scheduleSources.find(day);sources.items.push_back(text==t.scheduleSources.end()?Value():Value(text->second));
     }
     Value& pending=out.fields["pending"];pending=Value::array();

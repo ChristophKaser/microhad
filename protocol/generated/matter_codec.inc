@@ -30,6 +30,14 @@ bool write(pb_ostream_t*,const BindingTargetList&,unsigned);
 bool read(pb_istream_t*,BindingTargetList*,unsigned,unsigned*);
 bool write(pb_ostream_t*,const DeviceControlRequest&,unsigned);
 bool read(pb_istream_t*,DeviceControlRequest*,unsigned,unsigned*);
+bool write(pb_ostream_t*,const MeasurementValue&,unsigned);
+bool read(pb_istream_t*,MeasurementValue*,unsigned,unsigned*);
+bool write(pb_ostream_t*,const ThermostatTransition&,unsigned);
+bool read(pb_istream_t*,ThermostatTransition*,unsigned,unsigned*);
+bool write(pb_ostream_t*,const ThermostatTransitionList&,unsigned);
+bool read(pb_istream_t*,ThermostatTransitionList*,unsigned,unsigned*);
+bool write(pb_ostream_t*,const Measurement&,unsigned);
+bool read(pb_istream_t*,Measurement*,unsigned,unsigned*);
 bool write(pb_ostream_t*,const DeviceCommandRequest&,unsigned);
 bool read(pb_istream_t*,DeviceCommandRequest*,unsigned,unsigned*);
 bool write(pb_ostream_t*,const CommissioningSession&,unsigned);
@@ -54,14 +62,6 @@ bool write(pb_ostream_t*,const MatterDeviceList&,unsigned);
 bool read(pb_istream_t*,MatterDeviceList*,unsigned,unsigned*);
 bool write(pb_ostream_t*,const DeviceSnapshotPage&,unsigned);
 bool read(pb_istream_t*,DeviceSnapshotPage*,unsigned,unsigned*);
-bool write(pb_ostream_t*,const MeasurementValue&,unsigned);
-bool read(pb_istream_t*,MeasurementValue*,unsigned,unsigned*);
-bool write(pb_ostream_t*,const ThermostatTransition&,unsigned);
-bool read(pb_istream_t*,ThermostatTransition*,unsigned,unsigned*);
-bool write(pb_ostream_t*,const ThermostatTransitionList&,unsigned);
-bool read(pb_istream_t*,ThermostatTransitionList*,unsigned,unsigned*);
-bool write(pb_ostream_t*,const Measurement&,unsigned);
-bool read(pb_istream_t*,Measurement*,unsigned,unsigned*);
 bool write(pb_ostream_t*,const ThermostatCapabilityList&,unsigned);
 bool read(pb_istream_t*,ThermostatCapabilityList*,unsigned,unsigned*);
 bool write(pb_ostream_t*,const ElectricalQuantity&,unsigned);
@@ -903,6 +903,201 @@ bool read(pb_istream_t* s,DeviceControlRequest* out,unsigned depth,unsigned* unk
     }
     *out=v;return true;
 }
+bool write(pb_ostream_t* s,const MeasurementValue& v,unsigned depth){
+    if(depth>16){ return false; }
+    (void)s;(void)v;
+    if((v.null_value.present?1:0)+(v.number.present?1:0)+(v.integer.present?1:0)+(v.text.present?1:0)>1){ return false; }
+    if(v.null_value.present){
+        if(!pb_encode_tag(s,PB_WT_VARINT,1)){ return false; }
+        if(!pb_encode_varint(s,v.null_value.value)){ return false; }
+    }
+    if(v.number.present){
+        if(!pb_encode_tag(s,PB_WT_64BIT,2)){ return false; }
+        if(!(std::isfinite(v.number.value)&&pb_encode_fixed64(s,&v.number.value))){ return false; }
+    }
+    if(v.integer.present){
+        if(!pb_encode_tag(s,PB_WT_VARINT,3)){ return false; }
+        if(!pb_encode_svarint(s,v.integer.value)){ return false; }
+    }
+    if(v.text.present){
+        if(!pb_encode_tag(s,PB_WT_STRING,4)){ return false; }
+        if(!(v.text.value.size()<=2048&&validUtf8(v.text.value)&&pb_encode_string(s,reinterpret_cast<const pb_byte_t*>(v.text.value.empty()?0:&v.text.value[0]),v.text.value.size()))){ return false; }
+    }
+    return true;
+}
+bool read(pb_istream_t* s,MeasurementValue* out,unsigned depth,unsigned* unknown){
+    if(depth>16){ return false; }
+    MeasurementValue v;
+    while(s->bytes_left){
+        pb_wire_type_t wt;uint32_t tag;bool eof=false;if(!pb_decode_tag(s,&wt,&tag,&eof)||tag==0){ return false; }
+        switch(tag){
+        case 1:{
+            if(wt!=PB_WT_VARINT){ return false; }
+            if(v.null_value.present||v.number.present||v.integer.present||v.text.present){ return false; }
+            v.null_value.present=true;
+            uint64_t n;if(!pb_decode_varint(s,&n)||n>1){ return false; }v.null_value.value=static_cast<bool>(n);
+            break;}
+        case 2:{
+            if(wt!=PB_WT_64BIT){ return false; }
+            if(v.null_value.present||v.number.present||v.integer.present||v.text.present){ return false; }
+            v.number.present=true;
+            if(!pb_decode_fixed64(s,&v.number.value)||!std::isfinite(v.number.value)){ return false; }
+            break;}
+        case 3:{
+            if(wt!=PB_WT_VARINT){ return false; }
+            if(v.null_value.present||v.number.present||v.integer.present||v.text.present){ return false; }
+            v.integer.present=true;
+            if(!pb_decode_svarint(s,&v.integer.value)){ return false; }
+            break;}
+        case 4:{
+            if(wt!=PB_WT_STRING){ return false; }
+            if(v.null_value.present||v.number.present||v.integer.present||v.text.present){ return false; }
+            v.text.present=true;
+            uint32_t n;if(!pb_decode_varint32(s,&n)||n>2048||n>s->bytes_left){ return false; }v.text.value.resize(n);if(n&&!pb_read(s,reinterpret_cast<pb_byte_t*>(&v.text.value[0]),n)){ return false; }if(!validUtf8(v.text.value)){ return false; }
+            break;}
+        default:if(!pb_skip_field(s,wt)){ return false; }++*unknown;break;
+        }
+    }
+    *out=v;return true;
+}
+bool write(pb_ostream_t* s,const ThermostatTransition& v,unsigned depth){
+    if(depth>16){ return false; }
+    (void)s;(void)v;
+    if(v.time.present){
+        if(!pb_encode_tag(s,PB_WT_VARINT,1)){ return false; }
+        if(!pb_encode_varint(s,v.time.value)){ return false; }
+    }
+    if(v.heat.present){
+        if(!pb_encode_tag(s,PB_WT_64BIT,2)){ return false; }
+        if(!(std::isfinite(v.heat.value)&&pb_encode_fixed64(s,&v.heat.value))){ return false; }
+    }
+    if(v.cool.present){
+        if(!pb_encode_tag(s,PB_WT_64BIT,3)){ return false; }
+        if(!(std::isfinite(v.cool.value)&&pb_encode_fixed64(s,&v.cool.value))){ return false; }
+    }
+    return true;
+}
+bool read(pb_istream_t* s,ThermostatTransition* out,unsigned depth,unsigned* unknown){
+    if(depth>16){ return false; }
+    ThermostatTransition v;
+    while(s->bytes_left){
+        pb_wire_type_t wt;uint32_t tag;bool eof=false;if(!pb_decode_tag(s,&wt,&tag,&eof)||tag==0){ return false; }
+        switch(tag){
+        case 1:{
+            if(wt!=PB_WT_VARINT){ return false; }
+            if(v.time.present){ return false; }
+            v.time.present=true;
+            uint64_t n;if(!pb_decode_varint(s,&n)||n>0xffffffffUL){ return false; }v.time.value=static_cast<uint32_t>(n);
+            break;}
+        case 2:{
+            if(wt!=PB_WT_64BIT){ return false; }
+            if(v.heat.present){ return false; }
+            v.heat.present=true;
+            if(!pb_decode_fixed64(s,&v.heat.value)||!std::isfinite(v.heat.value)){ return false; }
+            break;}
+        case 3:{
+            if(wt!=PB_WT_64BIT){ return false; }
+            if(v.cool.present){ return false; }
+            v.cool.present=true;
+            if(!pb_decode_fixed64(s,&v.cool.value)||!std::isfinite(v.cool.value)){ return false; }
+            break;}
+        default:if(!pb_skip_field(s,wt)){ return false; }++*unknown;break;
+        }
+    }
+    *out=v;return true;
+}
+bool write(pb_ostream_t* s,const ThermostatTransitionList& v,unsigned depth){
+    if(depth>16){ return false; }
+    (void)s;(void)v;
+    if(v.items.size()>512){ return false; }
+    for(size_t i=0;i<v.items.size();++i){
+        if(!pb_encode_tag(s,PB_WT_STRING,1)){ return false; }
+        if(!writeNested(s,v.items[i],depth)){ return false; }
+    }
+    return true;
+}
+bool read(pb_istream_t* s,ThermostatTransitionList* out,unsigned depth,unsigned* unknown){
+    if(depth>16){ return false; }
+    ThermostatTransitionList v;
+    while(s->bytes_left){
+        pb_wire_type_t wt;uint32_t tag;bool eof=false;if(!pb_decode_tag(s,&wt,&tag,&eof)||tag==0){ return false; }
+        switch(tag){
+        case 1:{
+            if(wt!=PB_WT_STRING){ return false; }
+            if(v.items.size()>=512){ return false; }v.items.push_back(ThermostatTransition());
+            if(!readNested(s,&v.items.back(),depth,unknown)){ return false; }
+            break;}
+        default:if(!pb_skip_field(s,wt)){ return false; }++*unknown;break;
+        }
+    }
+    *out=v;return true;
+}
+bool write(pb_ostream_t* s,const Measurement& v,unsigned depth){
+    if(depth>16){ return false; }
+    (void)s;(void)v;
+    if(v.value.present){
+        if(!pb_encode_tag(s,PB_WT_STRING,1)){ return false; }
+        if(!writeNested(s,v.value.value,depth)){ return false; }
+    }
+    if(v.unit.present){
+        if(!pb_encode_tag(s,PB_WT_STRING,2)){ return false; }
+        if(!(v.unit.value.size()<=2048&&validUtf8(v.unit.value)&&pb_encode_string(s,reinterpret_cast<const pb_byte_t*>(v.unit.value.empty()?0:&v.unit.value[0]),v.unit.value.size()))){ return false; }
+    }
+    if(v.quality.present){
+        if(!pb_encode_tag(s,PB_WT_STRING,3)){ return false; }
+        if(!(v.quality.value.size()<=2048&&validUtf8(v.quality.value)&&pb_encode_string(s,reinterpret_cast<const pb_byte_t*>(v.quality.value.empty()?0:&v.quality.value[0]),v.quality.value.size()))){ return false; }
+    }
+    if(v.mode.present){
+        if(!pb_encode_tag(s,PB_WT_VARINT,4)){ return false; }
+        if(!pb_encode_varint(s,v.mode.value)){ return false; }
+    }
+    if(v.transitions.present){
+        if(!pb_encode_tag(s,PB_WT_STRING,5)){ return false; }
+        if(!writeNested(s,v.transitions.value,depth)){ return false; }
+    }
+    return true;
+}
+bool read(pb_istream_t* s,Measurement* out,unsigned depth,unsigned* unknown){
+    if(depth>16){ return false; }
+    Measurement v;
+    while(s->bytes_left){
+        pb_wire_type_t wt;uint32_t tag;bool eof=false;if(!pb_decode_tag(s,&wt,&tag,&eof)||tag==0){ return false; }
+        switch(tag){
+        case 1:{
+            if(wt!=PB_WT_STRING){ return false; }
+            if(v.value.present){ return false; }
+            v.value.present=true;
+            if(!readNested(s,&v.value.value,depth,unknown)){ return false; }
+            break;}
+        case 2:{
+            if(wt!=PB_WT_STRING){ return false; }
+            if(v.unit.present){ return false; }
+            v.unit.present=true;
+            uint32_t n;if(!pb_decode_varint32(s,&n)||n>2048||n>s->bytes_left){ return false; }v.unit.value.resize(n);if(n&&!pb_read(s,reinterpret_cast<pb_byte_t*>(&v.unit.value[0]),n)){ return false; }if(!validUtf8(v.unit.value)){ return false; }
+            break;}
+        case 3:{
+            if(wt!=PB_WT_STRING){ return false; }
+            if(v.quality.present){ return false; }
+            v.quality.present=true;
+            uint32_t n;if(!pb_decode_varint32(s,&n)||n>2048||n>s->bytes_left){ return false; }v.quality.value.resize(n);if(n&&!pb_read(s,reinterpret_cast<pb_byte_t*>(&v.quality.value[0]),n)){ return false; }if(!validUtf8(v.quality.value)){ return false; }
+            break;}
+        case 4:{
+            if(wt!=PB_WT_VARINT){ return false; }
+            if(v.mode.present){ return false; }
+            v.mode.present=true;
+            uint64_t n;if(!pb_decode_varint(s,&n)||n>0xffffffffUL){ return false; }v.mode.value=static_cast<uint32_t>(n);
+            break;}
+        case 5:{
+            if(wt!=PB_WT_STRING){ return false; }
+            if(v.transitions.present){ return false; }
+            v.transitions.present=true;
+            if(!readNested(s,&v.transitions.value,depth,unknown)){ return false; }
+            break;}
+        default:if(!pb_skip_field(s,wt)){ return false; }++*unknown;break;
+        }
+    }
+    *out=v;return true;
+}
 bool write(pb_ostream_t* s,const DeviceCommandRequest& v,unsigned depth){
     if(depth>16){ return false; }
     (void)s;(void)v;
@@ -945,6 +1140,10 @@ bool write(pb_ostream_t* s,const DeviceCommandRequest& v,unsigned depth){
     if(v.offset_seconds.present){
         if(!pb_encode_tag(s,PB_WT_VARINT,10)){ return false; }
         if(!pb_encode_svarint(s,v.offset_seconds.value)){ return false; }
+    }
+    if(v.schedule.present){
+        if(!pb_encode_tag(s,PB_WT_STRING,11)){ return false; }
+        if(!writeNested(s,v.schedule.value,depth)){ return false; }
     }
     return true;
 }
@@ -1013,6 +1212,12 @@ bool read(pb_istream_t* s,DeviceCommandRequest* out,unsigned depth,unsigned* unk
             if(v.offset_seconds.present){ return false; }
             v.offset_seconds.present=true;
             if(!pb_decode_svarint(s,&v.offset_seconds.value)){ return false; }
+            break;}
+        case 11:{
+            if(wt!=PB_WT_STRING){ return false; }
+            if(v.schedule.present){ return false; }
+            v.schedule.present=true;
+            if(!readNested(s,&v.schedule.value,depth,unknown)){ return false; }
             break;}
         default:if(!pb_skip_field(s,wt)){ return false; }++*unknown;break;
         }
@@ -1602,201 +1807,6 @@ bool read(pb_istream_t* s,DeviceSnapshotPage* out,unsigned depth,unsigned* unkno
             if(v.next_cursor.present){ return false; }
             v.next_cursor.present=true;
             if(!readNested(s,&v.next_cursor.value,depth,unknown)){ return false; }
-            break;}
-        default:if(!pb_skip_field(s,wt)){ return false; }++*unknown;break;
-        }
-    }
-    *out=v;return true;
-}
-bool write(pb_ostream_t* s,const MeasurementValue& v,unsigned depth){
-    if(depth>16){ return false; }
-    (void)s;(void)v;
-    if((v.null_value.present?1:0)+(v.number.present?1:0)+(v.integer.present?1:0)+(v.text.present?1:0)>1){ return false; }
-    if(v.null_value.present){
-        if(!pb_encode_tag(s,PB_WT_VARINT,1)){ return false; }
-        if(!pb_encode_varint(s,v.null_value.value)){ return false; }
-    }
-    if(v.number.present){
-        if(!pb_encode_tag(s,PB_WT_64BIT,2)){ return false; }
-        if(!(std::isfinite(v.number.value)&&pb_encode_fixed64(s,&v.number.value))){ return false; }
-    }
-    if(v.integer.present){
-        if(!pb_encode_tag(s,PB_WT_VARINT,3)){ return false; }
-        if(!pb_encode_svarint(s,v.integer.value)){ return false; }
-    }
-    if(v.text.present){
-        if(!pb_encode_tag(s,PB_WT_STRING,4)){ return false; }
-        if(!(v.text.value.size()<=2048&&validUtf8(v.text.value)&&pb_encode_string(s,reinterpret_cast<const pb_byte_t*>(v.text.value.empty()?0:&v.text.value[0]),v.text.value.size()))){ return false; }
-    }
-    return true;
-}
-bool read(pb_istream_t* s,MeasurementValue* out,unsigned depth,unsigned* unknown){
-    if(depth>16){ return false; }
-    MeasurementValue v;
-    while(s->bytes_left){
-        pb_wire_type_t wt;uint32_t tag;bool eof=false;if(!pb_decode_tag(s,&wt,&tag,&eof)||tag==0){ return false; }
-        switch(tag){
-        case 1:{
-            if(wt!=PB_WT_VARINT){ return false; }
-            if(v.null_value.present||v.number.present||v.integer.present||v.text.present){ return false; }
-            v.null_value.present=true;
-            uint64_t n;if(!pb_decode_varint(s,&n)||n>1){ return false; }v.null_value.value=static_cast<bool>(n);
-            break;}
-        case 2:{
-            if(wt!=PB_WT_64BIT){ return false; }
-            if(v.null_value.present||v.number.present||v.integer.present||v.text.present){ return false; }
-            v.number.present=true;
-            if(!pb_decode_fixed64(s,&v.number.value)||!std::isfinite(v.number.value)){ return false; }
-            break;}
-        case 3:{
-            if(wt!=PB_WT_VARINT){ return false; }
-            if(v.null_value.present||v.number.present||v.integer.present||v.text.present){ return false; }
-            v.integer.present=true;
-            if(!pb_decode_svarint(s,&v.integer.value)){ return false; }
-            break;}
-        case 4:{
-            if(wt!=PB_WT_STRING){ return false; }
-            if(v.null_value.present||v.number.present||v.integer.present||v.text.present){ return false; }
-            v.text.present=true;
-            uint32_t n;if(!pb_decode_varint32(s,&n)||n>2048||n>s->bytes_left){ return false; }v.text.value.resize(n);if(n&&!pb_read(s,reinterpret_cast<pb_byte_t*>(&v.text.value[0]),n)){ return false; }if(!validUtf8(v.text.value)){ return false; }
-            break;}
-        default:if(!pb_skip_field(s,wt)){ return false; }++*unknown;break;
-        }
-    }
-    *out=v;return true;
-}
-bool write(pb_ostream_t* s,const ThermostatTransition& v,unsigned depth){
-    if(depth>16){ return false; }
-    (void)s;(void)v;
-    if(v.time.present){
-        if(!pb_encode_tag(s,PB_WT_VARINT,1)){ return false; }
-        if(!pb_encode_varint(s,v.time.value)){ return false; }
-    }
-    if(v.heat.present){
-        if(!pb_encode_tag(s,PB_WT_64BIT,2)){ return false; }
-        if(!(std::isfinite(v.heat.value)&&pb_encode_fixed64(s,&v.heat.value))){ return false; }
-    }
-    if(v.cool.present){
-        if(!pb_encode_tag(s,PB_WT_64BIT,3)){ return false; }
-        if(!(std::isfinite(v.cool.value)&&pb_encode_fixed64(s,&v.cool.value))){ return false; }
-    }
-    return true;
-}
-bool read(pb_istream_t* s,ThermostatTransition* out,unsigned depth,unsigned* unknown){
-    if(depth>16){ return false; }
-    ThermostatTransition v;
-    while(s->bytes_left){
-        pb_wire_type_t wt;uint32_t tag;bool eof=false;if(!pb_decode_tag(s,&wt,&tag,&eof)||tag==0){ return false; }
-        switch(tag){
-        case 1:{
-            if(wt!=PB_WT_VARINT){ return false; }
-            if(v.time.present){ return false; }
-            v.time.present=true;
-            uint64_t n;if(!pb_decode_varint(s,&n)||n>0xffffffffUL){ return false; }v.time.value=static_cast<uint32_t>(n);
-            break;}
-        case 2:{
-            if(wt!=PB_WT_64BIT){ return false; }
-            if(v.heat.present){ return false; }
-            v.heat.present=true;
-            if(!pb_decode_fixed64(s,&v.heat.value)||!std::isfinite(v.heat.value)){ return false; }
-            break;}
-        case 3:{
-            if(wt!=PB_WT_64BIT){ return false; }
-            if(v.cool.present){ return false; }
-            v.cool.present=true;
-            if(!pb_decode_fixed64(s,&v.cool.value)||!std::isfinite(v.cool.value)){ return false; }
-            break;}
-        default:if(!pb_skip_field(s,wt)){ return false; }++*unknown;break;
-        }
-    }
-    *out=v;return true;
-}
-bool write(pb_ostream_t* s,const ThermostatTransitionList& v,unsigned depth){
-    if(depth>16){ return false; }
-    (void)s;(void)v;
-    if(v.items.size()>512){ return false; }
-    for(size_t i=0;i<v.items.size();++i){
-        if(!pb_encode_tag(s,PB_WT_STRING,1)){ return false; }
-        if(!writeNested(s,v.items[i],depth)){ return false; }
-    }
-    return true;
-}
-bool read(pb_istream_t* s,ThermostatTransitionList* out,unsigned depth,unsigned* unknown){
-    if(depth>16){ return false; }
-    ThermostatTransitionList v;
-    while(s->bytes_left){
-        pb_wire_type_t wt;uint32_t tag;bool eof=false;if(!pb_decode_tag(s,&wt,&tag,&eof)||tag==0){ return false; }
-        switch(tag){
-        case 1:{
-            if(wt!=PB_WT_STRING){ return false; }
-            if(v.items.size()>=512){ return false; }v.items.push_back(ThermostatTransition());
-            if(!readNested(s,&v.items.back(),depth,unknown)){ return false; }
-            break;}
-        default:if(!pb_skip_field(s,wt)){ return false; }++*unknown;break;
-        }
-    }
-    *out=v;return true;
-}
-bool write(pb_ostream_t* s,const Measurement& v,unsigned depth){
-    if(depth>16){ return false; }
-    (void)s;(void)v;
-    if(v.value.present){
-        if(!pb_encode_tag(s,PB_WT_STRING,1)){ return false; }
-        if(!writeNested(s,v.value.value,depth)){ return false; }
-    }
-    if(v.unit.present){
-        if(!pb_encode_tag(s,PB_WT_STRING,2)){ return false; }
-        if(!(v.unit.value.size()<=2048&&validUtf8(v.unit.value)&&pb_encode_string(s,reinterpret_cast<const pb_byte_t*>(v.unit.value.empty()?0:&v.unit.value[0]),v.unit.value.size()))){ return false; }
-    }
-    if(v.quality.present){
-        if(!pb_encode_tag(s,PB_WT_STRING,3)){ return false; }
-        if(!(v.quality.value.size()<=2048&&validUtf8(v.quality.value)&&pb_encode_string(s,reinterpret_cast<const pb_byte_t*>(v.quality.value.empty()?0:&v.quality.value[0]),v.quality.value.size()))){ return false; }
-    }
-    if(v.mode.present){
-        if(!pb_encode_tag(s,PB_WT_VARINT,4)){ return false; }
-        if(!pb_encode_varint(s,v.mode.value)){ return false; }
-    }
-    if(v.transitions.present){
-        if(!pb_encode_tag(s,PB_WT_STRING,5)){ return false; }
-        if(!writeNested(s,v.transitions.value,depth)){ return false; }
-    }
-    return true;
-}
-bool read(pb_istream_t* s,Measurement* out,unsigned depth,unsigned* unknown){
-    if(depth>16){ return false; }
-    Measurement v;
-    while(s->bytes_left){
-        pb_wire_type_t wt;uint32_t tag;bool eof=false;if(!pb_decode_tag(s,&wt,&tag,&eof)||tag==0){ return false; }
-        switch(tag){
-        case 1:{
-            if(wt!=PB_WT_STRING){ return false; }
-            if(v.value.present){ return false; }
-            v.value.present=true;
-            if(!readNested(s,&v.value.value,depth,unknown)){ return false; }
-            break;}
-        case 2:{
-            if(wt!=PB_WT_STRING){ return false; }
-            if(v.unit.present){ return false; }
-            v.unit.present=true;
-            uint32_t n;if(!pb_decode_varint32(s,&n)||n>2048||n>s->bytes_left){ return false; }v.unit.value.resize(n);if(n&&!pb_read(s,reinterpret_cast<pb_byte_t*>(&v.unit.value[0]),n)){ return false; }if(!validUtf8(v.unit.value)){ return false; }
-            break;}
-        case 3:{
-            if(wt!=PB_WT_STRING){ return false; }
-            if(v.quality.present){ return false; }
-            v.quality.present=true;
-            uint32_t n;if(!pb_decode_varint32(s,&n)||n>2048||n>s->bytes_left){ return false; }v.quality.value.resize(n);if(n&&!pb_read(s,reinterpret_cast<pb_byte_t*>(&v.quality.value[0]),n)){ return false; }if(!validUtf8(v.quality.value)){ return false; }
-            break;}
-        case 4:{
-            if(wt!=PB_WT_VARINT){ return false; }
-            if(v.mode.present){ return false; }
-            v.mode.present=true;
-            uint64_t n;if(!pb_decode_varint(s,&n)||n>0xffffffffUL){ return false; }v.mode.value=static_cast<uint32_t>(n);
-            break;}
-        case 5:{
-            if(wt!=PB_WT_STRING){ return false; }
-            if(v.transitions.present){ return false; }
-            v.transitions.present=true;
-            if(!readNested(s,&v.transitions.value,depth,unknown)){ return false; }
             break;}
         default:if(!pb_skip_field(s,wt)){ return false; }++*unknown;break;
         }

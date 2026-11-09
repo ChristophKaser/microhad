@@ -26,6 +26,7 @@ struct Value {
     bool operator!=(const Value& v) const { return !(*this==v); }
 };
 std::string json(const Value& value);
+size_t jsonSize(const Value& value);
 bool parse(const std::string& text, Value* value);
 Value snapshot(const Device& device);
 typedef std::tr1::shared_ptr<const Device> DevicePtr;

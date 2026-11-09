@@ -137,6 +137,8 @@ pub value: Option<String>,
 pub time_zone: Option<String>,
 #[prost(sint64, optional, tag="10")]
 pub offset_seconds: Option<i64>,
+#[prost(message, optional, tag="11")]
+pub schedule: Option<Measurement>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperationResponse {
@@ -962,6 +964,7 @@ Field{tag:7,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:8,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:9,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:10,kind:18,message:0,repeated:false,oneof:false},
+Field{tag:11,kind:11,message:24,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
@@ -1268,6 +1271,7 @@ if let Some(value)=&self.targets{if !value.bounded(depth+1){return false;}}
 true
 }}
 impl Bounded for DeviceCommandRequest {fn bounded(&self,depth:usize)->bool{if depth>16{return false;}
+if let Some(value)=&self.schedule{if !value.bounded(depth+1){return false;}}
 true
 }}
 impl Bounded for OperationResponse {fn bounded(&self,depth:usize)->bool{if depth>16{return false;}

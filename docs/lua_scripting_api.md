@@ -230,6 +230,9 @@ capabilities, `schedules`, `schedule_details`, `pending`, `source_id`,
 `stale_minutes`, `source_observed_at`, `status`, and `error`. Lua arrays are
 1-based: Sunday is slot 1 of `schedules` and `schedule_details`; unknown entries
 are `nil`. Devices without this capability omit `thermostat`.
+For heat-only schedules, `schedules` contains the legacy text form. Cooling and
+mixed schedules contain a table with `mode` and `transitions`, matching the
+corresponding `schedule_details` entry; they are no longer JSON strings.
 
 A changed thermostat snapshot emits `device.changed` with `field = "thermostat"`
 and immutable `old` and `value` objects, including pending/error-only changes.

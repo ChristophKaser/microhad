@@ -180,6 +180,16 @@ void requireLocalSocketSend() {
 
 void runMatterClientUnitTests() {
     requireLocalSocketSend();
+    {
+        MatterProto::MessageBody request;
+        const std::string input="{\"schema\":1,\"command\":\"thermostat\",\"node\":\"0000000000000002\",\"endpoint\":1,\"field\":\"schedule_1\",\"value\":\"{\\\"mode\\\":3,\\\"transitions\\\":[{\\\"time\\\":60,\\\"heat\\\":20,\\\"cool\\\":25}]}\"}";
+        assert(MatterChannel::requestFromJson(11,input,&request));
+        const MatterProto::DeviceCommandRequest& command=request.device_command_request.value;
+        assert(command.schedule.present&&!command.value.present&&command.schedule.value.mode.value==3);
+        assert(command.schedule.value.transitions.value.items.size()==1&&command.schedule.value.transitions.value.items[0].cool.value==25);
+        const std::string invalid="{\"schema\":1,\"command\":\"thermostat\",\"node\":\"0000000000000002\",\"endpoint\":1,\"field\":\"schedule_1\",\"value\":\"{\\\"mode\\\":3,\\\"transitions\\\":[{\\\"time\\\":60,\\\"heat\\\":20}]}\"}";
+        assert(!MatterChannel::requestFromJson(11,invalid,&request));
+    }
     assert(MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"delete\",\"node\":\"0000000000000002\",\"local\":true}"));
     assert(!MatterChannel::validRequest(10, "{\"schema\":1,\"action\":\"delete\",\"node\":\"0000000000000002\",\"local\":\"true\"}"));
     std::vector<std::string> manifest;

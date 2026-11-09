@@ -579,7 +579,7 @@ void GatewayRunner::waitForWork(LoopDebugStats* stats, bool debugEnabled) {
 
 GatewayRunner::ViewLease::ViewLease(GatewayRunner* owner, ViewData* data) : data_(data), owner_(owner) {}
 GatewayRunner::ViewLease::~ViewLease() { owner_->releaseView(data_); }
-std::string GatewayRunner::ViewLease::settingsJson() const { return data_->view->settingsJson; }
+std::string GatewayRunner::ViewLease::settingsJson() const { return data_->view->settingsJson(); }
 std::string GatewayRunner::ViewLease::timeZone() const { return data_->view->timeZone; }
 std::string GatewayRunner::ViewLease::matterCountryCode() const { return data_->view->matterCountryCode; }
 std::string GatewayRunner::ViewLease::matterRegulatoryLocation() const { return data_->view->matterRegulatoryLocation; }

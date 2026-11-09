@@ -76,6 +76,7 @@ message DeviceCommandRequest {
   optional string value = 8;
   optional string time_zone = 9;
   optional sint64 offset_seconds = 10;
+  optional Measurement schedule = 11;
 }
 message OperationResponse {
   optional uint32 schema = 1;

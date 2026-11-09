@@ -139,6 +139,8 @@ pub value: Option<String>,
 pub time_zone: Option<String>,
 #[prost(sint64, optional, tag="10")]
 pub offset_seconds: Option<i64>,
+#[prost(message, optional, tag="11")]
+pub schedule: Option<Measurement>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperationResponse {
@@ -1074,6 +1076,7 @@ if let Some(v)=lookup(fields,"field") { m.field=Some(text(v)?); }
 if let Some(v)=lookup(fields,"value") { m.value=Some(text(v)?); }
 if let Some(v)=lookup(fields,"time_zone") { m.time_zone=Some(text(v)?); }
 if let Some(v)=lookup(fields,"offset_seconds") { m.offset_seconds=Some(signed(v)?); }
+if let Some(v)=lookup(fields,"schedule") { m.schedule=Some(to_Measurement(v)?); }
 Ok(m)
 }
 fn from_DeviceCommandRequest(m: DeviceCommandRequest) -> Value {
@@ -1088,6 +1091,7 @@ if let Some(v)=m.field { fields.push((Value::Text("field".into()), Value::Text(v
 if let Some(v)=m.value { fields.push((Value::Text("value".into()), Value::Text(v))); }
 if let Some(v)=m.time_zone { fields.push((Value::Text("time_zone".into()), Value::Text(v))); }
 if let Some(v)=m.offset_seconds { fields.push((Value::Text("offset_seconds".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.schedule { fields.push((Value::Text("schedule".into()), from_Measurement(v))); }
 Value::Map(fields)
 }
 fn to_OperationResponse(v: &Value) -> std::result::Result<OperationResponse, ProtocolError> {
@@ -2237,6 +2241,7 @@ Field { name:"field", tag:7, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"value", tag:8, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"time_zone", tag:9, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"offset_seconds", tag:10, kind:18, message:"", repeated:false, oneof:false },
+Field { name:"schedule", tag:11, kind:11, message:"Measurement", repeated:false, oneof:false },
 ],
 "OperationResponse" => &[
 Field { name:"schema", tag:1, kind:13, message:"", repeated:false, oneof:false },

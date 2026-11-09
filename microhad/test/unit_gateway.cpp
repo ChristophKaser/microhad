@@ -190,6 +190,12 @@ public:
         assert(request.device_command_request.present&&request.device_command_request.value.value.value=="26.5");
         assert(g.thermostatResult(matter.matter.read().node,2,"occupied_cooling_setpoint","timeout"));
         assert(!g.devices_[matter.ieeeAddress].thermostat.read().error.empty());
+        assert(g.setThermostat(matter.ieeeAddress,"schedule_1","{\"mode\":3,\"transitions\":[{\"time\":60,\"heat\":20,\"cool\":25}]}",&error,&request));
+        assert(request.device_command_request.value.schedule.present);
+        assert(!request.device_command_request.value.value.present);
+        const MatterProto::Measurement& sent=request.device_command_request.value.schedule.value;
+        assert(sent.mode.present&&sent.mode.value==3&&sent.transitions.value.items.size()==1);
+        assert(sent.transitions.value.items[0].time.value==60&&sent.transitions.value.items[0].heat.value==20&&sent.transitions.value.items[0].cool.value==25);
         assert(!g.setThermostat(matter.ieeeAddress,"child_lock","1",&error,&request));
         g.devices_[d.ieeeAddress]=d;
         assert(g.captureView().statusJson().find("\"has_thermostat\":true")!=std::string::npos);
@@ -908,7 +914,7 @@ public:
         client.events_.push_back(ZigguratClient::Event(ZigguratClient::Event::Ready));
         gateway.pollZiggurat(); assert(gateway.sentBroadcastQuorum_==6 && gateway.broadcastQuorumRequest_);
         tunableReply(client,gateway.broadcastQuorumRequest_,0); gateway.pollZiggurat();
-        assert(gateway.captureView().settingsJson.find("\"applied_value\":6")!=std::string::npos);
+        assert(gateway.captureView().settingsJson().find("\"applied_value\":6")!=std::string::npos);
         assert(gateway.setMatterCommissioningRegion("US", "outdoor", &error));
         assert(!gateway.setMatterCommissioningRegion("us", "outdoor", &error));
         assert(!gateway.setMatterCommissioningRegion("US", "outside", &error));
@@ -925,7 +931,7 @@ public:
         std::ofstream invalid(path.c_str()); invalid << "{\"broadcast_passive_ack_quorum\":0}"; invalid.close();
         assert(!restored.loadGatewaySettings(&error)); assert(unlink(path.c_str())==0);
 #else
-        assert(gateway.captureView().settingsJson.find("unsupported")!=std::string::npos);
+        assert(gateway.captureView().settingsJson().find("unsupported")!=std::string::npos);
         assert(!gateway.setBroadcastQuorum(3,&error));
 #endif
         assert(rmdir(directory)==0);

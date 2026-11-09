@@ -256,19 +256,26 @@ bool thermostatSchedule(const std::string& text, int day, std::vector<unsigned c
 bool thermostatScheduleForDevice(const Device& device, const std::string& text, int day, std::vector<unsigned char>* payload) {
     if (day<0 || day>6 || !isThermostat(device)) return false;
     if (isTrvzb(device) && (text.empty() || text[0]!='{')) return thermostatSchedule(text,day,payload);
-    unsigned int mode=1; std::vector<std::string> entries;
+    unsigned int mode=1; std::vector<JsonFields> entries;
     if (!text.empty() && text[0]=='{') {
         JsonFields root;
         if (!BoundedJson(text).parse(&root) || root.size()!=2 || !root.count("mode") || !root.count("transitions")) return false;
         double m; if (!thermostatNumber(root["mode"],&m) || m<1 || m>3 || m!=std::floor(m)) return false;
         mode=static_cast<unsigned int>(m);
-        if (!BoundedJson(root["transitions"]).parseArray(&entries)) return false;
+        std::vector<std::string> encoded;
+        if (!BoundedJson(root["transitions"]).parseArray(&encoded)) return false;
+        for (unsigned long i=0;i<encoded.size();++i) {
+            JsonFields entry;
+            if (!BoundedJson(encoded[i]).parse(&entry)) return false;
+            entries.push_back(entry);
+        }
     } else {
         std::istringstream input(text); std::string token;
         while (input>>token) {
             if (token.size()<7 || token[2]!=':' || token[5]!='/') return false;
             int hh=0, mm=0; if (sscanf(token.substr(0,5).c_str(),"%d:%d",&hh,&mm)!=2 || hh<0 || hh>23 || mm<0 || mm>59) return false;
-            std::ostringstream entry; entry<<"{\"time\":"<<hh*60+mm<<",\"heat\":"<<token.substr(6)<<'}'; entries.push_back(entry.str());
+            std::ostringstream time; time<<hh*60+mm;
+            JsonFields entry; entry["time"]=time.str(); entry["heat"]=token.substr(6); entries.push_back(entry);
         }
     }
     unsigned int maximum=isTrvzb(device) ? 6 : static_cast<unsigned int>(thermostatValue(device,ThermostatField::number_of_daily_transitions,thermostatValue(device,ThermostatField::number_of_weekly_transitions,10)));
@@ -277,8 +284,8 @@ bool thermostatScheduleForDevice(const Device& device, const std::string& text, 
     payload->clear(); payload->push_back(static_cast<unsigned char>(entries.size())); payload->push_back(static_cast<unsigned char>(1<<day)); payload->push_back(mode);
     int previous=-1;
     for (unsigned long i=0;i<entries.size();++i) {
-        JsonFields entry; double at;
-        if (!BoundedJson(entries[i]).parse(&entry) || entry.size()!=1+((mode&1)?1U:0U)+((mode&2)?1U:0U) ||
+        JsonFields& entry=entries[i]; double at;
+        if (entry.size()!=1+((mode&1)?1U:0U)+((mode&2)?1U:0U) ||
             !thermostatNumber(entry["time"],&at) || at<0 || at>=1440 || at!=std::floor(at) || at<=previous ||
             (isTrvzb(device) && i==0 && at!=0)) return false;
         put16(payload,static_cast<unsigned int>(at)); previous=static_cast<int>(at);

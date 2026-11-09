@@ -1131,20 +1131,16 @@ void Gateway::configureMatterCommissioningRegion(const std::string& countryCode,
     matterRegulatoryLocation_ = location;
 }
 
-std::string Gateway::gatewaySettingsJson() const {
-    std::string state="unsupported";
-#if MICROHAD_ZIGGURAT_ENABLED
-    if (ziggurat_!=0) state=broadcastQuorumState_;
-#endif
+std::string GatewayView::settingsJson() const {
     std::ostringstream json;
-    json << "{\"time_zone\":\"" << timeZone_ << "\",\"time_zones\":" << gatewayTimeZonesJson()
-         << ",\"broadcast_passive_ack_quorum\":" << broadcastQuorum_
-         << ",\"matter_country_code\":\"" << matterCountryCode_
-         << "\",\"matter_regulatory_location\":\"" << matterRegulatoryLocation_
+    json << "{\"time_zone\":\"" << timeZone << "\",\"time_zones\":" << gatewayTimeZonesJson()
+         << ",\"broadcast_passive_ack_quorum\":" << broadcastQuorum
+         << ",\"matter_country_code\":\"" << matterCountryCode
+         << "\",\"matter_regulatory_location\":\"" << matterRegulatoryLocation
          << "\",\"applied_value\":";
-    if (appliedBroadcastQuorum_) json << appliedBroadcastQuorum_; else json << "null";
-    json << ",\"application_state\":\"" << state << "\",\"application_error\":\""
-         << jsonEscape(broadcastQuorumError_) << "\"}";
+    if (appliedBroadcastQuorum) json << appliedBroadcastQuorum; else json << "null";
+    json << ",\"application_state\":\"" << broadcastQuorumState << "\",\"application_error\":\""
+         << jsonEscape(broadcastQuorumError) << "\"}";
     return json.str();
 }
 
@@ -3287,7 +3283,7 @@ std::vector<Device> Gateway::devices() const {
     return result;
 }
 
-GatewayView::GatewayView() : online(false), networkForming(false), networkFormed(false), observedNetworkChannel(0), serialRxBytes(0), ashRxFrames(0),
+GatewayView::GatewayView() : broadcastQuorum(0), appliedBroadcastQuorum(0), online(false), networkForming(false), networkFormed(false), observedNetworkChannel(0), serialRxBytes(0), ashRxFrames(0),
     serialOpenedAt(0), joiningUntil(0), joiningPreparing(false), notificationsEnabled(false) {
 }
 
@@ -3677,7 +3673,10 @@ GatewayView Gateway::captureView(bool includeLogs,const Automation::CatalogPtr& 
     view.serialRxBytes = serialRxBytes_; view.ashRxFrames = ashRxFrames_; view.joiningUntil = joinUntil_;
     view.serialOpenedAt = serialOpenedAt_;
     view.joiningPreparing = joinPreparationStep_ != 0; view.notificationsEnabled = notificationsEnabled();
-    view.settingsJson = gatewaySettingsJson();
+    view.broadcastQuorum=broadcastQuorum_;view.appliedBroadcastQuorum=appliedBroadcastQuorum_;view.broadcastQuorumState="unsupported";view.broadcastQuorumError=broadcastQuorumError_;
+#if MICROHAD_ZIGGURAT_ENABLED
+    if(ziggurat_!=0)view.broadcastQuorumState=broadcastQuorumState_;
+#endif
     view.timeZone = timeZone_;
     view.matterCountryCode = matterCountryCode_;
     view.matterRegulatoryLocation = matterRegulatoryLocation_;

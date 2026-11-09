@@ -39,6 +39,15 @@ void typedSnapshots(){
     d.temperature.ensure().known=false;Automation::SnapshotPtr unknown=Automation::capture(d,capability);
     assert(!unknown->has(Automation::Temperature)&&!Automation::snapshot(*unknown).fields.count("temperature_celsius"));
 }
+void jsonSizeAccounting(){
+    Value values=Value::array();values.items.push_back(Value());values.items.push_back(Value(true));values.items.push_back(Value(false));
+    values.items.push_back(Value(-123.456));values.items.push_back(Value(1e-30));
+    std::string all;for(unsigned i=0;i<128;++i)all.push_back(static_cast<char>(i));
+    values.items.push_back(Value(all));Value object=Value::object();object.fields[all]=values;object.fields["empty"]=Value::array();
+    assert(Automation::jsonSize(values)==Automation::json(values).size());
+    assert(Automation::jsonSize(object)==Automation::json(object).size());
+    for(size_t i=0;i<values.items.size();++i)assert(Automation::jsonSize(values.items[i])==Automation::json(values.items[i]).size());
+}
 
 void electricalSnapshots(){
     Device d;d.ieeeAddress="plug";
@@ -84,6 +93,12 @@ void thermostatSnapshots(){
     assert(value.fields["value"].fields["pending"].items.size()==1);
     assert(value.fields["device"].fields["thermostat"].fields["error"]==Value("timeout"));
     assert(!Automation::snapshot(Device()).fields.count("thermostat"));
+    const unsigned char mixed[]={1,2,3,60,0,208,7,196,9};
+    d.thermostat.ensure().scheduleDetails[1]=std::vector<unsigned char>(mixed,mixed+sizeof(mixed));
+    Value thermostat=Automation::capture(d)->thermostat;
+    const Value& schedule=thermostat.fields["schedules"].items[1];
+    assert(schedule.type==Value::Object&&schedule.fields.find("mode")->second.number==3);
+    assert(schedule.fields.find("transitions")->second.items[0].fields.find("cool")->second.number==25);
 }
 
 void schedulerRegressions(){
@@ -329,4 +344,4 @@ void callbackBudgetAndQueues(){Fixture f;
     assert(rejected>0);assert(f.worker->waitIdle());usleep(100000);assert(f.worker->logsJson("test.lua").find("limit")!=std::string::npos);assert(f.state().fields["good"].number==1);
 }
 }
-void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();typedSnapshots();electricalSnapshots();thermostatSnapshots();sharedLuaState();thermostatEventBurst();globalLuaMemoryLimit();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();manualTriggers();callbackBudgetAndQueues();}
+void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();jsonSizeAccounting();typedSnapshots();electricalSnapshots();thermostatSnapshots();sharedLuaState();thermostatEventBurst();globalLuaMemoryLimit();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();manualTriggers();callbackBudgetAndQueues();}

@@ -73,7 +73,8 @@
     "level": "",
     "transition_deciseconds": "",
     "field": "",
-    "value": ""
+    "value": "",
+    "schedule": "thermostat-schedule"
   },
   "reply": {
     "schema": "",
@@ -346,7 +347,8 @@
     "node": "@id",
     "endpoint": "",
     "field": "",
-    "value": ""
+    "value": "",
+    "schedule": "thermostat-schedule"
   },
   "thermostat-schedule": {
     "mode": "",

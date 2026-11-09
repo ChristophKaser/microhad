@@ -138,11 +138,11 @@ struct AutomationWorker::Impl {
         // JSON escaping must not let one author consume the entire log ring.
         // At most 6 escaped bytes per message byte; this common case fits
         // without formatting the timestamp/generation merely to count bytes.
-        if((message.size()>1024||fields.type!=Value::Object||!fields.fields.empty())&&Automation::json(row).size()>8000){
+        if((message.size()>1024||fields.type!=Value::Object||!fields.fields.empty())&&Automation::jsonSize(row)>8000){
             row.fields["fields"]=Value::object();
             row.fields["fields"].fields["truncated"]=Value(true);
             std::string& text=row.fields["message"].string;
-            while(Automation::json(row).size()>7980&&!text.empty())text.resize(text.size()/2);
+            while(Automation::jsonSize(row)>7980&&!text.empty())text.resize(text.size()/2);
             text+=" [truncated]";
         }
         row.fields["record_id"]=Value(static_cast<double>(++nextLog));
@@ -167,10 +167,10 @@ struct AutomationWorker::Impl {
     static int spent(lua_State* L){Script* s=script(L);lua_pushinteger(L,s->instructions);return 1;}
     static int begin(lua_State* L){Script* s=script(L);s->transaction=stringArg(L,1);s->chain=stringArg(L,2);s->depth=static_cast<unsigned>(luaL_checkinteger(L,3));if(!s->transactions.count(s->transaction)){s->transactions[s->transaction].persistent=s->persistent;s->transactions[s->transaction].base=s->persistent;}return 0;}
     static Value merge(const Value& base,const Value& staged,Value current){if(base.type!=Value::Object||staged.type!=Value::Object||current.type!=Value::Object)return staged;for(std::map<std::string,Value>::const_iterator it=base.fields.begin();it!=base.fields.end();++it)if(!staged.fields.count(it->first))current.fields.erase(it->first);for(std::map<std::string,Value>::const_iterator it=staged.fields.begin();it!=staged.fields.end();++it){std::map<std::string,Value>::const_iterator old=base.fields.find(it->first);if(old==base.fields.end())current.fields[it->first]=it->second;else if(old->second!=it->second)current.fields[it->first]=merge(old->second,it->second,current.fields[it->first]);}return current;}
-    static int finish(lua_State* L){Script* s=script(L);bool ok=lua_toboolean(L,1)!=0;bool done=lua_toboolean(L,2)!=0;if(done){if(ok&&!s->validation){Transaction& tx=s->transactions[s->transaction];Value next=merge(tx.base,tx.persistent,s->persistent);std::string err;if(Automation::json(next).size()>131072)s->owner->error(s,"persistent state exceeds 128 KiB","persistent");else if(next!=s->persistent&&!atomicWrite(s->owner->dir+"/state/"+s->id+".json",Automation::json(next),&err))s->owner->error(s,err,"persistent");else s->persistent=next;}s->transactions.erase(s->transaction);s->lastCallback=time(0);}s->transaction.clear();return 0;}
+    static int finish(lua_State* L){Script* s=script(L);bool ok=lua_toboolean(L,1)!=0;bool done=lua_toboolean(L,2)!=0;if(done){if(ok&&!s->validation){Transaction& tx=s->transactions[s->transaction];Value next=merge(tx.base,tx.persistent,s->persistent);std::string err;if(Automation::jsonSize(next)>131072)s->owner->error(s,"persistent state exceeds 128 KiB","persistent");else if(next!=s->persistent&&!atomicWrite(s->owner->dir+"/state/"+s->id+".json",Automation::json(next),&err))s->owner->error(s,err,"persistent");else s->persistent=next;}s->transactions.erase(s->transaction);s->lastCallback=time(0);}s->transaction.clear();return 0;}
     static int discard(lua_State* L){script(L)->transactions.erase(stringArg(L,1));return 0;}
     static int readState(lua_State* L){Script* s=script(L);std::string scope=stringArg(L,1);push(L,scope=="shared"?(s->validation?s->validationShared:s->owner->shared):s->transactions.count(s->transaction)?s->transactions[s->transaction].persistent:s->persistent);return 1;}
-    static int writeState(lua_State* L){Script* s=script(L);std::string scope=stringArg(L,1);Value v;bool ok=readValue(L,2,&v)&&v.type==Value::Object&&Automation::json(v).size()<=131072;if(!ok)return luaL_error(L,"state must contain finite, acyclic values with string keys (128 KiB limit)");if(scope=="shared"){if(s->validation)s->validationShared=v;else s->owner->shared=v;}else s->transactions[s->transaction].persistent=v;return 0;}
+    static int writeState(lua_State* L){Script* s=script(L);std::string scope=stringArg(L,1);Value v;bool ok=readValue(L,2,&v)&&v.type==Value::Object&&Automation::jsonSize(v)<=131072;if(!ok)return luaL_error(L,"state must contain finite, acyclic values with string keys (128 KiB limit)");if(scope=="shared"){if(s->validation)s->validationShared=v;else s->owner->shared=v;}else s->transactions[s->transaction].persistent=v;return 0;}
     static int serializable(lua_State* L){Value v;bool ok=readValue(L,1,&v);if(!ok)return luaL_error(L,"value is not serializable");push(L,v);return 1;}
     static int failed(lua_State* L){lua_pushboolean(L,script(L)->failed);return 1;}
     static std::string locatedError(Script* s,lua_State* thread,const std::string& message){

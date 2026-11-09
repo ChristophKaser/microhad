@@ -5,6 +5,7 @@
 #include "json_util.h"
 #include "thermostat.h"
 #include "matter_protocol.h"
+#include "automation_types.h"
 
 #include <cerrno>
 #include <cmath>
@@ -606,4 +607,22 @@ std::string MatterChannel::relayResponseSession(const std::string& input){Body b
 #endif
 
 
-bool MatterChannel::requestFromJson(unsigned char op,const std::string& input,Body* body){return validRequest(op,input)&&MatterWire::parseJson(0,op,input,body);}
+bool MatterChannel::requestFromJson(unsigned char op,const std::string& input,Body* body){
+    if(!validRequest(op,input)||!MatterWire::parseJson(0,op,input,body))return false;
+    if(op!=11||!body->device_command_request.present)return true;
+    MatterProto::DeviceCommandRequest& request=body->device_command_request.value;
+    if(!request.field.present||!request.value.present||request.field.value.compare(0,9,"schedule_")!=0||request.value.value.empty()||request.value.value[0]!='{')return true;
+    Automation::Value root;
+    if(!Automation::parse(request.value.value,&root)||root.type!=Automation::Value::Object||root.fields.size()!=2||!root.fields.count("mode")||!root.fields.count("transitions"))return false;
+    const Automation::Value& mode=root.fields.find("mode")->second;const Automation::Value& transitions=root.fields.find("transitions")->second;
+    if(mode.type!=Automation::Value::Number||mode.number<1||mode.number>3||mode.number!=std::floor(mode.number)||transitions.type!=Automation::Value::Array||transitions.items.empty()||transitions.items.size()>32)return false;
+    const unsigned bits=static_cast<unsigned>(mode.number);MatterProto::Measurement schedule;schedule.mode=bits;schedule.transitions.present=true;long previous=-1;
+    for(size_t i=0;i<transitions.items.size();++i){
+        const Automation::Value& row=transitions.items[i];if(row.type!=Automation::Value::Object||row.fields.size()!=1+((bits&1)?1U:0U)+((bits&2)?1U:0U)||!row.fields.count("time"))return false;
+        const Automation::Value& time=row.fields.find("time")->second;if(time.type!=Automation::Value::Number||time.number<0||time.number>=1440||time.number!=std::floor(time.number)||time.number<=previous)return false;
+        previous=static_cast<long>(time.number);MatterProto::ThermostatTransition transition;transition.time=static_cast<uint32_t>(previous);
+        for(unsigned bit=1;bit<=2;bit<<=1)if(bits&bit){const char* key=bit==1?"heat":"cool";std::map<std::string,Automation::Value>::const_iterator found=row.fields.find(key);if(found==row.fields.end()||found->second.type!=Automation::Value::Number||!std::isfinite(found->second.number)||found->second.number< -273.15||found->second.number>327.67||std::fabs(found->second.number*100-std::floor(found->second.number*100+.5))>.00001)return false;if(bit==1)transition.heat=found->second.number;else transition.cool=found->second.number;}
+        schedule.transitions.value.items.push_back(transition);
+    }
+    request.schedule=schedule;request.value.present=false;request.value.value.clear();return true;
+}

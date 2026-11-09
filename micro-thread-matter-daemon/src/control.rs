@@ -203,7 +203,7 @@ pub struct BindingMember {
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommandRequest {
-    Thermostat { schema: Schema, node: Id, endpoint: u16, field: String, value: String,
+    Thermostat { schema: Schema, node: Id, endpoint: u16, field: String, value: String, #[serde(default)] schedule: Option<crate::thermostat::Schedule>,
     },
     On {
         schema: Schema,
@@ -769,7 +769,8 @@ impl Request {
                     f.field,
                     f.value,
                     f.time_zone,
-                    f.offset_seconds
+                    f.offset_seconds,
+                    f.schedule
                 );
                 let s = schema(f.schema)?;
                 let node = id(req(&f.node)?)?;
@@ -809,7 +810,18 @@ impl Request {
                         node,
                         endpoint,
                         field: req(&f.field)?,
-                        value: req(&f.value)?,
+                        value: f.value.clone().unwrap_or_default(),
+                        schedule: match &f.schedule {
+                            Some(m) => {
+                                if f.value.is_some() || m.value.is_some() || m.unit.is_some() || m.quality.is_some() { return Err(malformed); }
+                                let mode = u8::try_from(req(&m.mode)?).map_err(|_| malformed)?;
+                                let rows = req(&m.transitions)?.items.iter().map(|t| Ok(crate::thermostat::Transition { time: u16::try_from(req(&t.time)?).map_err(|_| malformed)?, heat: t.heat, cool: t.cool })).collect::<Result<Vec<_>, _>>()?;
+                                let schedule = crate::thermostat::Schedule { mode, transitions: rows };
+                                if !schedule.valid(false) { return Err(malformed); }
+                                Some(schedule)
+                            },
+                            None => { if f.value.is_none() || (f.field.as_deref().is_some_and(|field|field.starts_with("schedule_")) && f.value.as_deref().is_some_and(|value|value.starts_with('{'))) { return Err(malformed); } None },
+                        },
                     },
                     Some("sync_time") if fields == 6 => {
                         let time_zone = req(&f.time_zone)?;
@@ -850,6 +862,25 @@ impl Request {
 mod protobuf_request_tests {
     use super::*;
     use crate::{ipc::Decoder, protobuf as p};
+    #[test]
+    fn thermostat_schedule_is_decoded_without_json() {
+        let request = p::DeviceCommandRequest {
+            schema: Some(1), node: Some(42), endpoint: Some(2), command: Some("thermostat".into()),
+            field: Some("schedule_1".into()),
+            schedule: Some(p::Measurement { mode: Some(3), transitions: Some(p::ThermostatTransitionList {
+                items: vec![p::ThermostatTransition { time: Some(60), heat: Some(20.0), cool: Some(25.0) }],
+            }), ..Default::default() }), ..Default::default()
+        };
+        let body = |r| p::MessageBody { choice: Some(p::MessageBodyChoice::DeviceCommandRequest(r)) };
+        assert!(matches!(Request::decode(11,&body(request.clone())), Ok(Request::Command(CommandRequest::Thermostat { schedule: Some(s), .. })) if s.mode == 3 && s.transitions[0].cool == Some(25.0)));
+        let mut invalid=request;invalid.value=Some("{}".into());assert!(Request::decode(11,&body(invalid)).is_err());
+        let legacy = p::DeviceCommandRequest {
+            schema: Some(1), node: Some(42), endpoint: Some(2), command: Some("thermostat".into()),
+            field: Some("schedule_1".into()), value: Some("{\"mode\":1,\"transitions\":[]}".into()),
+            ..Default::default()
+        };
+        assert!(Request::decode(11,&body(legacy)).is_err());
+    }
     #[test]
     fn generated_requests_dispatch_from_all_shared_valid_request_frames() {
         let vectors: serde_json::Value =
