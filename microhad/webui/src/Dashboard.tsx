@@ -117,7 +117,7 @@ export function Dashboard({ config, editing, devices, groups, status, restarting
     const stop = startVisiblePolling(refresh, 3000)
     return () => { active = false; stop() }
   }, [])
-  const triggers = scripts.filter(script => script.enabled && script.loaded).flatMap(script => (script.triggers ?? []).map(trigger => ({ id: JSON.stringify([script.id, trigger.id]), name: `${trigger.label} (${script.id})`, script_id: script.id, trigger_id: trigger.id, label: trigger.label })))
+  const triggers = scripts.filter(script => script.enabled && script.loaded).flatMap(script => (script.triggers ?? []).map(trigger => ({ id: `${encodeURIComponent(script.id)}:${encodeURIComponent(trigger.id)}`, name: `${trigger.label} (${script.id})`, script_id: script.id, trigger_id: trigger.id, label: trigger.label })))
   const [kind, setKind] = useState<DashboardWidget['kind']>('device')
   const [target, setTarget] = useState('')
   const [metric, setMetric] = useState(1)

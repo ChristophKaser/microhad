@@ -40,7 +40,7 @@ export function ThermostatDialog({ device, sources, settings, diagnostics, onClo
   const [day, setDay] = useState(1)
   const [values, setValues] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<Record<number, ThermostatSchedule>>({})
-  const [submitted, setSubmitted] = useState<Record<string, string>>({})
+  const [submitted, setSubmitted] = useState<Record<string, string | ThermostatSchedule>>({})
   const [results, setResults] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [copy, setCopy] = useState(false)
@@ -69,10 +69,10 @@ export function ThermostatDialog({ device, sources, settings, diagnostics, onClo
     return field === 'temperature_source' ? sourceOf(state) : field === 'stale_minutes' ? String(state.stale_minutes) : String(state.values[field] ?? '')
   }
   useEffect(() => {
-    const confirmed: string[] = [], failed: [string, string][] = []
+    const confirmed: string[] = [], failed: [string, string | ThermostatSchedule][] = []
     for (const [field, value] of Object.entries(submitted)) {
       if (t.pending.includes(pendingField(field))) { pendingSeen.current.add(field); continue }
-      const matches = field.startsWith('schedule_') ? sameSchedule(t.schedule_details[Number(field.slice(9))], JSON.parse(value)) : reported(field) === value
+      const matches = typeof value !== 'string' ? sameSchedule(t.schedule_details[Number(field.slice(9))], value) : reported(field) === value
       if (matches) confirmed.push(field)
       else if (pendingSeen.current.has(field) || (t.error && t.error !== submissionErrors.current[field])) failed.push([field, value])
     }
@@ -85,7 +85,7 @@ export function ThermostatDialog({ device, sources, settings, diagnostics, onClo
     })
     setResults(current => { const next = { ...current }; for (const field of confirmed) next[field] = 'Confirmed'; for (const [field] of failed) next[field] = ''; return next })
     for (const [field, value] of failed) {
-      if (field.startsWith('schedule_')) setDrafts(current => ({ ...current, [Number(field.slice(9))]: JSON.parse(value) }))
+      if (typeof value !== 'string') setDrafts(current => ({ ...current, [Number(field.slice(9))]: value }))
       else setValues(current => ({ ...current, [field]: value }))
       setErrors(current => ({ ...current, [field]: t.error || 'The device did not confirm this change. Review and retry.' }))
     }
@@ -100,6 +100,8 @@ export function ThermostatDialog({ device, sources, settings, diagnostics, onClo
       if (t.error) setErrors(current => ({ ...current, [field]: t.error }))
     }
   }, [t, reading])
+  function submittedValue(field: string) { const value = submitted[field]; return typeof value === 'string' ? value : undefined }
+  function submittedSchedule(field: string) { const value = submitted[field]; return typeof value === 'object' ? value : undefined }
   function unavailable(field: string) {
     return disabled || t.pending.includes(pendingField(field)) || submitted[field] !== undefined ||
       (field === 'external_temperature_input' && !!t.source_id) ||
@@ -123,13 +125,13 @@ export function ThermostatDialog({ device, sources, settings, diagnostics, onClo
     if (!t.supported[original.field]) return null
     const setting = adjusted(original), field = setting.field
     return <label className="thermostat-dialog-field" key={field}>{setting.label}{setting.unit && ` (${setting.unit})`}
-      {setting.options ? <select value={values[field] ?? submitted[field] ?? reported(field)} disabled={unavailable(field) || t.fields[field]?.writable === false} onChange={e => edit(field, e.target.value)}>
+      {setting.options ? <select value={values[field] ?? submittedValue(field) ?? reported(field)} disabled={unavailable(field) || t.fields[field]?.writable === false} onChange={e => edit(field, e.target.value)}>
         <option value="" disabled>Unknown</option>{setting.options.map(([value, label]) => <option key={value} value={value} disabled={field === 'temporary_mode_select' && value === 255}>{label}</option>)}
-      </select> : <input type="number" value={values[field] ?? submitted[field] ?? reported(field)} placeholder="Unknown" min={setting.min} max={setting.max} step={setting.step ?? 'any'} disabled={unavailable(field) || t.fields[field]?.writable === false} onChange={e => edit(field, e.target.value)} />}
+      </select> : <input type="number" value={values[field] ?? submittedValue(field) ?? reported(field)} placeholder="Unknown" min={setting.min} max={setting.max} step={setting.step ?? 'any'} disabled={unavailable(field) || t.fields[field]?.writable === false} onChange={e => edit(field, e.target.value)} />}
       {fieldStatus(field)}
     </label>
   }
-  const schedule = drafts[day] ?? (submitted[`schedule_${day}`] ? JSON.parse(submitted[`schedule_${day}`]) as ThermostatSchedule : t.schedule_details[day]) ?? { mode: t.supported.occupied_heating_setpoint ? 1 : 2, transitions: [] }
+  const schedule = drafts[day] ?? (submittedSchedule(`schedule_${day}`) ?? t.schedule_details[day]) ?? { mode: t.supported.occupied_heating_setpoint ? 1 : 2, transitions: [] }
   const dayDisabled = unavailable(`schedule_${day}`)
   function editDay(next: ThermostatSchedule) {
     setDrafts(old => ({ ...old, [day]: next })); setErrors(old => ({ ...old, [`schedule_${day}`]: '' })); setResults(old => ({ ...old, [`schedule_${day}`]: '' }))
@@ -137,8 +139,8 @@ export function ThermostatDialog({ device, sources, settings, diagnostics, onClo
   function editRow(index: number, field: 'time' | 'heat' | 'cool', value: number) {
     editDay({ ...schedule, transitions: schedule.transitions.map((row, i) => i === index ? { ...row, [field]: value } : row) })
   }
-  async function send(field: string, value: string) {
-    await post(`/api/devices/${encodeURIComponent(device.id)}/thermostat`, form({ field, value }))
+  async function send(field: string, value: string | ThermostatSchedule) {
+    await post(`/api/devices/${encodeURIComponent(device.id)}/thermostat`, form({ field, value: typeof value === 'string' ? value : JSON.stringify(value) }))
   }
   async function save() {
     if (disabled || sending.current) return
@@ -158,7 +160,7 @@ export function ThermostatDialog({ device, sources, settings, diagnostics, onClo
     if (Object.keys(validation).length) { setTab(Object.keys(validation)[0].startsWith('schedule_') ? 'schedule' : 'settings'); return }
     sending.current = true; setBusy(true)
     // Settings first, with source and temporary mode preceding dependent fields.
-    const entries = [...Object.entries(values).sort(([a], [b]) => (a === 'temperature_source' || a === 'temporary_mode_select' ? -1 : 0) - (b === 'temperature_source' || b === 'temporary_mode_select' ? -1 : 0)), ...Object.entries(drafts).map(([key, draft]) => [`schedule_${key}`, JSON.stringify(draft)])]
+    const entries: [string, string | ThermostatSchedule][] = [...Object.entries(values).sort(([a], [b]) => (a === 'temperature_source' || a === 'temporary_mode_select' ? -1 : 0) - (b === 'temperature_source' || b === 'temporary_mode_select' ? -1 : 0)), ...Object.entries(drafts).map(([key, draft]): [string, ThermostatSchedule] => [`schedule_${key}`, draft])]
     try {
       for (const [field, value] of entries) {
         if (!controllerAvailable.current) { setErrors(old => ({ ...old, [field]: 'Controller unavailable. Retry when connected.' })); continue }
@@ -198,13 +200,13 @@ export function ThermostatDialog({ device, sources, settings, diagnostics, onClo
     <div role="tabpanel" id={`${id}-${tab}-panel`} aria-labelledby={`${id}-${tab}-tab`}>
     {tab === 'settings' ? <>
       {t.external_input_supported && <section><h3>Temperature source</h3>
-        <label className="thermostat-dialog-field">Temperature source<select value={values.temperature_source ?? submitted.temperature_source ?? sourceOf(t)} disabled={unavailable('temperature_source') || !t.supported.temperature_sensor_select} onChange={e => edit('temperature_source', e.target.value)}>
+        <label className="thermostat-dialog-field">Temperature source<select value={values.temperature_source ?? submittedValue('temperature_source') ?? sourceOf(t)} disabled={unavailable('temperature_source') || !t.supported.temperature_sensor_select} onChange={e => edit('temperature_source', e.target.value)}>
           <option value="builtin">Built-in sensor</option><option value="manual">Manual / API input</option>
           {t.source_id && !sources.some(s => s.id === t.source_id) && <option value={t.source_id}>Missing sensor ({t.source_id})</option>}
           {sources.filter(s => s.id !== device.id).map(s => <option key={s.id} value={s.id}>{s.name || s.id}</option>)}
         </select>{fieldStatus('temperature_source')}</label>
         {t.source_id && <p className="small">Linked sensor: {sources.find(s => s.id === t.source_id)?.name || t.source_id}<br />Last reading: {t.source_observed_at ? new Date(t.source_observed_at * 1000).toLocaleString() : 'Waiting for a fresh reading'}</p>}
-        {(t.source_id || !['builtin', 'manual'].includes(values.temperature_source ?? submitted.temperature_source ?? sourceOf(t))) && <label className="thermostat-dialog-field">Fallback after (minutes)<input type="number" min="5" max="1440" step="1" value={values.stale_minutes ?? submitted.stale_minutes ?? String(t.stale_minutes)} disabled={unavailable('stale_minutes')} onChange={e => edit('stale_minutes', e.target.value)} />{fieldStatus('stale_minutes')}<small>Uses the built-in sensor when linked readings are missing, invalid or too old. Fresh readings restore the linked source.</small></label>}
+        {(t.source_id || !['builtin', 'manual'].includes(values.temperature_source ?? submittedValue('temperature_source') ?? sourceOf(t))) && <label className="thermostat-dialog-field">Fallback after (minutes)<input type="number" min="5" max="1440" step="1" value={values.stale_minutes ?? submittedValue('stale_minutes') ?? String(t.stale_minutes)} disabled={unavailable('stale_minutes')} onChange={e => edit('stale_minutes', e.target.value)} />{fieldStatus('stale_minutes')}<small>Uses the built-in sensor when linked readings are missing, invalid or too old. Fresh readings restore the linked source.</small></label>}
         {settings.filter(s => s.field === 'external_temperature_input').map(settingControl)}
       </section>}
       {!t.external_input_supported && settings.filter(s => s.field === 'external_temperature_input').map(settingControl)}
@@ -214,7 +216,7 @@ export function ThermostatDialog({ device, sources, settings, diagnostics, onClo
     </> : <section>
       <p className="small">Each temperature stays active until the next transition. {t.modes.includes(1) ? 'Select Auto on the device card to run the schedule.' : 'Schedules require a device mode that supports automatic operation.'} Saving does not change operating mode.</p>
       <div className="thermostat-week">{week.map(index => {
-        const field = `schedule_${index}`, entry = drafts[index] ?? (submitted[field] ? JSON.parse(submitted[field]) as ThermostatSchedule : t.schedule_details[index])
+        const field = `schedule_${index}`, entry = drafts[index] ?? (submittedSchedule(field) ?? t.schedule_details[index])
         return <button type="button" className="button thermostat-week-day" key={index} aria-pressed={day === index} onClick={() => { setDay(index); setCopy(false); setDestinations([]); setReplace(false) }}><strong>{days[index]}</strong><small>{entry?.transitions.map(row => `${time(row.time)} ${[row.heat !== undefined && `${row.heat}° heat`, row.cool !== undefined && `${row.cool}° cool`].filter(Boolean).join(' / ')}`).join(' · ') || (entry ? 'No transitions' : 'Not read yet')}</small><small>{errors[field] ? 'Needs attention' : drafts[index] ? 'Unsaved changes' : submitted[field] || t.pending.includes(field) ? 'Pending confirmation' : results[field] || (entry ? ({ cached: 'Cached from previous session', acknowledged: 'Device acknowledged', reported: 'Device reported' }[t.schedule_sources?.[index] ?? 'reported']) : 'Unread')}</small></button>
       })}</div>
       <p className="small">Saved schedules survive gateway restarts. A cached schedule may differ from changes made directly on the valve.</p>
