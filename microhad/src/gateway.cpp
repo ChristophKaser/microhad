@@ -659,6 +659,9 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         device.manufacturerName = endpoint.manufacturer;
         device.modelId = endpoint.model;
         device.matter.ensure().rssiDbm = endpoint.rssiDbm;
+        device.matter.ensure().vendorId = endpoint.vendorId; device.matter.ensure().productId = endpoint.productId;
+        device.matter.ensure().hardwareVersion = endpoint.hardwareVersion; device.matter.ensure().softwareVersion = endpoint.softwareVersion;
+        device.matter.ensure().softwareVersionString = endpoint.softwareVersionString;
         device.lastSeen = endpoint.online ? time(0) : 0;
         replacement[endpoint.id] = device;
     }
@@ -734,7 +737,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             }
             fresh.valueAlerts = current.valueAlerts;
             if (current.online != fresh.online || current.lastSeen != fresh.lastSeen ||
-                current.matter.read().metadataState != fresh.matter.read().metadataState || current.matter.read().state != fresh.matter.read().state || current.name != fresh.name || current.matter.read().servers != fresh.matter.read().servers ||
+                current.matter.read().vendorId != fresh.matter.read().vendorId || current.matter.read().productId != fresh.matter.read().productId || current.matter.read().hardwareVersion != fresh.matter.read().hardwareVersion || current.matter.read().softwareVersion != fresh.matter.read().softwareVersion || current.matter.read().softwareVersionString != fresh.matter.read().softwareVersionString || current.matter.read().metadataState != fresh.matter.read().metadataState || current.matter.read().state != fresh.matter.read().state || current.name != fresh.name || current.matter.read().servers != fresh.matter.read().servers ||
                 current.matter.read().clients != fresh.matter.read().clients) changed = true;
             current = fresh;
         }
@@ -3465,6 +3468,11 @@ std::string GatewayView::statusJson() const {
         if (device.source == "matter") {
             json << ",\"commissioning_state\":\"" << jsonEscape(device.matter.read().state)
                  << "\",\"endpoint_metadata_state\":\"" << jsonEscape(device.matter.read().metadataState) << '"';
+            json << ",\"matter_vendor_id\":"; if(device.matter.read().vendorId<0) json << "null"; else json << device.matter.read().vendorId;
+            json << ",\"matter_product_id\":"; if(device.matter.read().productId<0) json << "null"; else json << device.matter.read().productId;
+            json << ",\"matter_hardware_version\":"; if(device.matter.read().hardwareVersion<0) json << "null"; else json << device.matter.read().hardwareVersion;
+            json << ",\"matter_software_version\":"; if(device.matter.read().softwareVersion<0) json << "null"; else json << device.matter.read().softwareVersion;
+            json << ",\"matter_software_version_string\":\"" << jsonEscape(device.matter.read().softwareVersionString) << "\"";
             json << ",\"matter_rssi_dbm\":";
             if (device.matter.read().rssiDbm >= -128 && device.matter.read().rssiDbm <= 0) json << device.matter.read().rssiDbm; else json << "null";
             json << ",\"online\":" << (device.online ? "true" : "false")

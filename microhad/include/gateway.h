@@ -29,10 +29,12 @@ struct MatterEndpoint {
     std::string manufacturer;
     std::string model;
     int rssiDbm;
+    int64_t vendorId, productId, hardwareVersion, softwareVersion;
+    std::string softwareVersionString;
     std::vector<unsigned int> servers;
     std::vector<unsigned int> clients;
     std::vector<unsigned int> deviceTypes;
-    MatterEndpoint() : endpoint(0), online(false), metadataComplete(false), rssiDbm(1) {}
+    MatterEndpoint() : endpoint(0), online(false), metadataComplete(false), rssiDbm(1), vendorId(-1), productId(-1), hardwareVersion(-1), softwareVersion(-1) {}
 };
 
 struct MatterReading {

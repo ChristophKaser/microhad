@@ -118,6 +118,11 @@ export interface Device {
   sensor_refresh_interval_minutes: number
   value_alerts: Record<string, { has_low: boolean; low: number; has_high: boolean; high: number; hysteresis: number; unit?: string }>
   last_seen: number
+  matter_vendor_id?: number | null
+  matter_product_id?: number | null
+  matter_hardware_version?: number | null
+  matter_software_version?: number | null
+  matter_software_version_string?: string
   ota_endpoint?: number | null
   ota_manufacturer?: number | null
   ota_image_type?: number | null

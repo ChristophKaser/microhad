@@ -66,7 +66,7 @@ public:
     int calls; std::string reply;
     CatalogTransport():calls(0),reply("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n[]"){}
     bool get(const std::string& host,const std::string& path,const std::string&,std::string* response,std::string*) {
-        assert(host=="raw.githubusercontent.com" && path=="/Koenkk/zigbee-OTA/master/index.json");
+        assert((host=="raw.githubusercontent.com" && path=="/Koenkk/zigbee-OTA/master/index.json") || (host=="on.test-net.dcl.csa-iot.org" && path=="/dcl/model/versions/4476/4096/17039372"));
         ++calls;*response=reply;return true;
     }
 };
@@ -94,6 +94,12 @@ void catalogTests() {
     assert(!fetchFirmwareCatalog("zigbee-ota",&body,&error));
     configureFirmwareCatalogs("","test-ca");hook.reply="HTTP/1.1 200 OK\r\n\r\n"+std::string(4*1024*1024+1,'[');
     assert(!fetchFirmwareCatalog("zigbee-ota",&body,&error));
+    configureFirmwareCatalogs("","test-ca");hook.reply="HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}";
+    assert(fetchFirmwareCatalog("matter-dcl-testnet/4476/4096/17039372",&body,&error)&&body=="{}");
+    configureFirmwareCatalogs("","test-ca");hook.reply="HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+    assert(fetchFirmwareCatalog("matter-dcl-testnet/4476/4096/17039372",&body,&error)&&body=="{\"notFound\":true}");
+    const char* badDcl[]={"matter-dcl-testnet/4476/4096/../1", "matter-dcl-testnet/4476/4096/1/2", "matter-dcl-testnet/65536/4096", "matter-dcl-testnet/4476/4096/4294967296", "matter-dcl-testnet/4476/4096/", "matter-dcl-testnet/04476/4096"};
+    for(unsigned i=0;i<sizeof(badDcl)/sizeof(*badDcl);++i) assert(!fetchFirmwareCatalog(badDcl[i],&body,&error));
     configureFirmwareCatalogs("/tmp/nonexistent-microhad-catalog-config","");assert(firmwareCatalogsJson()=="null");
     configureFirmwareCatalogs("","test-ca");setHttpsCatalogHook(0);
 }

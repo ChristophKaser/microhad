@@ -1,5 +1,7 @@
 // Built-in catalog destinations. Overrides use one JSON object per line.
 static const char defaultFirmwareCatalogs[] =
+"{\"id\":\"matter-dcl-production\",\"label\":\"Matter production\",\"url\":\"https://on.dcl.csa-iot.org/dcl/model/versions\"}\n"
+"{\"id\":\"matter-dcl-testnet\",\"label\":\"Matter testnet (test release)\",\"url\":\"https://on.test-net.dcl.csa-iot.org/dcl/model/versions\"}\n"
 "{\"id\":\"sonoff\",\"label\":\"SONOFF\",\"url\":\"https://zigbee-ota.sonoff.tech/releases/upgrade.json\",\"manufacturer\":4742}\n"
 "{\"id\":\"ikea\",\"label\":\"IKEA\",\"url\":\"https://fw.ota.homesmart.ikea.com/DIRIGERA/version_info.json\",\"manufacturer\":4476,\"ca\":\"ikea\"}\n"
 "{\"id\":\"zigbee-ota\",\"label\":\"zigbee-OTA\",\"url\":\"https://raw.githubusercontent.com/Koenkk/zigbee-OTA/master/index.json\"}\n"

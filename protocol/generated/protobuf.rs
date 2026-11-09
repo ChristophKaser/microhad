@@ -255,6 +255,16 @@ pub model: Option<String>,
 pub rssi_dbm: Option<NullableInt>,
 #[prost(message, optional, tag="11")]
 pub device_types: Option<UInt32List>,
+#[prost(uint32, optional, tag="12")]
+pub vendor_id: Option<u32>,
+#[prost(uint32, optional, tag="13")]
+pub product_id: Option<u32>,
+#[prost(uint32, optional, tag="14")]
+pub hardware_version: Option<u32>,
+#[prost(uint32, optional, tag="15")]
+pub software_version: Option<u32>,
+#[prost(string, optional, tag="16")]
+pub software_version_string: Option<String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeviceOperationJob {
@@ -1239,6 +1249,11 @@ if let Some(v)=lookup(fields,"manufacturer") { m.manufacturer=Some(text(v)?); }
 if let Some(v)=lookup(fields,"model") { m.model=Some(text(v)?); }
 if let Some(v)=lookup(fields,"rssi_dbm") { m.rssi_dbm=Some(to_NullableInt(v)?); }
 if let Some(v)=lookup(fields,"device_types") { m.device_types=Some(to_UInt32List(v)?); }
+if let Some(v)=lookup(fields,"vendor_id") { m.vendor_id=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
+if let Some(v)=lookup(fields,"product_id") { m.product_id=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
+if let Some(v)=lookup(fields,"hardware_version") { m.hardware_version=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
+if let Some(v)=lookup(fields,"software_version") { m.software_version=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
+if let Some(v)=lookup(fields,"software_version_string") { m.software_version_string=Some(text(v)?); }
 Ok(m)
 }
 fn from_MatterDevice(m: MatterDevice) -> Value {
@@ -1254,6 +1269,11 @@ if let Some(v)=m.manufacturer { fields.push((Value::Text("manufacturer".into()),
 if let Some(v)=m.model { fields.push((Value::Text("model".into()), Value::Text(v))); }
 if let Some(v)=m.rssi_dbm { fields.push((Value::Text("rssi_dbm".into()), from_NullableInt(v))); }
 if let Some(v)=m.device_types { fields.push((Value::Text("device_types".into()), from_UInt32List(v))); }
+if let Some(v)=m.vendor_id { fields.push((Value::Text("vendor_id".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.product_id { fields.push((Value::Text("product_id".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.hardware_version { fields.push((Value::Text("hardware_version".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.software_version { fields.push((Value::Text("software_version".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.software_version_string { fields.push((Value::Text("software_version_string".into()), Value::Text(v))); }
 Value::Map(fields)
 }
 fn to_DeviceOperationJob(v: &Value) -> std::result::Result<DeviceOperationJob, ProtocolError> {
@@ -2280,6 +2300,11 @@ Field { name:"manufacturer", tag:8, kind:9, message:"", repeated:false, oneof:fa
 Field { name:"model", tag:9, kind:9, message:"", repeated:false, oneof:false },
 Field { name:"rssi_dbm", tag:10, kind:11, message:"NullableInt", repeated:false, oneof:false },
 Field { name:"device_types", tag:11, kind:11, message:"UInt32List", repeated:false, oneof:false },
+Field { name:"vendor_id", tag:12, kind:13, message:"", repeated:false, oneof:false },
+Field { name:"product_id", tag:13, kind:13, message:"", repeated:false, oneof:false },
+Field { name:"hardware_version", tag:14, kind:13, message:"", repeated:false, oneof:false },
+Field { name:"software_version", tag:15, kind:13, message:"", repeated:false, oneof:false },
+Field { name:"software_version_string", tag:16, kind:9, message:"", repeated:false, oneof:false },
 ],
 "DeviceOperationJob" => &[
 Field { name:"job", tag:1, kind:4, message:"", repeated:false, oneof:false },

@@ -40,8 +40,10 @@ struct ZigbeeDeviceState {
 struct MatterDeviceState {
     std::string state,metadataState,node;
     int endpoint,rssiDbm;
+    int64_t vendorId, productId, hardwareVersion, softwareVersion;
+    std::string softwareVersionString;
     std::vector<unsigned int> servers,clients,deviceTypes;
-    MatterDeviceState():endpoint(-1),rssiDbm(1){}
+    MatterDeviceState():endpoint(-1),rssiDbm(1),vendorId(-1),productId(-1),hardwareVersion(-1),softwareVersion(-1){}
 };
 struct ExternalDeviceState { std::string externalId,component; };
 #endif

@@ -181,7 +181,12 @@ struct MatterDevice {
     Optional<std::string> model;
     Optional<NullableInt> rssi_dbm;
     Optional<UInt32List> device_types;
-    bool operator==(const MatterDevice& other) const {return node==other.node&&state==other.state&&online==other.online&&id==other.id&&endpoint==other.endpoint&&servers==other.servers&&clients==other.clients&&manufacturer==other.manufacturer&&model==other.model&&rssi_dbm==other.rssi_dbm&&device_types==other.device_types;}
+    Optional<uint32_t> vendor_id;
+    Optional<uint32_t> product_id;
+    Optional<uint32_t> hardware_version;
+    Optional<uint32_t> software_version;
+    Optional<std::string> software_version_string;
+    bool operator==(const MatterDevice& other) const {return node==other.node&&state==other.state&&online==other.online&&id==other.id&&endpoint==other.endpoint&&servers==other.servers&&clients==other.clients&&manufacturer==other.manufacturer&&model==other.model&&rssi_dbm==other.rssi_dbm&&device_types==other.device_types&&vendor_id==other.vendor_id&&product_id==other.product_id&&hardware_version==other.hardware_version&&software_version==other.software_version&&software_version_string==other.software_version_string;}
 };
 struct MatterDeviceList {
     std::vector<MatterDevice> items;

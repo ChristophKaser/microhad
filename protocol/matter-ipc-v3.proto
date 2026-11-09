@@ -139,6 +139,11 @@ message MatterDevice {
   optional string model = 9;
   optional NullableInt rssi_dbm = 10;
   optional UInt32List device_types = 11;
+  optional uint32 vendor_id = 12;
+  optional uint32 product_id = 13;
+  optional uint32 hardware_version = 14;
+  optional uint32 software_version = 15;
+  optional string software_version_string = 16;
 }
 message DeviceOperationJob {
   optional uint64 job = 1;

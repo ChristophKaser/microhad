@@ -805,6 +805,46 @@
       "message": "UInt32List",
       "repeated": false,
       "oneof": false
+    },
+    {
+      "name": "vendor_id",
+      "tag": 12,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "product_id",
+      "tag": 13,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "hardware_version",
+      "tag": 14,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "software_version",
+      "tag": 15,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "software_version_string",
+      "tag": 16,
+      "type": 9,
+      "message": "",
+      "repeated": false,
+      "oneof": false
     }
   ],
   "DeviceOperationJob": [

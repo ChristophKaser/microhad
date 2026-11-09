@@ -1,12 +1,20 @@
 import { createRoot } from 'react-dom/client'
 import { FirmwareDownloads } from '../src/FirmwareDownloads'
+import { MatterFirmwareDownloads } from '../src/MatterFirmwareDownloads'
 import type { Device } from '../src/api'
 const calls: string[] = []
 let scenario = 'matching'
 const provider = { id: 'sonoff', label: 'SONOFF', url: 'https://catalog.example.test/upgrade.json', manufacturer: 4742 }
 window.fetch = async (input) => {
   const url = String(input); calls.push(url)
-  if (url === '/api/ota/catalogs') return Response.json([provider])
+  if (url === '/api/ota/catalogs') return Response.json(scenario.startsWith('matter') ? [{ id: 'matter-dcl-testnet', label: 'Matter testnet (test release)', url: `https://ledger.example.test/${scenario}/dcl/model/versions` }] : [provider])
+  if (url.startsWith('https://ledger.example.test/')) throw new TypeError('CORS blocked')
+  if (url === '/api/ota/catalog/matter-dcl-testnet/4476/4096') {
+    if (scenario === 'matter-error') return new Response('unavailable', { status: 502 })
+    if (scenario === 'matter-empty') return Response.json({ notFound: true })
+    return Response.json({ modelVersions: { vid: 4476, pid: 4096, softwareVersions: [17039372] } })
+  }
+  if (url === '/api/ota/catalog/matter-dcl-testnet/4476/4096/17039372') return Response.json({ modelVersion: { vid: 4476, pid: 4096, softwareVersion: 17039372, softwareVersionString: '1.4.12', softwareVersionValid: true, otaUrl: 'https://firmware.example.test/matter.ota', minApplicableSoftwareVersion: 17039360, maxApplicableSoftwareVersion: 17039371 } })
   if (url === provider.url) throw new TypeError('CORS blocked')
   if (url === '/api/ota/catalog/sonoff') {
     if (scenario === 'error') return new Response('unavailable', { status: 502 })
@@ -38,6 +46,20 @@ async function main() {
   root.render(<FirmwareDownloads device={{ ...device, id: 'three' }} />); await wait(); await wait()
   check(document.body.textContent?.includes('Could not read: SONOFF'), 'failure distinguished from empty catalog')
   check(!document.querySelector('a'), 'no firmware link after catalog failure')
+  scenario = 'matter'
+  root.render(<MatterFirmwareDownloads device={{ ...device, source: 'matter', matter_vendor_id: 4476, matter_product_id: 4096, matter_software_version: 17039366, matter_software_version_string: '1.4.6' }} />); await wait(); await wait(); await wait()
+  check(document.querySelector('a')?.href === 'https://firmware.example.test/matter.ota', 'Matter direct image link')
+  check(document.body.textContent?.includes('test release') && document.body.textContent?.includes('1.4.12'), 'Matter testnet label and version')
+  check(calls.includes('/api/ota/catalog/matter-dcl-testnet/4476/4096/17039372'), 'Matter gateway fallback')
+  check(!calls.some(url => url === 'https://firmware.example.test/matter.ota'), 'no Matter firmware fetch')
+  scenario = 'matter-empty'
+  root.render(<MatterFirmwareDownloads device={{ ...device, source: 'matter', matter_vendor_id: 4476, matter_product_id: 4096, matter_software_version: 17039365 }} />); await wait(); await wait(); await wait()
+  check(document.body.textContent?.includes('No matching firmware'), 'Matter empty catalog distinguished')
+  scenario = 'matter-error'
+  root.render(<MatterFirmwareDownloads device={{ ...device, source: 'matter', matter_vendor_id: 4476, matter_product_id: 4096, matter_software_version: 17039364 }} />); await wait(); await wait(); await wait()
+  check(document.body.textContent?.includes('Could not read:'), 'Matter catalog failure distinguished')
+  root.render(<MatterFirmwareDownloads device={{ ...device, source: 'matter', matter_vendor_id: null }} />); await wait()
+  check(document.body.textContent?.includes('identification is pending'), 'Matter missing identity distinguished')
   document.getElementById('result')!.textContent = 'PASS firmware catalogs: direct links, matching, CORS fallback, errors, keyboard and mobile layout'
   document.getElementById('result')!.dataset.result = 'passed'
 }

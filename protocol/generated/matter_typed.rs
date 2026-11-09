@@ -253,6 +253,16 @@ pub model: Option<String>,
 pub rssi_dbm: Option<NullableInt>,
 #[prost(message, optional, tag="11")]
 pub device_types: Option<UInt32List>,
+#[prost(uint32, optional, tag="12")]
+pub vendor_id: Option<u32>,
+#[prost(uint32, optional, tag="13")]
+pub product_id: Option<u32>,
+#[prost(uint32, optional, tag="14")]
+pub hardware_version: Option<u32>,
+#[prost(uint32, optional, tag="15")]
+pub software_version: Option<u32>,
+#[prost(string, optional, tag="16")]
+pub software_version_string: Option<String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeviceOperationJob {
@@ -873,7 +883,7 @@ pub hysteresis: Option<f64>,
 #[prost(string, optional, tag="7")]
 pub unit: Option<String>,
 }
-pub(super) const MAX_FIELDS: usize = 15;
+pub(super) const MAX_FIELDS: usize = 16;
 pub(super) const IPC_ENVELOPE_SCHEMA: usize = 48;
 pub(super) struct Field {pub tag:u32,pub kind:u32,pub message:usize,pub repeated:bool,pub oneof:bool}
 pub(super) fn schema(id:usize)->&'static [Field]{SCHEMAS[id]}
@@ -1015,6 +1025,11 @@ Field{tag:8,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:9,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:10,kind:11,message:39,repeated:false,oneof:false},
 Field{tag:11,kind:11,message:51,repeated:false,oneof:false},
+Field{tag:12,kind:13,message:0,repeated:false,oneof:false},
+Field{tag:13,kind:13,message:0,repeated:false,oneof:false},
+Field{tag:14,kind:13,message:0,repeated:false,oneof:false},
+Field{tag:15,kind:13,message:0,repeated:false,oneof:false},
+Field{tag:16,kind:9,message:0,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:4,message:0,repeated:false,oneof:false},

@@ -1,4 +1,5 @@
 import { FirmwareDownloads } from './FirmwareDownloads'
+import { MatterFirmwareDownloads } from './MatterFirmwareDownloads'
 import { startVisiblePolling } from './visiblePolling'
 import { useEffect, useState } from 'react'
 import { authFetch } from './auth'
@@ -55,6 +56,7 @@ export function OtaUpdate({ device }: { device: Device }) {
     <h3>Firmware update</h3>
     <p className="muted">Upload a {device.source === 'matter' ? 'Matter' : 'Zigbee'} OTA firmware container from the device vendor. Files are temporary and disappear when the gateway reboots. Wake battery devices before starting.</p>
     {device.source === 'zigbee' && <FirmwareDownloads device={device} />}
+    {device.source === 'matter' && <MatterFirmwareDownloads device={device} />}
     <label className="field">Firmware file<input type="file" disabled={busy || Boolean(active) || status?.state === 'uploading'} onChange={event => {
       const file = event.target.files?.[0]; event.target.value = ''; if (file) void upload(file)
     }} /></label>

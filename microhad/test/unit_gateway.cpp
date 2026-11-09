@@ -993,6 +993,8 @@ public:
         endpoint.node = "0000000000000002";
         endpoint.endpoint = 1;
         endpoint.online = true;
+        endpoint.vendorId = 4476; endpoint.productId = 4096; endpoint.hardwareVersion = 2;
+        endpoint.softwareVersion = 17039366; endpoint.softwareVersionString = "1.4.6";
         endpoint.servers.push_back(6);
         endpoint.servers.push_back(8);
         endpoint.servers.push_back(29);
@@ -1007,6 +1009,11 @@ public:
                std::string::npos);
         assert(matterStatus.find("\"matter_node\":\"0000000000000002\",\"matter_endpoint\":1") !=
                std::string::npos);
+        assert(matterStatus.find("\"matter_vendor_id\":4476,\"matter_product_id\":4096,\"matter_hardware_version\":2,\"matter_software_version\":17039366,\"matter_software_version_string\":\"1.4.6\"") != std::string::npos);
+        endpoints[0].softwareVersion = 17039372;
+        endpoints[0].softwareVersionString = "1.4.12";
+        assert(gateway.reconcileMatterDevices(endpoints, &error));
+        assert(gateway.statusJson().find("\"matter_software_version\":17039372,\"matter_software_version_string\":\"1.4.12\"") != std::string::npos);
         assert(matterStatus.find("\"has_co2\":true,\"co2_known\":false") != std::string::npos);
         assert(matterStatus.find("\"has_contact\":true") != std::string::npos);
         MatterReading contact;

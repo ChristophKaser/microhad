@@ -614,6 +614,11 @@ fn device(v: &crate::devices::Device) -> p::MatterDevice {
         }),
         manufacturer: Some(v.manufacturer.clone()),
         model: Some(v.model.clone()),
+        vendor_id: v.firmware.vendor_id.map(u32::from),
+        product_id: v.firmware.product_id.map(u32::from),
+        hardware_version: v.firmware.hardware_version.map(u32::from),
+        software_version: v.firmware.software_version,
+        software_version_string: v.firmware.software_version_string.clone(),
         rssi_dbm: Some(p::NullableInt {
             choice: Some(
                 v.rssi_dbm

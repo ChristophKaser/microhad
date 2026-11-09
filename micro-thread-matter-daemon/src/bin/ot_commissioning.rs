@@ -982,6 +982,15 @@ async fn run(
             );
         }
         println!("PASS bounded operational descriptor endpoint and cluster discovery over CASE");
+        let firmware = micro_thread_matter_daemon::devices::read_firmware_identity(
+            ctrl_matter, &ctrl_crypto, fab, node,
+        ).await?;
+        assert_eq!(firmware.vendor_id, Some(TEST_DEV_DET.vid));
+        assert_eq!(firmware.product_id, Some(TEST_DEV_DET.pid));
+        assert_eq!(firmware.hardware_version, Some(TEST_DEV_DET.hw_ver));
+        assert_eq!(firmware.software_version, Some(TEST_DEV_DET.sw_ver));
+        assert_eq!(firmware.software_version_string.as_deref(), Some(TEST_DEV_DET.sw_ver_str));
+        println!("PASS Matter firmware identity read over CASE");
         if std::env::args().any(|arg|arg=="--thermostat") {
             use micro_thread_matter_daemon::{operations::Value, thermostat as tstat};
             assert!(endpoints[1].servers.contains(&513));

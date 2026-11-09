@@ -712,6 +712,21 @@ bool fromValue(const Proto::Value& v,MatterDevice* out){
     if(const Proto::Value* p=Proto::field(v,"device_types")){
         result.device_types.present=true;if(!fromValue(*p,&result.device_types.value))return false;
     }
+    if(const Proto::Value* p=Proto::field(v,"vendor_id")){
+        result.vendor_id.present=true;if(!getUInt32(*p,&result.vendor_id.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"product_id")){
+        result.product_id.present=true;if(!getUInt32(*p,&result.product_id.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"hardware_version")){
+        result.hardware_version.present=true;if(!getUInt32(*p,&result.hardware_version.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"software_version")){
+        result.software_version.present=true;if(!getUInt32(*p,&result.software_version.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"software_version_string")){
+        result.software_version_string.present=true;if(!getText(*p,&result.software_version_string.value))return false;
+    }
     *out=result;return true;
 }
 Proto::Value toValue(const MatterDevice& v){
@@ -727,6 +742,11 @@ Proto::Value toValue(const MatterDevice& v){
     if(v.model.present)Proto::add(&out,"model",jsonText(v.model.value));
     if(v.rssi_dbm.present)Proto::add(&out,"rssi_dbm",toValue(v.rssi_dbm.value));
     if(v.device_types.present)Proto::add(&out,"device_types",toValue(v.device_types.value));
+    if(v.vendor_id.present)Proto::add(&out,"vendor_id",jsonUInt(v.vendor_id.value));
+    if(v.product_id.present)Proto::add(&out,"product_id",jsonUInt(v.product_id.value));
+    if(v.hardware_version.present)Proto::add(&out,"hardware_version",jsonUInt(v.hardware_version.value));
+    if(v.software_version.present)Proto::add(&out,"software_version",jsonUInt(v.software_version.value));
+    if(v.software_version_string.present)Proto::add(&out,"software_version_string",jsonText(v.software_version_string.value));
     return out;
 }
 bool fromValue(const Proto::Value& v,MatterDeviceList* out){

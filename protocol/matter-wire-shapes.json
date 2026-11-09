@@ -136,7 +136,12 @@
     "manufacturer": "",
     "model": "",
     "rssi_dbm": "",
-    "device_types": ""
+    "device_types": "",
+    "vendor_id": "",
+    "product_id": "",
+    "hardware_version": "",
+    "software_version": "",
+    "software_version_string": ""
   },
   "job": {
     "job": "@id",

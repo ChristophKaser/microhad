@@ -78,14 +78,32 @@ bool fetchFirmwareCatalog(const std::string& id, std::string* body, std::string*
     if (pthread_mutex_trylock(&mutex) != 0) { *error = "A catalog request is already in progress; retry shortly"; return false; }
     Unlock unlock; (void)unlock;
     if (!configurationError.empty()) { *error = configurationError; return false; }
+    const std::string::size_type slash = id.find('/');
+    const std::string providerId = id.substr(0, slash);
+    const bool dcl = providerId == "matter-dcl-production" || providerId == "matter-dcl-testnet";
+    std::string suffix;
+    if (dcl) {
+        if (slash == std::string::npos) { *error="Missing Matter catalog identifiers"; return false; }
+        suffix = id.substr(slash);
+        std::istringstream parts(suffix.substr(1)); std::string part; unsigned count=0;
+        while (std::getline(parts, part, '/')) {
+            if (part.empty() || part.size()>10 || part.find_first_not_of("0123456789")!=std::string::npos || (part.size()>1 && part[0]=='0')) { *error="Invalid Matter catalog identifier"; return false; }
+            unsigned long long n=std::strtoull(part.c_str(),0,10);
+            if (n>(count<2?65535ULL:4294967295ULL)) { *error="Invalid Matter catalog identifier"; return false; }
+            ++count;
+        }
+        if ((count!=2 && count!=3) || suffix[suffix.size()-1]=='/') { *error="Invalid Matter catalog path"; return false; }
+    } else if (slash != std::string::npos) { *error="Invalid catalog path"; return false; }
     const Provider* provider = 0;
-    for (unsigned i=0;i<providers.size();++i) if (providers[i].id == id) provider = &providers[i];
+    for (unsigned i=0;i<providers.size();++i) if (providers[i].id == providerId) provider = &providers[i];
     if (!provider) { *error = "Unknown firmware catalog"; return false; }
+    if (cache.find(id)==cache.end() && cache.size()>=64) cache.clear();
     if (cache[id].at && time(0) - cache[id].at < 3600) { *body = cache[id].body; return true; }
-    std::string url = provider->url;
+    const std::string destination = provider->url + suffix;
+    std::string url = destination;
     for (unsigned redirect=0;redirect<=3;++redirect) {
         std::string host, path, response;
-        if (!firmwareCatalogDestination(provider->url, url) || !splitUrl(url, &host, &path)) {
+        if (!firmwareCatalogDestination(destination, url) || !splitUrl(url, &host, &path)) {
             *error = "Catalog destination is not configured"; return false;
         }
         const std::string ca = provider->ca == "ikea" ? ikeaCatalogCa : provider->ca.empty() ? bundle : provider->ca;
@@ -113,10 +131,11 @@ bool fetchFirmwareCatalog(const std::string& id, std::string* body, std::string*
             url = location[0] == '/' ? "https://" + host + location : location;
             continue;
         }
+        if (dcl && status == 404) { *body="{\"notFound\":true}"; return true; }
         if (status != 200) { *error = "Catalog returned a non-success HTTP status"; return false; }
         *body = response.substr(separator+4);
         if (body->size() > 4*1024*1024 || (!chunked && contentLength >= 0 && static_cast<unsigned long>(contentLength) != body->size()) ||
-            body->find_first_not_of(" \r\n\t") == std::string::npos || (*body)[body->find_first_not_of(" \r\n\t")] != '[') {
+            body->find_first_not_of(" \r\n\t") == std::string::npos || (*body)[body->find_first_not_of(" \r\n\t")] != (dcl ? '{' : '[')) {
             body->clear(); *error = "Invalid or oversized catalog body"; return false;
         }
         // Bound total cache storage to one maximum-sized catalog.

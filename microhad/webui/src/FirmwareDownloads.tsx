@@ -4,7 +4,7 @@ import type { Device } from './api'
 import { matchingFirmware, parseCatalog, type Catalog, type Firmware } from './firmwareCatalog'
 
 const cache = new Map<string, { expires: number; promise: Promise<Firmware[]> }>()
-async function readJson(url: string, authenticated = false): Promise<unknown> {
+export async function readJson(url: string, authenticated = false): Promise<unknown> {
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), authenticated ? 35000 : 8000)
   try {
@@ -55,7 +55,7 @@ export function FirmwareDownloads({ device }: { device: Device }) {
       if (!response.ok) throw new Error('Firmware catalogs unavailable')
       const catalogs = await response.json() as Catalog[]
       const manufacturer = device.ota_manufacturer ?? device.node_descriptor?.manufacturer_code
-      const applicable = catalogs.filter(catalog => catalog.manufacturer === undefined || catalog.manufacturer === manufacturer)
+      const applicable = catalogs.filter(catalog => !catalog.id.startsWith("matter-dcl-") && (catalog.manufacturer === undefined || catalog.manufacturer === manufacturer))
       // Sequential fallback requests keep the constrained gateway from being flooded.
       const found: Firmware[] = [], errors: string[] = []
       for (const catalog of applicable) {

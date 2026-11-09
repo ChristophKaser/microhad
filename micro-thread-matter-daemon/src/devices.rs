@@ -6,6 +6,8 @@ use rs_matter::{
     dm::clusters::{basic_info::BasicInformationClient, desc::DescriptorClient, icd_mgmt::IcdManagementClient,
     },
     error::{Error, ErrorCode},
+    im::{client::ImClient, AttrPath},
+    tlv::TLVElement,
     transport::exchange::Exchange,
     Matter,
 };
@@ -31,6 +33,15 @@ const CLOCK_EVENT_ATTRIBUTE: u32 = u32::MAX - 1;
 const ICD_MANAGEMENT_CLUSTER: u32 = 0x0046;
 const MAX_ICD_CANDIDATES: usize = crate::icd::MAX_ICD_CLIENTS * MAX_ENDPOINTS;
 
+#[derive(Clone, Default, PartialEq, Serialize)]
+pub struct FirmwareIdentity {
+    pub vendor_id: Option<u16>,
+    pub product_id: Option<u16>,
+    pub hardware_version: Option<u16>,
+    pub software_version: Option<u32>,
+    pub software_version_string: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct Device {
     pub node: crate::control::Id,
@@ -44,6 +55,7 @@ pub struct Device {
     pub manufacturer: String,
     pub model: String,
     pub rssi_dbm: Option<i8>,
+    pub firmware: FirmwareIdentity,
 }
 #[derive(Serialize)]
 pub struct Page {
@@ -95,11 +107,13 @@ pub struct Snapshot {
     pub manufacturer: String,
     pub model: String,
     pub rssi_dbm: Option<i8>,
+    pub firmware: FirmwareIdentity,
     pub online: bool,
     next: Option<Instant>,
     failures: u8,
 }
 struct Discovery {
+    firmware: FirmwareIdentity,
     endpoints: Vec<Endpoint>,
     manufacturer: String,
     model: String,
@@ -406,6 +420,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                                 manufacturer: snapshot.map(|entry| entry.manufacturer.clone()).unwrap_or_default(),
                                 model: snapshot.map(|entry| entry.model.clone()).unwrap_or_default(),
                                 rssi_dbm: snapshot.and_then(|entry| entry.rssi_dbm),
+                                firmware: snapshot.map(|entry| entry.firmware.clone()).unwrap_or_default(),
                             },
                         });
                         break;
@@ -530,7 +545,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             self.snapshots.push(Snapshot {
                 node,
                 endpoints,
-                manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+                manufacturer: String::new(), model: String::new(), rssi_dbm: None, firmware: FirmwareIdentity::default(),
                 online: true,
                 next: Some(now + Duration::from_secs(3600)),
                 failures: 0,
@@ -856,6 +871,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         manufacturer: snapshot.map(|entry| entry.manufacturer.clone()).unwrap_or_default(),
                         model: snapshot.map(|entry| entry.model.clone()).unwrap_or_default(),
                         rssi_dbm: snapshot.and_then(|entry| entry.rssi_dbm),
+                        firmware: snapshot.map(|entry| entry.firmware.clone()).unwrap_or_default(),
                     });
                 }
                 offset += 1;
@@ -1135,7 +1151,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     endpoints: Vec::new(),
                     manufacturer: String::new(),
                     model: String::new(),
-                    rssi_dbm: None,
+                    rssi_dbm: None, firmware: FirmwareIdentity::default(),
                     online: false,
                     next: Some(now),
                     failures: 0,
@@ -1327,7 +1343,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 let visible_changed = match &result {
                     Ok(discovery) => {
                         !snapshot.online || snapshot.endpoints != discovery.endpoints ||
-                        snapshot.manufacturer != discovery.manufacturer || snapshot.model != discovery.model || snapshot.rssi_dbm != rssi_dbm
+                        snapshot.manufacturer != discovery.manufacturer || snapshot.model != discovery.model || snapshot.firmware != discovery.firmware || snapshot.rssi_dbm != rssi_dbm
                     }
                     Err(_) => snapshot.online,
                 };
@@ -1345,6 +1361,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         snapshot.endpoints = discovery.endpoints;
                         snapshot.manufacturer = discovery.manufacturer;
                         snapshot.model = discovery.model;
+                        snapshot.firmware = discovery.firmware;
                         snapshot.rssi_dbm = rssi_dbm;
                         snapshot.online = true;
                         snapshot.failures = 0;
@@ -1912,6 +1929,43 @@ fn bounded<T: Copy + Ord>(
     Ok(result)
 }
 
+// Request all firmware-identification attributes in one exchange: Thread
+// devices can take several seconds per exchange and discovery has a deadline.
+pub async fn read_firmware_identity<C: Crypto>(
+    matter: &Matter<'_>, crypto: &C, fabric: NonZeroU8, node: u64,
+) -> Result<FirmwareIdentity, Error> {
+    let paths: Vec<AttrPath> = [2, 4, 7, 9, 10].iter().map(|attribute| AttrPath {
+        endpoint: Some(0), cluster: Some(40), attr: Some(*attribute), ..Default::default()
+    }).collect();
+    let mut chunk = Exchange::initiate(matter, crypto, fabric, node).await?
+        .read_with(|builder| builder.attr_requests_from(&paths)?.fabric_filtered(true)?.end()).await?;
+    let mut identity = FirmwareIdentity::default();
+    loop {
+        let report = chunk.response()?;
+        for (endpoint, value) in report.attrs::<u16>(40, 2) {
+            if endpoint == 0 { identity.vendor_id = value.ok(); }
+        }
+        for (endpoint, value) in report.attrs::<u16>(40, 4) {
+            if endpoint == 0 { identity.product_id = value.ok(); }
+        }
+        for (endpoint, value) in report.attrs::<u16>(40, 7) {
+            if endpoint == 0 { identity.hardware_version = value.ok(); }
+        }
+        for (endpoint, value) in report.attrs::<u32>(40, 9) {
+            if endpoint == 0 { identity.software_version = value.ok(); }
+        }
+        for (endpoint, value) in report.attrs::<TLVElement>(40, 10) {
+            if endpoint == 0 {
+                identity.software_version_string = value.ok().and_then(|v| v.utf8().ok())
+                    .filter(|s| s.len() <= 64 && !s.bytes().any(|b| b < 0x20))
+                    .map(String::from);
+            }
+        }
+        match chunk.complete().await? { Some(next) => chunk = next, None => break }
+    }
+    Ok(identity)
+}
+
 /// Root PartsList defines the node's endpoints, including bridged endpoints.
 /// Each read gets its own exchange; return a snapshot only after every read succeeds.
 async fn discover_with_metadata<C: Crypto>(
@@ -1969,7 +2023,13 @@ async fn discover_with_metadata<C: Crypto>(
         endpoints.push(Endpoint { id, servers, clients, device_types,
         });
     }
+    // Optional metadata must not prevent ordinary endpoint discovery.
+    let firmware = embassy_time::with_timeout(
+        embassy_time::Duration::from_secs(12),
+        read_firmware_identity(matter, &crypto, fabric, node),
+    ).await.ok().and_then(Result::ok).unwrap_or_default();
     Ok(Discovery {
+        firmware,
         endpoints,
         manufacturer,
         model,
@@ -2006,7 +2066,7 @@ mod tests {
             });
         }
         manager.snapshots.push(Snapshot { node: 2, endpoints: vec![], manufacturer: String::new(),
-            model: String::new(), rssi_dbm: None, online: false, next: Some(deadline), failures: 9 });
+            model: String::new(), rssi_dbm: None, firmware: FirmwareIdentity::default(), online: false, next: Some(deadline), failures: 9 });
         let value = |node, endpoint, cluster, attribute, number| ResultValue {
             node: crate::control::Id(node), endpoint, cluster, attribute, value: Value::RawMeasurement(Some(number)) };
         let report = |fabric, node, values| crate::subscriptions::ReceivedReport {
@@ -2150,6 +2210,7 @@ mod tests {
                 clients: (u32::MAX-63..=u32::MAX).collect(),
                 device_types: vec![67],
                 manufacturer: "Acme".into(), model: "Model X".into(), rssi_dbm: Some(-42),
+                firmware: super::FirmwareIdentity { vendor_id: Some(4476), product_id: Some(4096), hardware_version: Some(2), software_version: Some(17039366), software_version_string: Some("1.4.6".into()) },
             },
         };
         let event=crate::responses::event(crate::responses::Event::MatterInventory(&record)).unwrap();
@@ -2161,6 +2222,8 @@ mod tests {
         let json: serde_json::Value=serde_json::from_slice(&crate::wire_json::json_bytes(&decoded.payload)).unwrap();
         assert_eq!(json["data"]["device"]["servers"][63],u32::MAX);
         assert_eq!(json["data"]["device"]["endpoint"],65534);
+        assert_eq!(json["data"]["device"]["vendor_id"],4476);
+        assert_eq!(json["data"]["device"]["software_version_string"],"1.4.6");
     }
 
     use super::*;
@@ -2283,10 +2346,11 @@ mod tests {
         let endpoints = || vec![Endpoint { id: 0, servers: vec![70, 47], clients: vec![], device_types: vec![] },
             Endpoint { id: 1, servers: vec![1026], clients: vec![], device_types: vec![] }];
         manager.snapshots.push(Snapshot { node: 2, endpoints: endpoints(),
-            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None, firmware: FirmwareIdentity::default(),
             online: true, next: Some(now), failures: 0 });
         manager.icd_checked.push((2, 0));
         manager.work = Some((2, now + Duration::from_secs(30), Box::pin(std::future::ready(Ok(Discovery {
+            firmware: FirmwareIdentity::default(),
             endpoints: endpoints(), manufacturer: String::new(), model: String::new(),
         })))));
         let mut context = Context::from_waker(std::task::Waker::noop());
@@ -2364,7 +2428,7 @@ mod tests {
                     else if node == 3 { vec![70, 1026] } else { vec![47, 1026] },
                 clients: vec![], device_types: vec![],
                 }], manufacturer: String::new(), model: String::new(),
-                rssi_dbm: None, online: true, next: Some(now), failures: 0,
+                rssi_dbm: None, firmware: FirmwareIdentity::default(), online: true, next: Some(now), failures: 0,
             });
         }
         manager.sync_subscriptions(now);
@@ -2541,7 +2605,7 @@ mod tests {
         let mut snapshots = vec![Snapshot {
             node: 2,
             endpoints: vec![Endpoint { id: 4, servers: vec![6], clients: vec![3], device_types: vec![] }],
-            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None, firmware: FirmwareIdentity::default(),
             online: true, next: Some(Instant::now()), failures: 0,
         }];
         assert_eq!(operation.authorize(&snapshots), Err(Failure::Unsupported));
@@ -2573,7 +2637,7 @@ mod tests {
                     device_types: vec![],
                 },
             ],
-            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None, firmware: FirmwareIdentity::default(),
             online: true,
             next: Some(now),
             failures: 0,
@@ -2590,7 +2654,7 @@ mod tests {
                     device_types: endpoint.device_types.clone(),
                 })
                 .collect(),
-            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None, firmware: FirmwareIdentity::default(),
             online: false,
             next: Some(now),
             failures: 0,
@@ -2627,7 +2691,7 @@ mod tests {
                     device_types: vec![],
                 })
                 .collect(),
-            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None, firmware: FirmwareIdentity::default(),
             online: true,
             next: Some(now),
             failures: 0,
@@ -2723,7 +2787,7 @@ mod tests {
         manager.inventory_bootstrap_until = now;
         manager.snapshots.push(Snapshot {
             node: 2, endpoints: vec![Endpoint { id: 0, servers: vec![56], clients: vec![], device_types: vec![] }],
-            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None, firmware: FirmwareIdentity::default(),
             online: true, next: Some(now + Duration::from_secs(300)), failures: 0,
         });
         let before = std::fs::read(directory.join("credentials.bin")).unwrap();
@@ -2861,7 +2925,7 @@ mod tests {
         manager.inventory_bootstrap_until = now;
         manager.snapshots.push(Snapshot {
             node: 2, endpoints: vec![], manufacturer: String::new(), model: String::new(),
-            rssi_dbm: None, online: true, next: Some(now + Duration::from_secs(300)), failures: 0,
+            rssi_dbm: None, firmware: FirmwareIdentity::default(), online: true, next: Some(now + Duration::from_secs(300)), failures: 0,
         });
         manager.jobs.push_back(JobRecord { id: 1, state: JobRecordState::Running,
         });
@@ -2898,6 +2962,7 @@ mod tests {
                 counted.set(counted.get() + 1);
                 if !available.get() { return Poll::Pending; }
                 Poll::Ready(Ok(Discovery {
+                    firmware: FirmwareIdentity::default(),
                     endpoints: vec![], manufacturer: "confirmed".into(), model: String::new(),
                 }))
             })),
@@ -3023,7 +3088,7 @@ mod tests {
                 clients: vec![],
                 device_types: vec![],
             }],
-            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None, firmware: FirmwareIdentity::default(),
             online: true,
             next: Some(Instant::now() + Duration::from_secs(300)),
             failures: 0,
@@ -3153,7 +3218,7 @@ mod tests {
             3,
             now + Duration::from_secs(60),
             Box::pin(async {
-                Ok(Discovery { endpoints: vec![Endpoint {
+                Ok(Discovery { firmware: FirmwareIdentity::default(), endpoints: vec![Endpoint {
                     id: 0,
                     servers: vec![0x1d],
                     clients: vec![],
@@ -3290,7 +3355,7 @@ mod tests {
                 clients: vec![],
                 device_types: vec![],
             }],
-            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None, firmware: FirmwareIdentity::default(),
             online: true,
             next: Some(next),
             failures: 0,

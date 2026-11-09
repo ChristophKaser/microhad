@@ -14,7 +14,7 @@ These values are retained in the RAM device cache and exposed as nullable fields
 The browser downloads the file. The gateway never downloads, extracts, caches,
 or installs firmware as part of catalog discovery. Some manufacturer files are
 wrapped containers and need extraction before using the existing manual uploader.
-Matter devices retain manual upload without catalog discovery.
+Matter devices use Basic Information vendor ID, product ID and installed software version to query the CSA Matter production and testnet ledgers. Testnet results are labeled as test releases. Only valid newer images whose applicable software-version range includes the installed version are shown; the Matter OTA provider checks the image header and device identity before offering an uploaded image. Hardware version is exposed alongside the identity. Missing identity, catalog failure and an empty result are shown separately. The Matter refresh button requests a fresh discovery and restores the node’s subscriptions; sleeping devices must be awake to respond.
 
 ## Configured destinations
 
@@ -32,6 +32,8 @@ an empty file disables catalogs. Use one JSON object per line, for example:
 {"id":"zigbee-ota","label":"zigbee-OTA","url":"https://raw.githubusercontent.com/Koenkk/zigbee-OTA/master/index.json"}
 ```
 
+Matter providers use IDs `matter-dcl-production` and `matter-dcl-testnet` and URLs ending in `/dcl/model/versions`; their device-specific numeric paths are constructed by the browser and restricted by the gateway proxy to vendor ID, product ID and optional software version. The built-in URLs are `https://on.dcl.csa-iot.org/dcl/model/versions` and `https://on.test-net.dcl.csa-iot.org/dcl/model/versions`. Overrides must include these providers to enable Matter checks.
+
 `id` selects the parser: `ikea` and `sonoff` use their vendor formats; other IDs
 use zigbee-OTA format. Optional `manufacturer` restricts when the UI queries that
 provider. Optional `ca` is a provider-scoped CA file path, or `ikea` for the
@@ -44,7 +46,7 @@ filters and whether gateway access is required. `GET /api/ota/catalog/ID` fetche
 only that provider's configured catalog. Both use the existing API authentication
 and roles. No endpoint accepts a proxy URL, method or custom request headers.
 
-Each configured URL is an exact destination allowlist entry. HTTPS is required;
+Each configured URL is an exact destination allowlist entry, except the two Matter DCL providers, whose only permitted suffixes are canonical decimal vendor/product IDs and an optional software version. HTTPS is required;
 redirects to any other URL are rejected. DNS results must all be public IPv4
 addresses, and the connection uses a validated address without resolving again.
 IPv6, internal addresses, credentials in URLs, fragments, queries, encoded paths

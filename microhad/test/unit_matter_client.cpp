@@ -206,6 +206,13 @@ void runMatterClientUnitTests() {
         assert(MatterChannel::inventoryEvent(MatterWire::jsonBody(frame.kind,frame.opcode,frame.payload),&kind,&count,&endpoint));
         assert(kind=="identity" && count==0 && endpoint.endpoint==0xffff);
         assert(endpoint.manufacturer == "IKEA of Sweden" && endpoint.model == "ALPSTUGA air quality monitor" && endpoint.rssiDbm == -72);
+        std::string firmwareInventory=inventory;
+        const size_t end=firmwareInventory.find("\"rssi_dbm\":-72");
+        assert(end!=std::string::npos);
+        firmwareInventory.insert(end, "\"vendor_id\":4476,\"product_id\":4096,\"hardware_version\":2,\"software_version\":17039366,\"software_version_string\":\"1.4.6\",");
+        MatterEndpoint identified;
+        assert(MatterChannel::inventoryEvent(firmwareInventory,&kind,&count,&identified));
+        assert(identified.vendorId==4476 && identified.productId==4096 && identified.hardwareVersion==2 && identified.softwareVersion==17039366 && identified.softwareVersionString=="1.4.6");
     }
 
     std::string commissioningBody;
