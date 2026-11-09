@@ -356,6 +356,18 @@ bool applyThermostatSchedule(Device* device, const std::vector<unsigned char>& p
     }
     return true;
 }
+bool thermostatScheduleMeasurement(const std::vector<unsigned char>& p,MatterProto::Measurement* result) {
+    if(!result||p.size()<3||p[2]<1||p[2]>3||p[0]>32)return false;
+    const unsigned width=2+((p[2]&1)?2:0)+((p[2]&2)?2:0);
+    if(p.size()!=3UL+width*p[0])return false;
+    MatterProto::Measurement value;value.mode=static_cast<uint32_t>(p[2]);value.transitions.present=true;
+    for(unsigned i=0;i<p[0];++i){unsigned at=3+i*width;MatterProto::ThermostatTransition row;row.time=static_cast<uint32_t>(get16(p,at));at+=2;
+        if(p[2]&1){row.heat=static_cast<short>(get16(p,at))/100.0;at+=2;}
+        if(p[2]&2)row.cool=static_cast<short>(get16(p,at))/100.0;
+        value.transitions.value.items.push_back(row);
+    }
+    *result=value;return true;
+}
 std::string thermostatScheduleJson(const std::vector<unsigned char>& p) {
     if(p.size()<3||p[2]<1||p[2]>3)return "null";
     const unsigned width=2+((p[2]&1)?2:0)+((p[2]&2)?2:0);

@@ -117,4 +117,5 @@ bool thermostatValidateSetting(const Device& device, const std::string& field,
                                const std::string& value, std::string* error);
 std::string thermostatJson(const Device& device);
 std::string thermostatScheduleJson(const std::vector<unsigned char>& payload);
+bool thermostatScheduleMeasurement(const std::vector<unsigned char>& payload, MatterProto::Measurement* result);
 #endif
