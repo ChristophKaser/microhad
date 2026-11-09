@@ -329,6 +329,7 @@ bool applyThermostatSchedule(Device* device, const std::vector<unsigned char>& p
     unsigned int width=2+((payload[2]&1)?2:0)+((payload[2]&2)?2:0);
     if (payload.size()!=3UL+width*payload[0]) return false;
     std::ostringstream normalized,legacy; normalized<<"{\"mode\":"<<static_cast<unsigned int>(payload[2])<<",\"transitions\":[";
+    std::vector<unsigned char> canonical(payload.begin(),payload.begin()+3);canonical[0]=0;
     int previous=-1;
     for (unsigned int i=0;i<payload[0];++i) {
         unsigned int at=get16(payload,3+i*width), offset=3+i*width+2;
@@ -341,6 +342,7 @@ bool applyThermostatSchedule(Device* device, const std::vector<unsigned char>& p
             continue;
         }
         previous=at; if(i) { normalized<<','; legacy<<' '; }
+        canonical.insert(canonical.end(),payload.begin()+3+i*width,payload.begin()+3+(i+1)*width);++canonical[0];
         normalized<<"{\"time\":"<<at;
         legacy<<std::setfill('0')<<std::setw(2)<<at/60<<':'<<std::setw(2)<<at%60<<'/';
         if(payload[2]&1) { double value=static_cast<short>(get16(payload,offset))/100.0; offset+=2; normalized<<",\"heat\":"<<value; legacy<<value; }
@@ -352,11 +354,23 @@ bool applyThermostatSchedule(Device* device, const std::vector<unsigned char>& p
     device->thermostat.ensure().scheduleSupported=true;
     for (int day=0;day<7;++day) if (payload[1]&(1<<day)) {
         device->thermostat.ensure().schedules[day]=payload[2]==1 ? legacy.str() : normalized.str();
-        device->thermostat.ensure().scheduleDetails[day]=normalized.str();
+        device->thermostat.ensure().scheduleDetails[day]=canonical;
         device->thermostat.ensure().scheduleSources[day]="reported";
         device->thermostat.ensure().pending.erase(2*ThermostatField::Count+day);
     }
     return true;
+}
+std::string thermostatScheduleJson(const std::vector<unsigned char>& p) {
+    if(p.size()<3||p[2]<1||p[2]>3)return "null";
+    const unsigned width=2+((p[2]&1)?2:0)+((p[2]&2)?2:0);
+    if(p.size()!=3UL+width*p[0])return "null";
+    std::ostringstream out;out<<"{\"mode\":"<<static_cast<unsigned>(p[2])<<",\"transitions\":[";
+    for(unsigned i=0;i<p[0];++i){if(i)out<<',';unsigned at=3+i*width;out<<"{\"time\":"<<get16(p,at);at+=2;
+        if(p[2]&1){out<<",\"heat\":"<<static_cast<short>(get16(p,at))/100.0;at+=2;}
+        if(p[2]&2)out<<",\"cool\":"<<static_cast<short>(get16(p,at))/100.0;
+        out<<'}';
+    }
+    out<<"]}";return out.str();
 }
 bool thermostatWireValue(unsigned int attribute, const std::string& kind, const std::string& value) {
     if (kind=="thermostat_list" && (attribute==65531 || attribute==65529)) {
@@ -470,7 +484,7 @@ std::string thermostatJson(const Device& device) {
     out<<"],\"schedule_supported\":"<<((isTrvzb(device)||t.scheduleSupported)?"true":"false")<<",\"schedule_max_transitions\":"<<(isTrvzb(device)?6:static_cast<int>(thermostatValue(device,ThermostatField::number_of_daily_transitions,thermostatValue(device,ThermostatField::number_of_weekly_transitions,10))))
        <<",\"schedule_midnight_start\":"<<(isTrvzb(device)?"true":"false")<<",\"external_input_supported\":"<<(isTrvzb(device)?"true":"false")
        <<",\"schedule_details\":[";
-    for(int day=0;day<7;++day) {if(day)out<<',';std::map<int,std::string>::const_iterator it=t.scheduleDetails.find(day);out<<(it==t.scheduleDetails.end()?"null":it->second);}
+    for(int day=0;day<7;++day) {if(day)out<<',';std::map<int,std::vector<unsigned char> >::const_iterator it=t.scheduleDetails.find(day);out<<(it==t.scheduleDetails.end()?"null":thermostatScheduleJson(it->second));}
     out<<"],\"schedule_sources\":[";
     for(int day=0;day<7;++day) {if(day)out<<',';std::map<int,std::string>::const_iterator it=t.scheduleSources.find(day);if(it==t.scheduleSources.end())out<<"null";else out<<'"'<<jsonEscape(it->second)<<'"';}
     out<<"],\"pending\":[";

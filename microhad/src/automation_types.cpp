@@ -138,11 +138,20 @@ Value thermostatSnapshotValue(const Device& d) {
     Value& schedules=out.fields["schedules"];schedules=Value::array();
     Value& sources=out.fields["schedule_sources"];sources=Value::array();
     for(int day=0;day<7;++day){
-        Value detail;std::map<int,std::string>::const_iterator it=t.scheduleDetails.find(day);
-        if(it!=t.scheduleDetails.end()&&!parse(it->second,&detail))return Value::object();
-        details.items.push_back(detail);it=t.schedules.find(day);
-        schedules.items.push_back(it==t.schedules.end()?Value():Value(it->second));
-        it=t.scheduleSources.find(day);sources.items.push_back(it==t.scheduleSources.end()?Value():Value(it->second));
+        Value detail;std::map<int,std::vector<unsigned char> >::const_iterator it=t.scheduleDetails.find(day);
+        if(it!=t.scheduleDetails.end()){
+            const std::vector<unsigned char>& p=it->second;detail=Value::object();detail.fields["mode"]=Value(static_cast<double>(p[2]));
+            Value& transitions=detail.fields["transitions"];transitions=Value::array();
+            unsigned width=2+((p[2]&1)?2:0)+((p[2]&2)?2:0);
+            for(unsigned i=0;i<p[0];++i){unsigned at=3+i*width;Value row=Value::object();row.fields["time"]=Value(static_cast<double>(p[at]|(p[at+1]<<8)));at+=2;
+                if(p[2]&1){row.fields["heat"]=Value(static_cast<short>(p[at]|(p[at+1]<<8))/100.0);at+=2;}
+                if(p[2]&2)row.fields["cool"]=Value(static_cast<short>(p[at]|(p[at+1]<<8))/100.0);
+                transitions.items.push_back(row);
+            }
+        }
+        details.items.push_back(detail);std::map<int,std::string>::const_iterator text=t.schedules.find(day);
+        schedules.items.push_back(text==t.schedules.end()?Value():Value(text->second));
+        text=t.scheduleSources.find(day);sources.items.push_back(text==t.scheduleSources.end()?Value():Value(text->second));
     }
     Value& pending=out.fields["pending"];pending=Value::array();
     for(unsigned i=0;i<ThermostatPendingCount;++i)if(t.pending.count(i))pending.items.push_back(Value(thermostatPendingName(i)));

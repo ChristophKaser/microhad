@@ -60,7 +60,7 @@ struct ThermostatState {
     ThermostatValues values;
     ThermostatFieldSet unsupported;
     std::map<int, std::string> schedules;
-    std::map<int, std::string> scheduleDetails;
+    std::map<int, std::vector<unsigned char> > scheduleDetails;
     std::map<int, std::string> scheduleSources;
     std::set<unsigned int> attributes;
     std::set<unsigned int> commands;
@@ -116,4 +116,5 @@ bool restoreThermostatSchedule(Device* device, int day, const std::string& json)
 bool thermostatValidateSetting(const Device& device, const std::string& field,
                                const std::string& value, std::string* error);
 std::string thermostatJson(const Device& device);
+std::string thermostatScheduleJson(const std::vector<unsigned char>& payload);
 #endif

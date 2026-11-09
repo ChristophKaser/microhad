@@ -305,7 +305,7 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
     bool matched=!thermostatOperations_.empty() && thermostatOperations_.front().address==address &&
         thermostatOperations_.front().endpoint==endpoint && thermostatOperations_.front().cluster==cluster &&
         thermostatOperations_.front().sequence==sequence && thermostatOperations_.front().deadline!=0;
-    const std::map<int,std::string> previousSchedules=device.thermostat.read().scheduleDetails;
+    const std::map<int,std::vector<unsigned char> > previousSchedules=device.thermostat.read().scheduleDetails;
     bool success=false, completed=false;
     unsigned boostSeen=0; bool boostValid=true;
     if ((control&3)==0 && command==0x04 && matched) {

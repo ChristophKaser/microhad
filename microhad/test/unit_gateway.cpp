@@ -411,7 +411,7 @@ public:
         }
         assert(foundSchedule);
         for(unsigned long i=0;i<persisted.size();++i)if(persisted[i].ieeeAddress==valve.ieeeAddress)
-            persisted[i].thermostat.ensure().scheduleDetails[2]="invalid schedule";
+            persisted[i].thermostat.ensure().scheduleDetails[2]=std::vector<unsigned char>(1,255);
         assert(saveDevices(base+"/malformed.json",persisted,&error));
         persisted.clear();assert(loadDevices(base+"/malformed.json",&persisted,&error));
         for(unsigned long i=0;i<persisted.size();++i)if(persisted[i].ieeeAddress==valve.ieeeAddress) {

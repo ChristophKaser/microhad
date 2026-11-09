@@ -400,9 +400,9 @@ bool saveDevices(const std::string& filename, const std::vector<Device>& devices
                    << "\",\"matter_device_types\":\"" << encodeMatterServers(device.matter.read().deviceTypes) << '"';
         }
         for(int day=0;day<7;++day) {
-            std::map<int,std::string>::const_iterator schedule=device.thermostat.read().scheduleDetails.find(day);
+            std::map<int,std::vector<unsigned char> >::const_iterator schedule=device.thermostat.read().scheduleDetails.find(day);
             if(schedule!=device.thermostat.read().scheduleDetails.end())
-                output << ",\"thermostat_schedule_" << day << "\":\"" << jsonEscape(schedule->second) << '"';
+                output << ",\"thermostat_schedule_" << day << "\":\"" << jsonEscape(thermostatScheduleJson(schedule->second)) << '"';
         }
         output << '}';
         output << (i + 1 == devices.size() ? "\n" : ",\n");
