@@ -83,7 +83,7 @@ class JsonReader {
         while(at<s.size()){
             unsigned char c=s[at++];
             if(c=='"'){
-                return jsonStringField("{\"x\":"+s.substr(start,at-start)+"}","x",out);
+                return jsonStringAt(s,start,at,out);
             }
             if(c<32)return false;
             if(c=='\\'){if(at>=s.size())return false;++at;}

@@ -45,7 +45,7 @@ bool scanString(const std::string& input, std::string::size_type* at, std::strin
 }
 
 bool decodeJsonString(const std::string& raw, std::string* value) {
-    return jsonStringField(std::string("{\"value\":") + raw + "}", "value", value);
+    return jsonStringAt(raw, 0, raw.size(), value);
 }
 
 bool parseObject(const std::string& input, std::map<std::string, std::string>* strings,

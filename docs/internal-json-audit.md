@@ -1,8 +1,8 @@
 # Internal JSON audit
 
 JSON is permitted for JSON files, REST endpoints, and required WebSocket messages.
-The following inventory records runtime conversions and their status while the
-internal representation is being migrated; it is not a claim of completion.
+The inventory below records the remaining boundary conversions and the typed
+representations used within the runtime.
 
 - Electrical measurement metadata is held as typed integer fields in MicroHAD.
   JSON is produced by the status endpoint, not used to store metadata.
@@ -23,6 +23,9 @@ internal representation is being migrated; it is not a claim of completion.
   HTTP boundary, and the service rejects JSON schedule strings over IPC.
 - Lua thermostat actions carry schedule tables through coordinator validation
   and dispatch as typed transitions.
+- The thermostat UI retains submitted schedules as objects and encodes them
+  only when sending an HTTP request. Dashboard trigger selection uses an
+  encoded identifier instead of serializing an array as JSON.
 - The automation worker calculates encoded lengths for shared-state and log
   limits without constructing JSON; it serializes when writing state files.
 - Gateway settings are held as typed snapshot fields and serialized on HTTP
@@ -32,6 +35,9 @@ internal representation is being migrated; it is not a claim of completion.
   external interface, then carries typed requests to the Matter worker.
   Test-only JSON fixtures and file-based configuration or
   persistence are external boundaries, not internal wire formats.
-
-This list is incomplete until all runtime serializers, parsers, and cached JSON
-values across MicroHAD, Matter, Ziggurat, and firmware have been classified.
+- Configuration, dashboard, backup, notification, and automation-state JSON
+  is consumed from or written to files. Shelly, Firebase, browser push, and
+  firmware-catalog JSON is handled at their HTTP interfaces. The Matter Rust
+  JSON wire adapter is compiled only for tests and the commissioning probe.
+- The Ziggurat multipan source and repository-owned firmware sources contain
+  no runtime JSON serializer or parser.

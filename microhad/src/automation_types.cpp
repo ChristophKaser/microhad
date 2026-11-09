@@ -64,7 +64,7 @@ class Parser {
     const std::string& text; size_t at; unsigned long nodes;
     void space(){while(at<text.size()&&(text[at]==' '||text[at]=='\n'||text[at]=='\t'||text[at]=='\r'))++at;}
     bool take(char c){space();if(at==text.size()||text[at]!=c)return false;++at;return true;}
-    bool quoted(std::string* out){space();size_t start=at;if(!take('"'))return false;bool escaped=false;while(at<text.size()){char c=text[at++];if(!escaped&&c=='"'){std::string wrapper="{\"s\":"+text.substr(start,at-start)+"}";return jsonStringField(wrapper,"s",out);}if(!escaped&&static_cast<unsigned char>(c)<32)return false;if(!escaped&&c=='\\')escaped=true;else escaped=false;}return false;}
+    bool quoted(std::string* out){space();size_t start=at;if(!take('"'))return false;bool escaped=false;while(at<text.size()){char c=text[at++];if(!escaped&&c=='"')return jsonStringAt(text,start,at,out);if(!escaped&&static_cast<unsigned char>(c)<32)return false;if(!escaped&&c=='\\')escaped=true;else escaped=false;}return false;}
     bool value(Value* out,unsigned int depth){space();if(depth>64||++nodes>16384||at>=text.size())return false;char c=text[at];
         if(c=='"'){out->type=Value::String;return quoted(&out->string);}
         if(c=='{'||c=='['){++at;bool object=c=='{';*out=object?Value::object():Value::array();space();if(at<text.size()&&text[at]==(object?'}':']')){++at;return true;}do{std::string key;if(object&&(!quoted(&key)||out->fields.count(key)||!take(':')))return false;Value child;if(!value(&child,depth+1))return false;if(object)out->fields[key]=child;else out->items.push_back(child);space();if(at<text.size()&&text[at]==(object?'}':']')){++at;return true;}}while(take(','));return false;}
