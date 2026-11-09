@@ -100,7 +100,6 @@ bool thermostatScheduleForDevice(const Device& device, const std::string& text, 
 bool thermostatWireValue(unsigned int attribute,const MatterProto::AttributeValue& value);
 bool applyMatterThermostat(Device* device,unsigned int attribute,const MatterProto::AttributeValue& value,long now);
 bool thermostatWireValue(unsigned int attribute, const std::string& kind, const std::string& value);
-bool applyMatterThermostat(Device* device, unsigned int attribute, const std::string& kind, const std::string& value, long now);
 bool isTrvzb(const Device& device);
 bool thermostatSupported(const Device& device, const ThermostatAttribute& attribute);
 bool thermostatNumber(const std::string& text, double* value);

@@ -388,64 +388,11 @@ std::string thermostatScheduleJson(const std::vector<unsigned char>& p) {
     out<<"]}";return out.str();
 }
 bool thermostatWireValue(unsigned int attribute, const std::string& kind, const std::string& value) {
-    if (kind=="thermostat_list" && (attribute==65531 || attribute==65529)) {
-        std::vector<std::string> values; if (!BoundedJson(value).parseArray(&values))return false;
-        std::set<unsigned int> unique;
-        for(unsigned long i=0;i<values.size();++i) { double number; if(!thermostatNumber(values[i],&number) || number<0 || number>0xffffffffUL || number!=std::floor(number) || !unique.insert(static_cast<unsigned int>(number)).second)return false; }
-        return true;
-    }
-    if (kind=="thermostat_schedule" && attribute>=65536 && attribute<65543) {
-        JsonFields fields; std::vector<std::string> transitions;
-        if (!BoundedJson(value).parse(&fields) || fields.size()!=2 || !fields.count("mode") || !fields.count("transitions") ||
-            (fields["mode"]!="1" && fields["mode"]!="2" && fields["mode"]!="3") || !BoundedJson(fields["transitions"]).parseArray(&transitions) || transitions.size()>32) return false;
-        const unsigned int mode=static_cast<unsigned int>(fields["mode"][0]-'0');
-        double previous=-1;
-        for (unsigned long i=0;i<transitions.size();++i) {
-            JsonFields row; double at;
-            if (!BoundedJson(transitions[i]).parse(&row) || row.size()!=1+((mode&1)?1U:0U)+((mode&2)?1U:0U) ||
-                !thermostatNumber(row["time"],&at) || at<0 || at>=1440 || at!=std::floor(at) || at<=previous) return false;
-            previous=at;
-            for (unsigned int bit=1;bit<=2;bit<<=1) if (mode&bit) {
-                double temperature;
-                if (!thermostatNumber(row[bit==1?"heat":"cool"],&temperature) || temperature<-273.15 || temperature>327.67 ||
-                    std::fabs(temperature*100-std::floor(temperature*100+.5))>.00001) return false;
-            }
-        }
-        return true;
-    }
     if (kind!="thermostat")return false;
     unsigned long count; const ThermostatAttribute* list=thermostatAttributes(&count);
     for(unsigned long i=0;i<count;++i) if(list[i].cluster==513 && list[i].attribute==attribute) {
         double number; if(value=="null")return true;
         return thermostatNumber(value,&number) && number==std::floor(number) && number/list[i].scale>=list[i].minimum && number/list[i].scale<=list[i].maximum;
-    }
-    return false;
-}
-bool applyMatterThermostat(Device* device, unsigned int attribute, const std::string& kind, const std::string& value, long now) {
-    if(!isThermostat(*device) || !thermostatWireValue(attribute,kind,value))return false;
-    if(kind=="thermostat_list") {
-        std::vector<std::string> values; BoundedJson(value).parseArray(&values);
-        std::set<unsigned int>& target=attribute==65531 ? device->thermostat.ensure().attributes : device->thermostat.ensure().commands; target.clear();
-        for(unsigned long i=0;i<values.size();++i) target.insert(static_cast<unsigned int>(strtoul(values[i].c_str(),0,10)));
-        if(attribute==65531) device->thermostat.ensure().attributesKnown=true;
-        else { device->thermostat.ensure().commandsKnown=true; device->thermostat.ensure().scheduleSupported=target.count(1) && target.count(2); }
-        return true;
-    }
-    if(kind=="thermostat_schedule") {
-        std::vector<unsigned char> bytes;
-        JsonFields fields; std::vector<std::string> entries;
-        if(!BoundedJson(value).parse(&fields) || !BoundedJson(fields["transitions"]).parseArray(&entries))return false;
-        bool supported=device->thermostat.read().scheduleSupported; device->thermostat.ensure().scheduleSupported=true;
-        if(!entries.empty() && !thermostatScheduleForDevice(*device,value,attribute-65536,&bytes)) { device->thermostat.ensure().scheduleSupported=supported;return false; }
-        if(entries.empty()) {bytes.push_back(0);bytes.push_back(static_cast<unsigned char>(1<<(attribute-65536)));bytes.push_back(static_cast<unsigned char>(atoi(fields["mode"].c_str())));}
-        return applyThermostatSchedule(device,bytes);
-    }
-    unsigned long count; const ThermostatAttribute* list=thermostatAttributes(&count);
-    for(unsigned long i=0;i<count;++i) if(list[i].cluster==513 && list[i].attribute==attribute) {
-        if(value=="null") { device->thermostat.ensure().values.erase(list[i].id); if(attribute==0){device->temperature.ensure().known=false;device->temperature.ensure().observation.at=0;}return true; }
-        unsigned long raw=(list[i].type==0x28 || list[i].type==0x29) ? static_cast<unsigned long>(strtol(value.c_str(),0,10)) : strtoul(value.c_str(),0,10); std::vector<unsigned char> bytes;
-        for(unsigned int b=0;b<width(list[i].type);++b) bytes.push_back(static_cast<unsigned char>(static_cast<unsigned long>(raw)>>(8*b)));
-        return applyThermostatAttribute(device,513,attribute,list[i].type,bytes,now);
     }
     return false;
 }

@@ -180,8 +180,12 @@ void automationControls(){
         GatewayIntegrationTestPeer::automationDevice(gateway,thermostat);
         Device matter=thermostat;matter.ieeeAddress="matter-trv";matter.name="Matter thermostat";matter.source="matter";
         matter.matter.ensure().node="0000000000000072";matter.matter.ensure().endpoint=2;matter.matter.ensure().servers.push_back(513);
-        assert(applyMatterThermostat(&matter,65531,"thermostat_list","[0,17,18,27,28,65532]",100));
-        assert(applyMatterThermostat(&matter,65532,"thermostat","35",100));
+        MatterProto::AttributeValue report; report.type=std::string("thermostat_list"); report.value.present=true; report.value.value.list.present=true;
+        const unsigned int attributes[]={0,17,18,27,28,65532};
+        report.value.value.list.value.items.assign(attributes,attributes+sizeof(attributes)/sizeof(attributes[0]));
+        assert(applyMatterThermostat(&matter,65531,report,100));
+        report=MatterProto::AttributeValue(); report.type=std::string("thermostat"); report.value.present=true; report.value.value.unsigned_value=35;
+        assert(applyMatterThermostat(&matter,65532,report,100));
         GatewayIntegrationTestPeer::automationDevice(gateway,matter);
         Device light;light.ieeeAddress="lamp";light.name="Lamp";light.light.setPresent(true);
         GatewayIntegrationTestPeer::automationDevice(gateway,light);
@@ -328,9 +332,11 @@ void runAutomationIntegrationTests(){
         // A local setting exercises the real Lua command queue without radio traffic.
         MatterEndpoint trv;trv.id="matter:0000000000000001:0000000000000072:0002";trv.node="0000000000000072";trv.endpoint=2;trv.online=true;trv.servers.push_back(513);
         assert(runner.reconcileMatterDevices(std::vector<MatterEndpoint>(1,trv),&error));
-        MatterReading features;features.node=trv.node;features.endpoint=2;features.cluster=513;features.attribute=65532;features.known=true;features.unit="thermostat";features.textValue="1";
+        MatterReading features;features.node=trv.node;features.endpoint=2;features.cluster=513;features.attribute=65532;features.known=true;
+        features.thermostatValue.present=true;features.thermostatValue.value.type=std::string("thermostat");features.thermostatValue.value.value.present=true;
+        features.thermostatValue.value.value.value.unsigned_value=1;
         assert(runner.applyMatterReading(features,&error));
-        features.attribute=28;features.textValue="0";assert(runner.applyMatterReading(features,&error));
+        features.attribute=28;features.thermostatValue.value.value.value.unsigned_value=0;assert(runner.applyMatterReading(features,&error));
         assert(automations.save("command.lua","assert(devices.thermostat('"+trv.id+"','system_mode',4))",true,&error));
         bool failed=false;
         for(unsigned i=0;i<200&&!failed;++i){

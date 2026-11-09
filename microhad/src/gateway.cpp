@@ -812,7 +812,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     }
     else
     if (reading.cluster == 513 && isThermostat(device)) {
-        if (!(reading.thermostatValue.present?applyMatterThermostat(&device,reading.attribute,reading.thermostatValue.value,time(0)):applyMatterThermostat(&device,reading.attribute,reading.unit,reading.textValue,time(0)))) { *error="invalid thermostat report"; return false; }
+        if (!(reading.thermostatValue.present && applyMatterThermostat(&device,reading.attribute,reading.thermostatValue.value,time(0)))) { *error="invalid thermostat report"; return false; }
         if(before.thermostat.read().scheduleDetails!=device.thermostat.read().scheduleDetails)savePersistentState();
         if (reading.attribute==0x29 && device.thermostat.read().values.count(ThermostatField::running_state)) {
             const unsigned state=static_cast<unsigned>(device.thermostat.read().values[ThermostatField::running_state]);
