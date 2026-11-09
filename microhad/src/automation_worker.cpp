@@ -266,14 +266,18 @@ struct AutomationWorker::Impl {
         }
         delete read.query;call(read.script,"history_result",&result);
     }
-    static int action(lua_State* L){AUTOMATION_PROFILE("auto.action");Script* s=script(L);Automation::Action a;a.operation=stringArg(L,1);std::string err;const Automation::DeviceSnapshot* d=s->owner->resolve(stringArg(L,2),&err);if(!readValue(L,3,&a.args))return luaL_error(L,"invalid action arguments");if(!d)return failure(L,err);
+    static int action(lua_State* L){AUTOMATION_PROFILE("auto.action");Script* s=script(L);Automation::Action a;a.operation=stringArg(L,1);std::string err;const Automation::DeviceSnapshot* d=s->owner->resolve(stringArg(L,2),&err);if(!readValue(L,3,&a.args,true))return luaL_error(L,"invalid action arguments");if(!d)return failure(L,err);
         bool dimmable=d->metadata->brightness;
         if((a.operation=="actor"&&!d->metadata->actor)||(a.operation=="light"&&(!d->metadata->light||(a.args.fields.count("brightness")&&!dimmable))))return failure(L,"unsupported device capability");
         if(a.operation=="thermostat") {
             if(!d->record)return failure(L,"device is not a thermostat");
             const std::string& field=a.args.fields["field"].string;
             const std::string& value=a.args.fields["value"].string;
-            if(!thermostatValidateSetting(*d->record,field,value,&err))return failure(L,err);
+            const Automation::Value& argument=a.args.fields["value"];
+            if(argument.type==Value::Object) {
+                MatterProto::Measurement schedule;std::vector<unsigned char> payload;
+                if(field.size()!=10 || field.compare(0,9,"schedule_")!=0 || field[9]<'0' || field[9]>'6' || !Automation::schedule(argument,&schedule) || !thermostatScheduleForDevice(*d->record,schedule,field[9]-'0',&payload)) return failure(L,"invalid or unsupported thermostat schedule");
+            } else if(argument.type!=Value::String || (!value.empty() && value[0]=='{') || !thermostatValidateSetting(*d->record,field,value,&err)) return failure(L,err.empty()?"invalid thermostat value":err);
             if(field=="temperature_source"&&value!="builtin"&&value!="manual") {
                 std::map<std::string,Automation::SnapshotPtr>::const_iterator source=s->owner->catalogState->devices.find(value);
                 if(source==s->owner->catalogState->devices.end()||!source->second->record ||

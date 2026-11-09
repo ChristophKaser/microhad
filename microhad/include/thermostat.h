@@ -97,6 +97,7 @@ double thermostatValue(const Device& device, ThermostatField::Id id, double fall
 ThermostatAttribute thermostatDefinition(const Device& device, const ThermostatAttribute& base);
 bool thermostatModeSupported(const Device& device, int mode);
 bool thermostatScheduleForDevice(const Device& device, const std::string& text, int day, std::vector<unsigned char>* payload);
+bool thermostatScheduleForDevice(const Device& device, const MatterProto::Measurement& schedule, int day, std::vector<unsigned char>* payload);
 bool thermostatWireValue(unsigned int attribute,const MatterProto::AttributeValue& value);
 bool applyMatterThermostat(Device* device,unsigned int attribute,const MatterProto::AttributeValue& value,long now);
 bool thermostatWireValue(unsigned int attribute, const std::string& kind, const std::string& value);

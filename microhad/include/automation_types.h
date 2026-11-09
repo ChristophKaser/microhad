@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <tr1/memory>
 struct Device;
+namespace MatterProto { struct Measurement; }
 
 namespace Automation {
 struct Value {
@@ -28,6 +29,7 @@ struct Value {
 std::string json(const Value& value);
 size_t jsonSize(const Value& value);
 bool parse(const std::string& text, Value* value);
+bool schedule(const Value& value, MatterProto::Measurement* result);
 Value snapshot(const Device& device);
 typedef std::tr1::shared_ptr<const Device> DevicePtr;
 

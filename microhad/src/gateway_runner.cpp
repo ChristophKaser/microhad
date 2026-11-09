@@ -246,8 +246,14 @@ void GatewayRunner::executeAutomation(const Automation::Action& a) {
         MatterProto::MessageBody request;
         const std::map<std::string,Device>& devices=gateway_->devicesForAutomation();
         std::map<std::string,Device>::const_iterator device=devices.find(a.target);
-        ok=device!=devices.end()&&thermostatValidateSetting(device->second,field,value,&error);
-        if(ok)ok=gateway_->setThermostat(a.target,field,value,&error,&request);
+        const Automation::Value& argument=a.args.fields.find("value")->second;
+        MatterProto::Measurement schedule;const bool typed=argument.type==Automation::Value::Object;
+        if(typed) {
+            std::vector<unsigned char> payload;
+            ok=device!=devices.end() && field.size()==10 && field.compare(0,9,"schedule_")==0 && field[9]>='0' && field[9]<='6' && Automation::schedule(argument,&schedule) && thermostatScheduleForDevice(device->second,schedule,field[9]-'0',&payload);
+            if(!ok)error="invalid or unsupported thermostat schedule";
+        } else ok=device!=devices.end() && argument.type==Automation::Value::String && (value.empty() || value[0]!='{') && thermostatValidateSetting(device->second,field,value,&error);
+        if(ok)ok=gateway_->setThermostat(a.target,field,value,&error,&request,typed?&schedule:0);
         if(ok&&request.device_command_request.present) {
             pthread_mutex_lock(&mutex_);MatterWorker* matter=automationMatter_;pthread_mutex_unlock(&mutex_);
             uint32_t job=0;

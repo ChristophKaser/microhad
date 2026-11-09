@@ -199,7 +199,7 @@ void automationControls(){
             "local t=assert(devices.get('Office thermostat')).thermostat;assert(t.values.occupied_heating_setpoint==20);"
             "assert(not pcall(function()t.values.occupied_heating_setpoint=99 end));"
             "assert(devices.thermostat('trv','occupied_heating_setpoint',21));assert(devices.thermostat('trv','system_mode','4'));"
-            "assert(devices.thermostat('trv','schedule_1','{\"mode\":1,\"transitions\":[{\"time\":0,\"heat\":20}]}'));"
+            "assert(devices.thermostat('trv','schedule_1',{mode=1,transitions={{time=0,heat=20}}}));"
             "assert(devices.thermostat('trv','schedule_1','__read__'));assert(devices.thermostat('matter-trv','occupied_cooling_setpoint',26));"
             "assert(not devices.thermostat('lamp','system_mode',4));assert(not devices.thermostat('missing','system_mode',4));"
             "assert(not devices.thermostat('trv','unknown',1));assert(not devices.thermostat('trv','system_mode',3));"
@@ -231,6 +231,16 @@ void automationControls(){
         assert(GatewayIntegrationTestPeer::automationThermostatOperations(*gateway)==1);
         assert(worker.validate("draft.lua","local t=devices.get('trv').thermostat;assert(t.pending[1]=='occupied_heating_setpoint');assert(t.values.occupied_heating_setpoint==20)",&error));
         GatewayIntegrationTestPeer::clearAutomationThermostatOperations(gateway);
+        action.args.fields["field"]=Value("schedule_1");
+        Value schedule=Value::object(), transitions=Value::array(), transition=Value::object();
+        schedule.fields["mode"]=Value(1.0);transition.fields["time"]=Value(0.0);transition.fields["heat"]=Value(20.0);
+        transitions.items.push_back(transition);schedule.fields["transitions"]=transitions;action.args.fields["value"]=schedule;
+        AutomationRunnerTestPeer::queue(runner,action);AutomationRunnerTestPeer::drain(runner);
+        assert(GatewayIntegrationTestPeer::automationThermostatOperations(*gateway)==1);
+        GatewayIntegrationTestPeer::clearAutomationThermostatOperations(gateway);
+        schedule.fields["transitions"].items[0].fields["heat"]=Value(100.0);action.args.fields["value"]=schedule;
+        AutomationRunnerTestPeer::queue(runner,action);AutomationRunnerTestPeer::drain(runner);
+        assert(GatewayIntegrationTestPeer::automationThermostatOperations(*gateway)==0);
         action.target="matter-trv";action.args.fields["field"]=Value("occupied_cooling_setpoint");action.args.fields["value"]=Value("26");
         AutomationRunnerTestPeer::queue(runner,action);AutomationRunnerTestPeer::drain(runner);
         assert(worker.validate("draft.lua","local t=devices.get('matter-trv').thermostat;assert(#t.pending==0 and t.error=='Matter worker unavailable')",&error));

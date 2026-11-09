@@ -216,8 +216,8 @@ env.devices={get=function(target)local v,e=host.device_get(target);return v and 
   end,
   thermostat=function(target,field,value)
     strict(target,'string','device');strict(field,'string','field')
-    assert(type(value)=='string' or (type(value)=='number' and value==value and math.abs(value)<math.huge), 'thermostat value must be a string or finite number')
-    return host.action('thermostat',target,{field=field,value=tostring(value)})
+    assert(type(value)=='string' or (type(value)=='table' and field:match('^schedule_[0-6]$')) or (type(value)=='number' and value==value and math.abs(value)<math.huge), 'thermostat value must be a string, schedule table or finite number')
+    return host.action('thermostat',target,{field=field,value=type(value)=='table' and value or tostring(value)})
   end,
   refresh=function(target)return host.action('refresh',target,{})end}
 env.scenes={get=function(group)local v,e=host.scene_get(group);return v and immutable(v),e end,activate=function(group,scene)return host.scene(group,scene)end,off=function(group)return host.scene(group,nil)end}

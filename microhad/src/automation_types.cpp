@@ -13,6 +13,24 @@ bool Value::operator==(const Value& v) const {
         (type==Number && number==v.number) || (type==String && string==v.string) ||
         (type==Object && fields==v.fields) || (type==Array && items==v.items));
 }
+bool schedule(const Value& value, MatterProto::Measurement* result) {
+    if(value.type!=Value::Object || value.fields.size()!=2 || !value.fields.count("mode") || !value.fields.count("transitions")) return false;
+    const Value& mode=value.fields.find("mode")->second; const Value& rows=value.fields.find("transitions")->second;
+    if(mode.type!=Value::Number || mode.number<1 || mode.number>3 || mode.number!=std::floor(mode.number) || rows.type!=Value::Array || rows.items.empty() || rows.items.size()>32) return false;
+    MatterProto::Measurement out; out.mode=static_cast<unsigned>(mode.number); out.transitions.present=true;
+    for(size_t i=0;i<rows.items.size();++i) {
+        const Value& row=rows.items[i]; if(row.type!=Value::Object || !row.fields.count("time") || row.fields.size()!=1+((out.mode.value&1)?1U:0U)+((out.mode.value&2)?1U:0U)) return false;
+        const Value& time=row.fields.find("time")->second; if(time.type!=Value::Number || !std::isfinite(time.number) || time.number<0 || time.number>=1440 || time.number!=std::floor(time.number)) return false;
+        MatterProto::ThermostatTransition t; t.time=static_cast<uint32_t>(time.number);
+        for(unsigned bit=1;bit<=2;bit<<=1) if(out.mode.value&bit) {
+            std::map<std::string,Value>::const_iterator it=row.fields.find(bit==1?"heat":"cool");
+            if(it==row.fields.end() || it->second.type!=Value::Number || !std::isfinite(it->second.number)) return false;
+            if(bit==1)t.heat=it->second.number;else t.cool=it->second.number;
+        }
+        out.transitions.value.items.push_back(t);
+    }
+    *result=out;return true;
+}
 std::string json(const Value& v) {
     if(v.type==Value::Null)return "null";
     if(v.type==Value::Boolean)return v.boolean?"true":"false";

@@ -302,6 +302,26 @@ bool thermostatScheduleForDevice(const Device& device, const std::string& text, 
     }
     return true;
 }
+bool thermostatScheduleForDevice(const Device& device,const MatterProto::Measurement& schedule,int day,std::vector<unsigned char>* payload) {
+    if(day<0 || day>6 || !isThermostat(device)) return false;
+    MatterProto::AttributeValue attribute; attribute.type=std::string("thermostat_schedule"); attribute.value.present=true; attribute.value.value.measurement=schedule;
+    if(!thermostatWireValue(65536+day,attribute) || schedule.transitions.value.items.empty()) return false;
+    const unsigned maximum=isTrvzb(device)?6:static_cast<unsigned>(thermostatValue(device,ThermostatField::number_of_daily_transitions,thermostatValue(device,ThermostatField::number_of_weekly_transitions,10)));
+    const std::vector<MatterProto::ThermostatTransition>& rows=schedule.transitions.value.items;
+    if(rows.size()>maximum || (isTrvzb(device) && (schedule.mode.value!=1 || rows[0].time.value!=0)) || (!isTrvzb(device) && !device.thermostat.read().scheduleSupported)) return false;
+    payload->clear();payload->push_back(rows.size());payload->push_back(1U<<day);payload->push_back(schedule.mode.value);
+    for(size_t i=0;i<rows.size();++i) {
+        const MatterProto::ThermostatTransition& row=rows[i];put16(payload,row.time.value);
+        for(unsigned bit=1;bit<=2;bit<<=1) if(schedule.mode.value&bit) {
+            const ThermostatAttribute* base=thermostatAttribute(bit==1?ThermostatField::occupied_heating_setpoint:ThermostatField::occupied_cooling_setpoint);
+            const ThermostatAttribute limits=thermostatDefinition(device,*base);const double value=bit==1?row.heat.value:row.cool.value;
+            if(!thermostatSupported(device,*base) || value<limits.minimum || value>limits.maximum || std::fabs(value/limits.step-std::floor(value/limits.step+.5))>.00001) return false;
+            put16(payload,static_cast<unsigned short>(static_cast<short>(std::floor(value*100+.5))));
+        }
+        if(schedule.mode.value==3 && row.heat.value+thermostatValue(device,ThermostatField::min_setpoint_dead_band,2.5)>row.cool.value) return false;
+    }
+    return true;
+}
 // Restore stored data without depending on transient capability discovery.
 bool restoreThermostatSchedule(Device* device, int day, const std::string& json) {
     if(day<0 || day>6 || !isThermostat(*device))return false;

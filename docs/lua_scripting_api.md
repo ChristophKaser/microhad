@@ -206,11 +206,11 @@ if not ok then log("warn", "cannot set kitchen light: " .. err) end
 ### `devices.thermostat(device, field, value)`
 
 Queues one thermostat setting for a Zigbee or Matter thermostat. Returns `true`
-on acceptance or `nil, error_message`. `value` must be a string or finite
-number. Field names, Celsius units, reported limits, capabilities, and schedule
+on acceptance or `nil, error_message`. `value` must be a string, finite
+number, or schedule table. Field names, Celsius units, reported limits, capabilities, and schedule
 formats follow the [thermostat API](../microhad/docs/thermostats.md#http-api).
 For example, `system_mode` uses `0` off, `1` auto, `3` cool, and `4` heat where
-supported. Numeric strings are accepted; booleans and tables are not.
+supported. Numeric strings are accepted; booleans are not.
 
 ```lua
 local ok, err = devices.thermostat("Office thermostat", "occupied_heating_setpoint", 21)
@@ -218,7 +218,7 @@ if not ok then log("warn", "Cannot set heating target", { error = err }) end
 ```
 
 Use `schedule_0` through `schedule_6` (Sunday through Saturday) with a schedule
-JSON string, or `"__read__"` to request a day's schedule. Supported model-specific
+table such as `{mode=1, transitions={{time=0, heat=20}}}`, or `"__read__"` to request a day's schedule. Supported model-specific
 settings and temperature-source settings use the same field names as the
 HTTP API; a linked temperature source must be supplied as its stable device ID.
 Each call changes one field; multiple calls are separate requests, not an

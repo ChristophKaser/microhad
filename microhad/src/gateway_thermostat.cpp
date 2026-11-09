@@ -68,7 +68,7 @@ void Gateway::queueThermostatReadings(const Device& device) {
     }
 }
 bool Gateway::setThermostat(const std::string& address, const std::string& field,
-                            const std::string& value, std::string* error, MatterProto::MessageBody* matterRequest) {
+                            const std::string& value, std::string* error, MatterProto::MessageBody* matterRequest, const MatterProto::Measurement* typedSchedule) {
     std::map<std::string,Device>::iterator it=devices_.find(resolveDeviceId(address));
     if (it==devices_.end() || !isThermostat(it->second)) { *error="device is not a thermostat"; return false; }
     Device& device=it->second; ThermostatState& state=device.thermostat.ensure();
@@ -78,7 +78,7 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
         bool schedule=field.size()==10 && field.compare(0,9,"schedule_")==0 && field[9]>='0' && field[9]<='6';
         if (!matterRequest) { *error="Matter worker is required"; return false; }
         if (device.thermostat.read().pending.count(thermostatPendingId(field))) { *error="this setting has a pending request"; return false; }
-        if (schedule ? (value=="__read__" ? !state.scheduleSupported : !thermostatScheduleForDevice(device,value,field[9]-'0',&encoded)) : !thermostatEncode(device,field,value,&encoded,error)) {
+        if (schedule ? (value=="__read__" ? !state.scheduleSupported : !(typedSchedule ? thermostatScheduleForDevice(device,*typedSchedule,field[9]-'0',&encoded) : thermostatScheduleForDevice(device,value,field[9]-'0',&encoded))) : !thermostatEncode(device,field,value,&encoded,error)) {
             if(schedule) *error="invalid or unsupported thermostat schedule";
             return false;
         }
@@ -167,7 +167,7 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
         if(value=="__read__") {
             payload.push_back(static_cast<unsigned char>(1<<(field[9]-'0'))); payload.push_back(isTrvzb(device)?1:3); command=0x82;
         } else {
-            if (!thermostatScheduleForDevice(device,value,field[9]-'0',&payload)) { *error="invalid or unsupported thermostat schedule"; return false; }
+            if (!(typedSchedule ? thermostatScheduleForDevice(device,*typedSchedule,field[9]-'0',&payload) : thermostatScheduleForDevice(device,value,field[9]-'0',&payload))) { *error="invalid or unsupported thermostat schedule"; return false; }
             command=0x81;
         }
     } else {
