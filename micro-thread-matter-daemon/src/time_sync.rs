@@ -121,6 +121,46 @@ pub struct Preference {
     pub last_event: Option<u64>,
     failures: u8,
 }
+// Older versions stored JSON inside credentials.bin; accept it only for migration.
+fn decode_preferences(bytes: &[u8]) -> std::io::Result<Vec<(u64, u16, String)>> {
+    let invalid = || std::io::Error::other("invalid time-zone preferences");
+    if !bytes.starts_with(b"TZP1") {
+        return serde_json::from_slice(bytes).map_err(|_| invalid());
+    }
+    if bytes.len() < 6 { return Err(invalid()); }
+    let count = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+    if count > crate::catalog::MAX_NODES { return Err(invalid()); }
+    let mut records = Vec::with_capacity(count);
+    let mut pos = 6;
+    for _ in 0..count {
+        if bytes.len() - pos < 12 { return Err(invalid()); }
+        let node = u64::from_be_bytes(bytes[pos..pos+8].try_into().map_err(|_| invalid())?);
+        let endpoint = u16::from_be_bytes([bytes[pos+8], bytes[pos+9]]);
+        let len = u16::from_be_bytes([bytes[pos+10], bytes[pos+11]]) as usize;
+        pos += 12;
+        if len > bytes.len() - pos { return Err(invalid()); }
+        let name = std::str::from_utf8(&bytes[pos..pos+len]).map_err(|_| invalid())?.to_owned();
+        pos += len;
+        records.push((node, endpoint, name));
+    }
+    if pos != bytes.len() { return Err(invalid()); }
+    Ok(records)
+}
+fn encode_preferences(records: &[(u64, u16, String)]) -> std::io::Result<Vec<u8>> {
+    let invalid = || std::io::Error::other("time-zone preference capacity exceeded");
+    if records.len() > crate::catalog::MAX_NODES { return Err(invalid()); }
+    let mut bytes = b"TZP1".to_vec();
+    bytes.extend_from_slice(&(records.len() as u16).to_be_bytes());
+    for (node, endpoint, name) in records {
+        let len = u16::try_from(name.len()).map_err(|_| invalid())?;
+        if bytes.len() + 12 + name.len() > 4096 { return Err(invalid()); }
+        bytes.extend_from_slice(&node.to_be_bytes());
+        bytes.extend_from_slice(&endpoint.to_be_bytes());
+        bytes.extend_from_slice(&len.to_be_bytes());
+        bytes.extend_from_slice(name.as_bytes());
+    }
+    Ok(bytes)
+}
 pub struct Preferences {
     store: PrivateStore,
     pub entries: Vec<Preference>,
@@ -130,8 +170,7 @@ impl Preferences {
         let mut bytes = [0; 4096];
         let mut entries = Vec::new();
         if let Some(size) = store.get(KEY, &mut bytes)? {
-            let records: Vec<(u64, u16, String)> = serde_json::from_slice(&bytes[..size])
-                .map_err(|_| std::io::Error::other("invalid time-zone preferences"))?;
+            let records = decode_preferences(&bytes[..size])?;
             if records.len() > crate::catalog::MAX_NODES {
                 return Err(std::io::Error::other("too many time-zone preferences"));
             }
@@ -205,12 +244,7 @@ impl Preferences {
         Ok(())
     }
     fn save(&self, records: &[(u64, u16, String)]) -> std::io::Result<()> {
-        let bytes = serde_json::to_vec(records)?;
-        if records.len() > crate::catalog::MAX_NODES || bytes.len() > 4096 {
-            return Err(std::io::Error::other(
-                "time-zone preference capacity exceeded",
-            ));
-        }
+        let bytes = encode_preferences(records)?;
         self.store.set(
             KEY,
             if records.is_empty() {
@@ -402,6 +436,40 @@ mod tests {
         for worker in workers {
             worker.join().unwrap();
         }
+    }
+    #[test]
+    fn preference_encoding_preserves_legacy_and_rejects_truncation() {
+        let legacy = br#"[[2,0,"Europe/Berlin"]]"#;
+        let records = decode_preferences(legacy).unwrap();
+        let encoded = encode_preferences(&records).unwrap();
+        assert!(encoded.starts_with(b"TZP1"));
+        assert_eq!(decode_preferences(&encoded).unwrap(), records);
+        for end in 4..encoded.len() {
+            assert!(decode_preferences(&encoded[..end]).is_err());
+        }
+        let mut extra = encoded.clone();
+        extra.push(0);
+        assert!(decode_preferences(&extra).is_err());
+    }
+    #[test]
+    fn legacy_preferences_are_preserved_and_rewritten_on_change() {
+        let directory = std::env::temp_dir().join(format!("matter-time-legacy-{}", std::process::id()));
+        let store = PrivateStore::open(&directory).unwrap();
+        let legacy = br#"[[2,0,"Europe/Berlin"]]"#;
+        store.set(KEY, Some(legacy)).unwrap();
+        let mut preferences = Preferences::open(store.clone()).unwrap();
+        let now = Instant::now();
+        preferences.set(2, 0, "Europe/Berlin", now).unwrap();
+        let mut bytes = [0; 4096];
+        let size = store.get(KEY, &mut bytes).unwrap().unwrap();
+        assert_eq!(&bytes[..size], legacy);
+        preferences.set(3, 1, "Europe/Berlin", now).unwrap();
+        let size = store.get(KEY, &mut bytes).unwrap().unwrap();
+        assert!(bytes[..size].starts_with(b"TZP1"));
+        assert_eq!(Preferences::open(store.clone()).unwrap().entries.len(), 2);
+        drop(preferences);
+        drop(store);
+        std::fs::remove_dir_all(directory).unwrap();
     }
     #[test]
     fn durable_intent_retry_and_no_periodic_flash_writes() {

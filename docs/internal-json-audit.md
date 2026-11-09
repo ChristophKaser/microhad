@@ -10,6 +10,9 @@ internal representation is being migrated; it is not a claim of completion.
   the worker serializes them for HTTP clients and WebSocket peers.
 - Matter OTA control uses a length-prefixed binary protocol over its private
   Unix socket. Its JSON status remains confined to the HTTP API.
+- Matter time-zone preferences use a bounded binary representation in the
+  credentials store. Loading still accepts the old embedded JSON encoding so
+  existing installations retain their preferences; new writes use binary.
 - Thermostat schedule details are held as binary transition data. Persistent
   device JSON is decoded at file load and written when saving; dashboard JSON
   is generated for the HTTP response. Lua receives typed tables for cooling
@@ -18,8 +21,8 @@ internal representation is being migrated; it is not a claim of completion.
   protobuf `DeviceCommandRequest.schedule` field. The service validates the
   typed values before operation. Legacy REST schedule JSON is parsed at the
   HTTP boundary, and the service rejects JSON schedule strings over IPC.
-- Lua thermostat actions still accept JSON schedule strings. Migrate these to
-  typed Lua tables carried through coordinator validation and dispatch.
+- Lua thermostat actions carry schedule tables through coordinator validation
+  and dispatch as typed transitions.
 - The automation worker calculates encoded lengths for shared-state and log
   limits without constructing JSON; it serializes when writing state files.
 - Gateway settings are held as typed snapshot fields and serialized on HTTP
