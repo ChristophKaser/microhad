@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 pub const MAX_CLIENTS: usize = 4;
-const MAX_RESPONSES: usize = 8;
+const MAX_RESPONSES: usize = 32;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Accept only established-session ICD Check-Ins. Sessionless Check-Ins are
@@ -124,9 +124,26 @@ impl Client {
             eof: false,
         })
     }
+    // Only connection metadata belongs in diagnostics: queued frames may hold credentials.
+    fn close_message(&self, source: &str, reason: &str, opcode: Option<u8>, errno: Option<i32>) -> String {
+        let pending_bytes = self.responses.iter().map(Vec::len).sum::<usize>().saturating_sub(self.written);
+        format!("Matter IPC close: peer={} source={} reason={} queued={} limit={} pending_bytes={} written={} eof={} overdue_ms={} opcode={:?} errno={:?}",
+            self.id, source, reason, self.responses.len(), MAX_RESPONSES, pending_bytes,
+            self.written, self.eof, Instant::now().saturating_duration_since(self.deadline).as_millis(), opcode, errno)
+    }
+    fn close(&self, source: &str, reason: &str, opcode: Option<u8>, errno: Option<i32>) -> bool {
+        log::warn!(target: "matter_ipc", "{}", self.close_message(source, reason, opcode, errno));
+        false
+    }
+    fn event_close_reason(&self, now: Instant) -> Option<&'static str> {
+        if self.eof { Some("peer_closed") }
+        else if now >= self.deadline { Some("request_deadline") }
+        else if self.responses.len() >= MAX_RESPONSES { Some("queue_full") }
+        else { None }
+    }
     fn poll(&mut self, dispatch: &mut impl FnMut(Frame) -> Option<Frame>) -> io::Result<bool> {
         if Instant::now() >= self.deadline {
-            return Ok(false);
+            return Ok(self.close("poll", "request_deadline", None, None));
         }
         let mut bytes = [0; MAX_CHUNK];
         if !self.eof {
@@ -135,7 +152,10 @@ impl Client {
                 Ok(length) => self
                     .decoder
                     .feed(&bytes[..length])
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid IPC frame"))?,
+                    .map_err(|_| {
+                        self.close("read", "invalid_frame", None, None);
+                        io::Error::new(io::ErrorKind::InvalidData, "invalid IPC frame")
+                    })?,
                 Err(error)
                     if matches!(
                         error.kind(),
@@ -144,28 +164,37 @@ impl Client {
                 {
                     ()
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    self.close("read", "read_error", None, error.raw_os_error());
+                    return Err(error);
+                }
             }
         }
         while let Some(request) = self.decoder.pop() {
-            if request.kind != 0 || self.responses.len() >= MAX_RESPONSES {
-                return Ok(false);
+            if request.kind != 0 {
+                return Ok(self.close("request", "invalid_kind", Some(request.opcode), None));
+            }
+            if self.responses.len() >= MAX_RESPONSES {
+                return Ok(self.close("request", "queue_full", Some(request.opcode), None));
             }
             let id = request.id;
             let opcode = request.opcode;
             let Some(response) = dispatch(request) else {
-                return Ok(false);
+                return Ok(self.close("dispatch", "rejected", Some(opcode), None));
             };
             if response.kind != 1
                 || response.id != id
                 || response.opcode != opcode
                 || response.payload.len() > MAX_PAYLOAD
             {
-                return Ok(false);
+                return Ok(self.close("response", "invalid_response", Some(opcode), None));
             }
             let encoded = response
                 .encode()
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid IPC response"))?;
+                .map_err(|_| {
+                    self.close("response", "encode_error", Some(opcode), None);
+                    io::Error::new(io::ErrorKind::InvalidData, "invalid IPC response")
+                })?;
             self.responses.push_back(encoded);
             // Partial input or a slow writer cannot extend this deadline.
             self.deadline = Instant::now() + REQUEST_DEADLINE;
@@ -177,7 +206,7 @@ impl Client {
             }
             let end = response.len().min(self.written + budget);
             match self.stream.write(&response[self.written..end]) {
-                Ok(0) => return Ok(false),
+                Ok(0) => return Ok(self.close("write", "write_zero", None, None)),
                 Ok(length) => {
                     self.written += length;
                     budget -= length;
@@ -194,10 +223,16 @@ impl Client {
                 {
                     break
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    self.close("write", "write_error", None, error.raw_os_error());
+                    return Err(error);
+                }
             }
         }
-        Ok(!self.eof || !self.responses.is_empty())
+        if self.eof && self.responses.is_empty() {
+            return Ok(self.close("poll", "peer_closed", None, None));
+        }
+        Ok(true)
     }
 }
 
@@ -287,6 +322,8 @@ impl IpcServer {
                         client.id = self.next_client;
                         self.next_client = next;
                         self.clients.push(client);
+                    } else {
+                        log::warn!(target: "matter_ipc", "Matter IPC connection rejected: reason=client_capacity clients={} limit={}", self.clients.len(), MAX_CLIENTS);
                     }
                 }
                 Err(error)
@@ -329,10 +366,8 @@ impl IpcServer {
         let Some(index) = self.clients.iter().position(|client| client.id == peer) else {
             return Ok(false);
         };
-        if self.clients[index].eof
-            || Instant::now() >= self.clients[index].deadline
-            || self.clients[index].responses.len() >= MAX_RESPONSES
-        {
+        if let Some(reason) = self.clients[index].event_close_reason(Instant::now()) {
+            self.clients[index].close("publish", reason, Some(event.opcode), None);
             self.clients.remove(index);
             return Ok(false);
         }
@@ -362,8 +397,8 @@ impl IpcServer {
         let now = Instant::now();
         let mut published = 0;
         self.clients.retain_mut(|client| {
-            if client.eof || now >= client.deadline || client.responses.len() >= MAX_RESPONSES {
-                return false;
+            if let Some(reason) = client.event_close_reason(now) {
+                return client.close("publish_all", reason, Some(event.opcode), None);
             }
             client.responses.push_back(encoded.clone());
             published += 1;
@@ -374,6 +409,9 @@ impl IpcServer {
 }
 impl Drop for IpcServer {
     fn drop(&mut self) {
+        for client in &self.clients {
+            log::info!(target: "matter_ipc", "{}", client.close_message("shutdown", "server_shutdown", None, None));
+        }
         if let Ok(meta) = fs::symlink_metadata(&self.path) {
             if (meta.dev(), meta.ino()) == self.identity && meta.file_type().is_socket() {
                 let _ = fs::remove_file(&self.path);
@@ -489,6 +527,55 @@ mod tests {
         assert_eq!(decoder.pop().unwrap().id, 92);
     }
     #[test]
+    fn thirty_two_coalesced_replies_fit_and_preserve_ids() {
+        let (mut peer, stream) = UnixStream::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let mut client = Client::new(stream).unwrap();
+        let requests: Vec<_> = (1..=32).flat_map(request).collect();
+        peer.write_all(&requests).unwrap();
+        assert!(client.poll(&mut respond).unwrap());
+        let reply_size = respond(Frame {
+            kind: 0, opcode: 1, id: 1,
+            payload: crate::wire_json::from_json(0, 1, b"").unwrap(),
+        }).unwrap().encode().unwrap().len();
+        let mut bytes = vec![0; reply_size * 32];
+        peer.read_exact(&mut bytes).unwrap();
+        let mut decoder = Decoder::default();
+        decoder.feed(&bytes).unwrap();
+        for id in 1..=32 { assert_eq!(decoder.pop().unwrap().id, id); }
+        assert!(decoder.pop().is_none());
+    }
+    #[test]
+    fn broadcast_overflow_retires_only_full_peer_and_reports_metadata() {
+        let directory = Directory::new();
+        let mut server = IpcServer::bind(&directory.socket()).unwrap();
+        let _first = UnixStream::connect(directory.socket()).unwrap();
+        let _second = UnixStream::connect(directory.socket()).unwrap();
+        server.poll(respond).unwrap();
+        let first = server.clients[0].id;
+        let second = server.clients[1].id;
+        let event = Frame { kind: 2, opcode: 12, id: 0,
+            payload: crate::wire_json::from_json(2, 12,
+                br#"{"schema":1,"event":"thread","data":{}}"#).unwrap() };
+        for _ in 0..32 { assert!(server.publish(first, &event).unwrap()); }
+        assert!(server.has_peer(first));
+        let client = &server.clients[0];
+        assert_eq!(client.event_close_reason(Instant::now()), Some("queue_full"));
+        let diagnostic = client.close_message("publish_all", "queue_full", Some(12), None);
+        assert!(diagnostic.contains("reason=queue_full queued=32 limit=32"));
+        assert_eq!(server.publish_all(&event).unwrap(), 1);
+        assert!(!server.has_peer(first));
+        assert!(server.has_peer(second));
+        let client = &mut server.clients[0];
+        client.responses.push_back(b"private credential fixture".to_vec());
+        let diagnostic = client.close_message("read", "read_error", None, Some(131));
+        assert!(diagnostic.contains("errno=Some(131)"));
+        assert!(!diagnostic.contains("private credential fixture"));
+        client.deadline = Instant::now();
+        assert_eq!(client.event_close_reason(Instant::now()), Some("request_deadline"));
+        assert!(!server.publish(second, &event).unwrap());
+    }
+    #[test]
     fn malformed_overloaded_and_idle_clients_are_closed() {
         for mode in 0..3 {
             let (mut peer, stream) = UnixStream::pair().unwrap();
@@ -500,8 +587,8 @@ mod tests {
                     peer.write_all(&bytes).unwrap();
                 }
                 1 => {
-                    let bytes: Vec<_> = (1..=9).flat_map(request).collect();
-                    peer.write_all(&bytes).unwrap();
+                    client.responses.resize(MAX_RESPONSES, vec![0]);
+                    peer.write_all(&request(1)).unwrap();
                 }
                 _ => {
                     peer.write_all(&request(1)[..1]).unwrap();

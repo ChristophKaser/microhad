@@ -94,6 +94,12 @@ keep their existing priorities. The FTP queue defaults to 512 KiB and reports
 cumulative overflow at most once per second. OpenThread allows 15 seconds for a
 radio transmit-completion event.
 
+Each Matter IPC connection has a separate 32-frame outgoing queue. Connection
+closures log the peer ID, close reason and code path, queued frame/byte counts,
+deadline overrun, opcode when available, and numeric I/O error. Payloads are
+never included. This distinguishes queue saturation from deadline expiry,
+peer EOF, malformed requests, and socket failures without exposing credentials.
+
 Matter uses the same bounded asynchronous output design, retaining syslog
 severity and the existing 174-byte fragment limit. The updated service accepts
 `--log-level info --raw-frames` for packet-only diagnostics. It records incoming
