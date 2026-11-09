@@ -61,15 +61,49 @@ assert(ota.upload("chunk",prefix+",\"offset\":0,\"data\":\""+hex(bytes)+"\"}",&e
 }
 namespace {
 extern "C" int microhad_catalog_public_ipv4(unsigned long);
+static unsigned catalogDelivered = 0;
 class CatalogTransport : public HttpsCatalogHook {
 public:
-    int calls; std::string reply;
-    CatalogTransport():calls(0),reply("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n[]"){}
-    bool get(const std::string& host,const std::string& path,const std::string&,std::string* response,std::string*) {
+    int calls; bool observedStreaming; std::string reply;
+    CatalogTransport():calls(0),observedStreaming(false),reply("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n[]"){}
+    bool stream(const std::string& host,const std::string& path,const std::string&,HttpsCatalogRawSink* sink,std::string*) {
         assert((host=="raw.githubusercontent.com" && path=="/Koenkk/zigbee-OTA/master/index.json") || (host=="on.test-net.dcl.csa-iot.org" && path=="/dcl/model/versions/4476/4096/17039372"));
-        ++calls;*response=reply;return true;
+        ++calls;
+        for (unsigned long i=0;i<reply.size();++i) {
+            if(!sink->write(reply.data()+i,1)) return false;
+            if (catalogDelivered && i+1<reply.size()) observedStreaming=true;
+        }
+        return true;
     }
 };
+class CollectCatalog : public FirmwareCatalogSink {
+public:
+    std::string body; unsigned writes; bool failWrites;
+    CollectCatalog():writes(0),failWrites(false) {}
+    bool begin() { return true; }
+    bool write(const char* data,unsigned long size) { ++writes; ++catalogDelivered; if(failWrites) return false; body.append(data,size); return true; }
+};
+class CountCatalog : public FirmwareCatalogSink {
+public:
+    unsigned long bytes, writes;
+    CountCatalog():bytes(0),writes(0) {}
+    bool begin() { return true; }
+    bool write(const char*,unsigned long size) { bytes+=size; ++writes; return true; }
+};
+class OversizedCatalog : public HttpsCatalogHook {
+public:
+    bool stream(const std::string&,const std::string&,const std::string&,HttpsCatalogRawSink* sink,std::string*) {
+        const char* header="HTTP/1.1 200 OK\r\n\r\n[";
+        if(!sink->write(header,std::strlen(header))) return false;
+        char block[1024]; std::memset(block,' ',sizeof(block));
+        for (unsigned i=0;i<4097;++i) if(!sink->write(block,sizeof(block))) return false;
+        return true;
+    }
+};
+bool fetchFirmwareCatalog(const std::string& id, std::string* body, std::string* error) {
+    CollectCatalog sink; bool started=false;
+    const bool ok=streamFirmwareCatalog(id,&sink,&started,error); *body=sink.body; return ok;
+}
 void catalogTests() {
     const std::string url="https://raw.githubusercontent.com/Koenkk/zigbee-OTA/master/index.json";
     assert(firmwareCatalogDestination(url,url));
@@ -85,14 +119,23 @@ void catalogTests() {
     assert(firmwareCatalogsJson().find("sonoff")!=std::string::npos);
     assert(!fetchFirmwareCatalog("https://example.com",&body,&error));assert(hook.calls==0);
     assert(fetchFirmwareCatalog("zigbee-ota",&body,&error)&&body=="[]");
-    assert(fetchFirmwareCatalog("zigbee-ota",&body,&error)&&hook.calls==1);
+    assert(fetchFirmwareCatalog("zigbee-ota",&body,&error)&&hook.calls==2);
     configureFirmwareCatalogs("","test-ca");hook.reply="HTTP/1.1 302 Found\r\nLocation: https://127.0.0.1/private\r\n\r\n";
     assert(!fetchFirmwareCatalog("zigbee-ota",&body,&error));assert(error.find("not configured")!=std::string::npos);
     configureFirmwareCatalogs("","test-ca");hook.reply="HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n[]\r\n0\r\n\r\n";
     assert(fetchFirmwareCatalog("zigbee-ota",&body,&error)&&body=="[]");
+    configureFirmwareCatalogs("","test-ca"); hook.reply="HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\n[\r\n1\r\n]\r\n0\r\nX-Test: yes\r\n\r\n";
+    catalogDelivered=0; hook.observedStreaming=false;
+    assert(fetchFirmwareCatalog("zigbee-ota",&body,&error)&&body=="[]"&&hook.observedStreaming);
+    CollectCatalog disconnected; disconnected.failWrites=true; bool started=false;
+    assert(!streamFirmwareCatalog("zigbee-ota",&disconnected,&started,&error) && started && disconnected.writes==1);
+    configureFirmwareCatalogs("","test-ca");hook.reply="HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n[]\r\n";
+    assert(!fetchFirmwareCatalog("zigbee-ota",&body,&error));
+    configureFirmwareCatalogs("","test-ca");hook.reply="HTTP/1.1 200 OK\r\nContent-Length: 2\r\nTransfer-Encoding: chunked\r\n\r\n";
+    assert(!fetchFirmwareCatalog("zigbee-ota",&body,&error));
     configureFirmwareCatalogs("","test-ca");hook.reply="HTTP/1.1 200 OK\r\nContent-Length: 99\r\n\r\n[]";
     assert(!fetchFirmwareCatalog("zigbee-ota",&body,&error));
-    configureFirmwareCatalogs("","test-ca");hook.reply="HTTP/1.1 200 OK\r\n\r\n"+std::string(4*1024*1024+1,'[');
+    configureFirmwareCatalogs("","test-ca");hook.reply="HTTP/1.1 200 OK\r\nContent-Length: 4194305\r\n\r\n";
     assert(!fetchFirmwareCatalog("zigbee-ota",&body,&error));
     configureFirmwareCatalogs("","test-ca");hook.reply="HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}";
     assert(fetchFirmwareCatalog("matter-dcl-testnet/4476/4096/17039372",&body,&error)&&body=="{}");
@@ -100,6 +143,9 @@ void catalogTests() {
     assert(fetchFirmwareCatalog("matter-dcl-testnet/4476/4096/17039372",&body,&error)&&body=="{\"notFound\":true}");
     const char* badDcl[]={"matter-dcl-testnet/4476/4096/../1", "matter-dcl-testnet/4476/4096/1/2", "matter-dcl-testnet/65536/4096", "matter-dcl-testnet/4476/4096/4294967296", "matter-dcl-testnet/4476/4096/", "matter-dcl-testnet/04476/4096"};
     for(unsigned i=0;i<sizeof(badDcl)/sizeof(*badDcl);++i) assert(!fetchFirmwareCatalog(badDcl[i],&body,&error));
+    OversizedCatalog oversized; setHttpsCatalogHook(&oversized); CountCatalog bounded; bool bodyStarted=false;
+    assert(!streamFirmwareCatalog("zigbee-ota",&bounded,&bodyStarted,&error));
+    assert(bodyStarted && bounded.bytes <= 4UL*1024*1024 && bounded.writes > 1000);
     configureFirmwareCatalogs("/tmp/nonexistent-microhad-catalog-config","");assert(firmwareCatalogsJson()=="null");
     configureFirmwareCatalogs("","test-ca");setHttpsCatalogHook(0);
 }

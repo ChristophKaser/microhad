@@ -54,9 +54,7 @@ and traversal are rejected. Certificate and hostname checks remain enabled.
 The transport uses a five-second connect timeout, three-second socket timeouts
 and a 25-second request deadline after starting resolution; DNS resolution itself
 uses the system resolver's timeout policy. Catalogs are limited to 4 MiB, and
-only one gateway catalog fetch runs at a time. Cached data expires after one
-hour, with total cache storage limited to 4 MiB of RAM. No catalog data is
-written to gateway flash. Browser downloads are independent of this metadata
+only one gateway catalog fetch runs at a time. The gateway streams catalog response chunks to the browser using bounded working buffers; it does not cache catalog bodies in RAM or write them to flash. It enforces the size and framing limits while streaming, and aborts the response if an upstream transfer fails. The browser caches parsed catalog results for one hour. Browser downloads are independent of this metadata
 allowlist and use the original HTTP/HTTPS URLs supplied by valid catalog entries.
 
 ## Verification

@@ -3,6 +3,8 @@ extern "C" int microhad_crypto_init(void);
 #include "gateway_runner.h"
 #include "gateway_integration_peer.h"
 #include "http_server.h"
+#include "firmware_catalog.h"
+#include "https_client.h"
 #include "notification_worker.h"
 #include "fcm.h"
 #include "storage.h"
@@ -102,10 +104,17 @@ std::string readResponse(int fd, mbedtls_ssl_context* ssl, std::string* pending)
         std::string::size_type end = pending->find("\r\n\r\n");
         if (end != std::string::npos) {
             std::string::size_type length = pending->find("Content-Length: ");
-            assert(length != std::string::npos && length < end);
-            unsigned long total = end + 4 + strtoul(pending->c_str() + length + 16, 0, 10);
-            if (pending->size() >= total) {
-                std::string response = pending->substr(0, total); pending->erase(0, total); return response;
+            if (length != std::string::npos && length < end) {
+                unsigned long total = end + 4 + strtoul(pending->c_str() + length + 16, 0, 10);
+                if (pending->size() >= total) {
+                    std::string response = pending->substr(0, total); pending->erase(0, total); return response;
+                }
+            } else if (pending->find("Transfer-Encoding: chunked\r\n") < end) {
+                std::string::size_type last = pending->find("\r\n0\r\n\r\n", end + 4);
+                if (last != std::string::npos) {
+                    unsigned long total = last + 7;
+                    std::string response = pending->substr(0, total); pending->erase(0, total); return response;
+                }
             }
         }
         char buffer[4096];
@@ -407,6 +416,26 @@ void expectStatus(const char* name, const std::string& response, int code) {
     assert(response.find(expected.str()) == 0);
 }
 
+class StreamingCatalogFixture : public HttpsCatalogHook {
+public:
+    std::string reply; unsigned long pauseAfter; bool released; pthread_mutex_t mutex; pthread_cond_t ready;
+    StreamingCatalogFixture():pauseAfter(0),released(false) { pthread_mutex_init(&mutex,0); pthread_cond_init(&ready,0); }
+    ~StreamingCatalogFixture() { pthread_cond_destroy(&ready); pthread_mutex_destroy(&mutex); }
+    void release() { pthread_mutex_lock(&mutex); released=true; pthread_cond_signal(&ready); pthread_mutex_unlock(&mutex); }
+    bool stream(const std::string&,const std::string&,const std::string&,HttpsCatalogRawSink* sink,std::string*) {
+        for (unsigned long at=0;at<reply.size();++at) {
+            if(!sink->write(reply.data()+at,1)) return false;
+            if (pauseAfter && at+1==pauseAfter) {
+                struct timespec limit; clock_gettime(CLOCK_REALTIME,&limit); limit.tv_sec+=5;
+                pthread_mutex_lock(&mutex);
+                while (!released) if (pthread_cond_timedwait(&ready,&mutex,&limit)!=0) { pthread_mutex_unlock(&mutex); return false; }
+                pthread_mutex_unlock(&mutex);
+            }
+        }
+        return true;
+    }
+};
+
 void testServers() {
     void (*oldSigpipe)(int) = signal(SIGPIPE, SIG_IGN);
     std::string directory = makeDirectory();
@@ -455,6 +484,39 @@ void testServers() {
     HttpServer invalidPrivateKey(0, &runner, directory + "/webui", "test/fixtures/tls/localhost.crt", "/dev/null");
     assert(!invalidPrivateKey.start(&error) && error.find("TLS certificate or key") != std::string::npos);
     testHttpQueuePressureAndBindFailure(&http, &runner, directory + "/webui");
+    {
+        StreamingCatalogFixture catalog; setHttpsCatalogHook(&catalog); configureFirmwareCatalogs("","fixture-ca");
+        catalog.reply="HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\n[\r\n1\r\n]\r\n0\r\n\r\n";
+        const std::string request="GET /api/ota/catalog/zigbee-ota HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        const std::string streamed=plainRequest(http.boundPort(),request);
+        assert(streamed.find("HTTP/1.1 200 OK\r\n") == 0);
+        assert(streamed.find("Transfer-Encoding: chunked\r\n") != std::string::npos);
+        assert(streamed.find("\r\n1\r\n[\r\n1\r\n]\r\n0\r\n\r\n") != std::string::npos);
+        catalog.reply="HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n[]";
+        catalog.pauseAfter=catalog.reply.size()-1;
+        int streamingFd=connectLoopback(http.boundPort());
+        assert(write(streamingFd,request.data(),request.size())==static_cast<ssize_t>(request.size()));
+        struct timeval streamTimeout; streamTimeout.tv_sec=5; streamTimeout.tv_usec=0;
+        setsockopt(streamingFd,SOL_SOCKET,SO_RCVTIMEO,&streamTimeout,sizeof(streamTimeout));
+        std::string early; char earlyBuffer[1024];
+        while (early.find("\r\n1\r\n[\r\n")==std::string::npos) {
+            ssize_t count=read(streamingFd,earlyBuffer,sizeof(earlyBuffer)); assert(count>0); early.append(earlyBuffer,count);
+        }
+        catalog.release(); const std::string rest=readAll(streamingFd); close(streamingFd);
+        assert(rest.find("\r\n0\r\n\r\n")!=std::string::npos);
+        catalog.pauseAfter=0;
+        catalog.reply="HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\n[\r\n1\r\n]\r\n0\r\n\r\n";
+        const std::string encrypted=tlsRequest(https.boundPort(),request);
+        assert(encrypted.find("\r\n1\r\n[\r\n1\r\n]\r\n0\r\n\r\n") != std::string::npos);
+        catalog.reply="HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n[]";
+        const std::string http10=plainRequest(http.boundPort(),"GET /api/ota/catalog/zigbee-ota HTTP/1.0\r\nHost: localhost\r\n\r\n");
+        assert(http10.find("Transfer-Encoding:") == std::string::npos && http10.substr(http10.size()-2)=="[]");
+        catalog.reply="HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\n[]";
+        const std::string truncated=plainRequest(http.boundPort(),request);
+        assert(truncated.find("Transfer-Encoding: chunked") != std::string::npos && truncated.find("\r\n0\r\n\r\n") == std::string::npos);
+        setHttpsCatalogHook(0); configureFirmwareCatalogs("","");
+    }
+
 
     response = tlsRequest(https.boundPort(), "INVALID\r\nHost: localhost\r\n\r\n");
     expectStatus("https reject malformed encrypted request", response, 400);

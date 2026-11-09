@@ -176,29 +176,27 @@ bool httpsPostUrl(const std::string& url, const std::string& headers, const std:
 }
 
 #ifdef MICROHAD_MBEDTLS_ENABLED
-extern "C" int microhad_https_catalog_get(const char*, const char*, const char*, char*, unsigned long, unsigned long*);
+extern "C" int microhad_https_catalog_stream(const char*, const char*, const char*, int (*)(void*, const char*, unsigned long), void*);
+static int catalogStreamCallback(void* context, const char* data, unsigned long size) {
+    return static_cast<HttpsCatalogRawSink*>(context)->write(data, size) ? 0 : -1;
+}
 #endif
 void setHttpsCatalogHook(HttpsCatalogHook* hook) {
     pthread_mutex_lock(&httpsHookMutex); catalogHook = hook; pthread_mutex_unlock(&httpsHookMutex);
 }
-bool httpsCatalogGet(const std::string& host, const std::string& path, const std::string& caBundle,
-                     std::string* response, std::string* error) {
+bool httpsCatalogStream(const std::string& host, const std::string& path, const std::string& caBundle,
+                        HttpsCatalogRawSink* sink, std::string* error) {
 #ifdef MICROHAD_MBEDTLS_ENABLED
     pthread_mutex_lock(&httpsHookMutex); HttpsCatalogHook* hook = catalogHook; pthread_mutex_unlock(&httpsHookMutex);
-    if (hook) {
-        if (!hook->get(host, path, caBundle, response, error)) return false;
-        return decodeChunkedResponse(response, error);
-    }
+    if (hook) return hook->stream(host, path, caBundle, sink, error);
     if (caBundle.empty()) { *error = "Catalog CA bundle is not configured"; return false; }
-    std::string buffer(4 * 1024 * 1024 + 128 * 1024, '\0');
-    unsigned long length = 0;
-    if (microhad_https_catalog_get(host.c_str(), path.c_str(), caBundle.c_str(), &buffer[0], buffer.size(), &length) != 0) {
-        *error = "Catalog HTTPS request failed"; return false;
+    if (microhad_https_catalog_stream(host.c_str(), path.c_str(), caBundle.c_str(), catalogStreamCallback, sink) != 0) {
+        if (error->empty()) *error = "Catalog HTTPS request failed";
+        return false;
     }
-    response->assign(buffer.data(), length);
-    return decodeChunkedResponse(response, error);
+    return true;
 #else
-    (void)host; (void)path; (void)caBundle; (void)response;
+    (void)host; (void)path; (void)caBundle; (void)sink;
     *error = "Catalog HTTPS transport unavailable"; return false;
 #endif
 }

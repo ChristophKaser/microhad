@@ -45,12 +45,17 @@ bool httpsPost(const std::string& host, const std::string& path, const std::stri
 bool httpsPostUrl(const std::string& url, const std::string& headers, const std::string& body,
                   const std::string& caBundle, std::string* response, std::string* error);
 
+class HttpsCatalogRawSink {
+public:
+    virtual ~HttpsCatalogRawSink() {}
+    virtual bool write(const char* data, unsigned long size) = 0;
+};
 class HttpsCatalogHook {
 public:
     virtual ~HttpsCatalogHook() {}
-    virtual bool get(const std::string& host, const std::string& path, const std::string& ca,
-                     std::string* response, std::string* error) = 0;
+    virtual bool stream(const std::string& host, const std::string& path, const std::string& ca,
+                        HttpsCatalogRawSink* sink, std::string* error) = 0;
 };
 void setHttpsCatalogHook(HttpsCatalogHook* hook);
-bool httpsCatalogGet(const std::string& host, const std::string& path, const std::string& caBundle, std::string* response, std::string* error);
+bool httpsCatalogStream(const std::string& host, const std::string& path, const std::string& caBundle, HttpsCatalogRawSink* sink, std::string* error);
 #endif

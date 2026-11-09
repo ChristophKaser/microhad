@@ -99,16 +99,16 @@ void* activeTlsSession() { pthread_once(&tlsSessionKeyOnce, createTlsSessionKey)
 void setActiveTlsSession(void* value) { pthread_once(&tlsSessionKeyOnce, createTlsSessionKey); pthread_setspecific(tlsSessionKey, value); }
 #endif
 
-bool writeBytes(int fd, const std::string& bytes) {
+bool writeRaw(int fd, const char* data, unsigned long size) {
 #ifdef MICROHAD_MBEDTLS_ENABLED
     if (activeTlsSession() != 0) {
-        bool ok = microhad_tls_write(activeTlsSession(), bytes.data(), bytes.size()) == 0;
+        bool ok = microhad_tls_write(activeTlsSession(), data, size) == 0;
         if (!ok && responseState()) responseState()->failed = true;
         return ok;
     }
 #endif
-    const char* cursor = bytes.data();
-    unsigned long remaining = bytes.size();
+    const char* cursor = data;
+    unsigned long remaining = size;
     while (remaining != 0) {
         ssize_t written = send(fd, cursor, remaining, MSG_NOSIGNAL);
         if (written < 0 && errno == EINTR) continue;
@@ -118,6 +118,8 @@ bool writeBytes(int fd, const std::string& bytes) {
     }
     return true;
 }
+
+bool writeBytes(int fd, const std::string& bytes) { return writeRaw(fd, bytes.data(), bytes.size()); }
 
 #if defined(MICROHAD_MBEDTLS_ENABLED) && MICROHAD_MATTER_ENABLED
 /* The Matter worker continues to own WebSocket parsing and protocol state. This
@@ -145,6 +147,27 @@ void relayTls(void* session, int clientFd, int bridgeFd) {
     close(bridgeFd);
 }
 #endif
+
+class HttpCatalogSink : public FirmwareCatalogSink {
+public:
+    HttpCatalogSink(int fd, bool chunked) : fd_(fd), chunked_(chunked) {}
+    bool begin() {
+        if (responseState()) responseState()->keepAlive = false;
+        return writeBytes(fd_, std::string("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nConnection: close\r\n") +
+            (chunked_ ? "Transfer-Encoding: chunked\r\n\r\n" : "\r\n"));
+    }
+    bool write(const char* data, unsigned long size) {
+        if (chunked_) {
+            std::ostringstream header; header << std::hex << size << "\r\n";
+            if (!writeBytes(fd_, header.str())) return false;
+        }
+        if (!writeRaw(fd_, data, size)) return false;
+        return !chunked_ || writeBytes(fd_, "\r\n");
+    }
+    bool finish() { return !chunked_ || writeBytes(fd_, "0\r\n\r\n"); }
+private:
+    int fd_; bool chunked_;
+};
 
 void writeResponse(int fd, int status, const char* contentType, const std::string& body, const char* contentEncoding = 0) {
     std::ostringstream response;
@@ -939,9 +962,12 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
     if (request.find("GET /api/ota/catalog/") == 0) {
         const std::string prefix = "GET /api/ota/catalog/";
         std::string id = route.substr(prefix.size(), route.find(' ', prefix.size()) - prefix.size());
-        std::string body, error;
-        if (fetchFirmwareCatalog(id, &body, &error)) writeResponse(clientFd, 200, "application/json", body);
-        else writeResponse(clientFd, 502, "application/json", "{\"error\":\"" + jsonEscape(error) + "\"}");
+        std::string error; bool started = false;
+        HttpCatalogSink sink(clientFd, route.find(" HTTP/1.0") == std::string::npos);
+        if (streamFirmwareCatalog(id, &sink, &started, &error)) {
+            if (!sink.finish() && responseState()) responseState()->failed = true;
+        } else if (!started) writeResponse(clientFd, 502, "application/json", "{\"error\":\"" + jsonEscape(error) + "\"}");
+        else if (responseState()) responseState()->failed = true;
         return;
     }
     if(request.find("GET /api/ota/status ")==0) {

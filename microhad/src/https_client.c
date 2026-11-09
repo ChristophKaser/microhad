@@ -72,7 +72,8 @@ static time_t catalog_seconds(void) {
 
 static int https_request(int catalog_get, const char* host, const char* path, const char* headers, const char* body,
                     unsigned long body_length, const char* ca_bundle, char* response, unsigned long response_capacity,
-                    unsigned long* response_length) {
+                    unsigned long* response_length,
+                    int (*stream)(void*, const char*, unsigned long), void* stream_context) {
     mbedtls_net_context server;
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config conf;
@@ -83,6 +84,7 @@ static int https_request(int catalog_get, const char* host, const char* path, co
     const char* stage = "arguments";
     size_t offset = 0;
     unsigned long request_length;
+    size_t request_capacity = catalog_get ? 4096 : MICROHAD_HTTPS_REQUEST_CAPACITY;
 
     time_t deadline = catalog_seconds() + 25;
     mbedtls_net_init(&server);
@@ -92,7 +94,7 @@ static int https_request(int catalog_get, const char* host, const char* path, co
 
     if (host == 0 || path == 0 || headers == 0 || body == 0 || ca_bundle == 0 ||
         response == 0 || response_length == 0 || response_capacity == 0) goto done;
-    request = (char*)malloc(MICROHAD_HTTPS_REQUEST_CAPACITY);
+    request = (char*)malloc(request_capacity);
     stage = "allocate";
     if (request == 0) goto done;
     stage = "seed";
@@ -130,13 +132,13 @@ static int https_request(int catalog_get, const char* host, const char* path, co
         result = -1;
         goto done;
     }
-    header_length = catalog_get ? snprintf(request, MICROHAD_HTTPS_REQUEST_CAPACITY,
+    header_length = catalog_get ? snprintf(request, request_capacity,
         "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nAccept: application/json\r\nAccept-Encoding: identity\r\n\r\n", path, host) :
-        snprintf(request, MICROHAD_HTTPS_REQUEST_CAPACITY,
+        snprintf(request, request_capacity,
                              "POST %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nContent-Length: %lu\r\n%s\r\n",
                              path, host, body_length, headers);
-    if (header_length < 0 || header_length >= MICROHAD_HTTPS_REQUEST_CAPACITY ||
-        body_length > MICROHAD_HTTPS_REQUEST_CAPACITY - (unsigned long)header_length) {
+    if (header_length < 0 || (size_t)header_length >= request_capacity ||
+        body_length > request_capacity - (unsigned long)header_length) {
         result = -1;
         goto done;
     }
@@ -157,16 +159,19 @@ static int https_request(int catalog_get, const char* host, const char* path, co
             result = -1;
             goto done;
         }
-        result = mbedtls_ssl_read(&ssl, (unsigned char*)response + *response_length,
-                                  response_capacity - *response_length);
-        if (result > 0) *response_length += (unsigned long)result;
+        result = mbedtls_ssl_read(&ssl, (unsigned char*)response + (stream ? 0 : *response_length),
+                                  stream ? response_capacity : response_capacity - *response_length);
+        if (result > 0) {
+            if (stream && stream(stream_context, response, (unsigned long)result) != 0) { result = 1; goto done; }
+            if (!stream) *response_length += (unsigned long)result;
+        }
         else if (result == 0 || result == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
             result = 0;
             break;
         } else if (result != MBEDTLS_ERR_SSL_WANT_READ && result != MBEDTLS_ERR_SSL_WANT_WRITE) goto done;
     }
 done:
-    if (result != 0) {
+    if (result != 0 && !(catalog_get && stream && result == 1)) {
         char description[128];
         mbedtls_strerror(result, description, sizeof(description));
         fprintf(stderr, "HTTPS %s failed for %s: code=%d (%s), verify=0x%lx\n",
@@ -184,11 +189,12 @@ done:
 
 int microhad_https_post(const char* host, const char* path, const char* headers, const char* body,
     unsigned long body_length, const char* ca_bundle, char* response, unsigned long capacity, unsigned long* length) {
-    return https_request(0, host, path, headers, body, body_length, ca_bundle, response, capacity, length);
+    return https_request(0, host, path, headers, body, body_length, ca_bundle, response, capacity, length, 0, 0);
 }
-int microhad_https_catalog_get(const char* host, const char* path, const char* ca_bundle,
-    char* response, unsigned long capacity, unsigned long* length) {
-    return https_request(1, host, path, "", "", 0, ca_bundle, response, capacity, length);
+int microhad_https_catalog_stream(const char* host, const char* path, const char* ca_bundle,
+    int (*stream)(void*, const char*, unsigned long), void* context) {
+    char buffer[2048]; unsigned long length = 0;
+    return https_request(1, host, path, "", "", 0, ca_bundle, buffer, sizeof(buffer), &length, stream, context);
 }
 
 typedef struct microhad_https_session {
