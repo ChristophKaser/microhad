@@ -452,6 +452,23 @@ def main():
             while status(ipc_path, 1, 317)["state"] != "running":
                 assert time.monotonic() < deadline
                 time.sleep(0.01)
+            # The private OTA endpoint uses a bounded binary frame, independent
+            # of the external JSON and WebSocket representations.
+            ota_path = Path(str(ipc_path) + '.ota')
+            deadline = time.monotonic() + 5
+            while not ota_path.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            with socket.socket(socket.AF_UNIX) as ota:
+                ota.settimeout(2)
+                ota.connect(str(ota_path))
+                request = struct.pack('<HBBHQH', 14, 1, 1, 0, 0, 0)
+                ota.sendall(request[:3]); ota.sendall(request[3:])
+                size = struct.unpack('<H', receive(ota, 2))[0]
+                reply = receive(ota, size)
+                version, state_len, error_len, progress, fw, vendor, product = struct.unpack_from('<BBHQIHH', reply)
+                assert (version, progress, fw, vendor, product) == (1, 0, 0, 0, 0)
+                assert reply[20:20 + state_len] == b'empty'
+                assert len(reply) == 20 + state_len + error_len
             assert radio.channel_writes and all(channel == 15 for channel in radio.channel_writes)
             created = status(ipc_path, 2, 318)
             assert created["configured"] and created["dataset_channel"] == 15
@@ -562,7 +579,8 @@ def main():
             committed = credentials.read_bytes()
             metadata = credentials.stat()
             channel_writes_before_expiry = len(radio.channel_writes)
-            time.sleep(5.1)
+            # The production coordinator observation lease is 60 seconds.
+            time.sleep(60.1)
             expired = status(ipc_path, 2, 499)
             assert expired["state"] == "awaiting_coordinator" and not expired["attached"]
             assert "zigbee_channel" not in expired and expired["dataset_channel"] == 15

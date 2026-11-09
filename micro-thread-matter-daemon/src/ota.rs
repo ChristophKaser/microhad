@@ -18,7 +18,7 @@ use rs_matter::{
     transport::exchange::Exchange,
     Matter,
 };
-use serde::Deserialize;
+use crate::ota_wire;
 use std::{
     cell::RefCell,
     fs::{File, OpenOptions},
@@ -60,6 +60,14 @@ pub struct Provider {
     image: RefCell<Option<Image>>,
     fabric: NonZeroU8,
 }
+struct ProviderStatus {
+    state: &'static str,
+    progress: u64,
+    error: String,
+    version: Option<String>,
+    manufacturer: Option<u16>,
+    image_type: Option<u16>,
+}
 impl Provider {
     pub fn new(fabric: NonZeroU8) -> Self {
         Self {
@@ -100,16 +108,16 @@ impl Provider {
             }
         }
     }
-    fn status(&self) -> serde_json::Value {
+    fn status(&self) -> ProviderStatus {
         let mut image = self.image.borrow_mut();
         if let Some(i) = image.as_mut() {
             if i.active() && i.touched.elapsed() > Duration::from_secs(3600) {
                 i.state = "failed";
                 i.error = "Update timed out".into();
             }
-            serde_json::json!({"state":i.state,"progress":i.progress,"error":i.error,"version":i.metadata().map(|m|m.software_version).unwrap_or(0).to_string(),"manufacturer":i.metadata().map(|m|m.vendor_id).unwrap_or(0),"image_type":i.metadata().map(|m|m.product_id).unwrap_or(0)})
+            ProviderStatus { state:i.state,progress:i.progress,error:i.error.clone(),version:Some(i.metadata().map(|m|m.software_version).unwrap_or(0).to_string()),manufacturer:Some(i.metadata().map(|m|m.vendor_id).unwrap_or(0)),image_type:Some(i.metadata().map(|m|m.product_id).unwrap_or(0)) }
         } else {
-            serde_json::json!({"state":"empty","progress":0,"error":""})
+            ProviderStatus { state:"empty",progress:0,error:String::new(),version:None,manufacturer:None,image_type:None }
         }
     }
     fn start<C: Crypto>(
@@ -377,14 +385,6 @@ impl OtaImages for Provider {
         Ok(n)
     }
 }
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Command {
-    action: String,
-    path: Option<String>,
-    node: Option<String>,
-    endpoint: Option<u16>,
-}
 fn same_user(stream: &UnixStream) -> bool {
     use std::os::fd::AsRawFd;
     let mut cred: libc::ucred = unsafe { core::mem::zeroed() };
@@ -455,23 +455,22 @@ impl Control {
         self.clients.retain_mut(|c|{
             if Instant::now()>c.deadline{return false;}
             if c.reply.is_empty(){let mut b=[0;1024];match c.stream.read(&mut b){Ok(0)=>return false,Ok(n)=>c.bytes.extend_from_slice(&b[..n]),Err(e)if e.kind()==std::io::ErrorKind::WouldBlock=>return true,Err(_)=>return false}
-                if c.bytes.len()>1024{return false;}if !c.bytes.ends_with(b"\n"){return true;}
-                let response=match serde_json::from_slice::<Command>(&c.bytes){
-                    Ok(cmd)if cmd.action=="status"=>provider.status(),
-                    Ok(cmd)if cmd.action=="cancel"=>{provider.cancel();provider.status()},
-                    Ok(cmd)if cmd.action=="inspect"=>{
-                        match cmd.path.and_then(|p|provider.start(&p,0,0,crypto).ok()){
-                            Some(())=>provider.status(),None=>serde_json::json!({"error":"Invalid Matter OTA container or unsupported payload digest"})
-                        }
-                    },
-                    Ok(cmd)if cmd.action=="start"=>{
-                        let node=cmd.node.as_ref().filter(|s|s.len()==16).and_then(|s|u64::from_str_radix(s,16).ok());
-                        if let (Some(node),Some(path))=(node,cmd.path){
-                            if catalog.nodes().iter().any(|n|n.id==node&&n.phase==Phase::Complete){match provider.start(&path,node,cmd.endpoint.unwrap_or(0),crypto){Ok(())=>provider.status(),Err(_)=>serde_json::json!({"error":"Invalid, incompatible, or unsupported Matter firmware image"})}}
-                            else{serde_json::json!({"error":"Unknown Matter node"})}
-                        }else{serde_json::json!({"error":"Invalid OTA request"})}
-                    },_=>serde_json::json!({"error":"Invalid OTA command"})};
-                c.reply=serde_json::to_vec(&response).unwrap();c.reply.push(b'\n');
+                if c.bytes.len()<2{return true;}
+                let length=u16::from_le_bytes([c.bytes[0],c.bytes[1]]) as usize;
+                if length>ota_wire::MAX_FRAME||c.bytes.len()>length+2{return false;}
+                if c.bytes.len()<length+2{return true;}
+                let Some(cmd)=ota_wire::decode_request(&c.bytes) else{return false;};
+                let error=match cmd.action {
+                    1=>None,
+                    2=>{provider.cancel();None},
+                    3=>provider.start(&cmd.path,0,0,crypto).err().map(|_|"Invalid Matter OTA container or unsupported payload digest"),
+                    4=>if catalog.nodes().iter().any(|n|n.id==cmd.node&&n.phase==Phase::Complete){provider.start(&cmd.path,cmd.node,cmd.endpoint,crypto).err().map(|_|"Invalid, incompatible, or unsupported Matter firmware image")}else{Some("Unknown Matter node")},
+                    _=>Some("Invalid OTA command"),
+                };
+                let status=provider.status();
+                let message=error.unwrap_or(&status.error);
+                let Some(reply)=ota_wire::encode_response(if error.is_some(){""}else{status.state},message,status.progress,status.version.as_ref().and_then(|v|v.parse().ok()).unwrap_or(0),status.manufacturer.unwrap_or(0),status.image_type.unwrap_or(0)) else{return false;};
+                c.reply=reply;
             }
             match c.stream.write(&c.reply[c.sent..]){Ok(0)=>false,Ok(n)=>{c.sent+=n;c.sent<c.reply.len()},Err(e)=>e.kind()==std::io::ErrorKind::WouldBlock}
         });
@@ -685,7 +684,7 @@ mod tests {
         let size = ready(provider.size(&fd)).unwrap();
         let mut bytes = [0; 32];
         ready(provider.read(&fd, size - 1, &mut bytes)).unwrap();
-        assert_eq!(provider.status()["progress"], 0);
+        assert_eq!(provider.status().progress, 0);
         let mut offset = 0;
         while offset < size {
             offset += ready(provider.read(&fd, offset, &mut bytes)).unwrap() as u64;
@@ -699,9 +698,9 @@ mod tests {
             OtaApplyOutcome::Proceed { delay_secs: 0 }
         );
         ready(provider.applied(peer, &token, 1));
-        assert_eq!(provider.status()["state"], "awaiting_confirmation");
+        assert_eq!(provider.status().state, "awaiting_confirmation");
         ready(provider.applied(peer, &token, 2));
-        assert_eq!(provider.status()["state"], "complete");
+        assert_eq!(provider.status().state, "complete");
         provider.cancel();
         assert_eq!(ready(provider.size(&fd)), None);
     }
@@ -718,7 +717,7 @@ mod tests {
         assert!(provider.start(&file.path, 3, 0, &crypto).is_err());
         provider.image.borrow_mut().as_mut().unwrap().touched =
             Instant::now() - Duration::from_secs(3601);
-        assert_eq!(provider.status()["state"], "failed");
+        assert_eq!(provider.status().state, "failed");
         provider.cancel();
         let mut f = OpenOptions::new().append(true).open(&file.path).unwrap();
         f.write_all(b"corruption").unwrap();

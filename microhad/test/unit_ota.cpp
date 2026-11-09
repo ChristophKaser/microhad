@@ -10,6 +10,11 @@
 #include <cassert>
 #include <cstdio>
 #include <sstream>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/wait.h>
+#include <cstring>
+bool testMatterOtaRpc(const std::string& socket);
 void runOtaGatewayPageTests();
 void runOtaNotificationProfileTest(unsigned short profile, const std::string& image);
 class OtaTestPeer {
@@ -34,6 +39,19 @@ public:
 };
 
 namespace {
+void otaSocketProtocol(){
+    std::ostringstream name;name<<"/tmp/microhad-ota-wire-"<<getpid();const std::string path=name.str();
+    int fd=socket(AF_UNIX,SOCK_STREAM,0);assert(fd>=0);sockaddr_un address;std::memset(&address,0,sizeof(address));address.sun_family=AF_UNIX;std::strcpy(address.sun_path,path.c_str());
+    assert(bind(fd,reinterpret_cast<sockaddr*>(&address),sizeof(address))==0);assert(listen(fd,1)==0);
+    pid_t child=fork();assert(child>=0);
+    if(child==0){int peer=accept(fd,0,0);if(peer<0)_exit(1);unsigned char request[16];size_t n=0;while(n<sizeof(request)){ssize_t got=read(peer,request+n,sizeof(request)-n);if(got<=0)_exit(2);n+=got;}
+        const unsigned char expected[]={14,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0};if(std::memcmp(request,expected,sizeof(expected)))_exit(3);
+        const unsigned char reply[]={25,0,1,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,'e','m','p','t','y'};
+        if(write(peer,reply,3)!=3||write(peer,reply+3,sizeof(reply)-3)!=static_cast<ssize_t>(sizeof(reply)-3))_exit(4);
+        close(peer);close(fd);_exit(0);
+    }
+    assert(testMatterOtaRpc(path));int status=0;assert(waitpid(child,&status,0)==child&&WIFEXITED(status)&&WEXITSTATUS(status)==0);close(fd);assert(unlink(path.c_str())==0);
+}
 void put(std::string* s,unsigned long n,unsigned bytes){for(unsigned i=0;i<bytes;++i)s->push_back(static_cast<char>(n>>(i*8)));}
 std::string hex(const std::string& s){const char* digits="0123456789abcdef";std::string out;for(unsigned long i=0;i<s.size();++i){unsigned char b=s[i];out+=digits[b>>4];out+=digits[b&15];}return out;}
 std::vector<unsigned char> args(unsigned long version){std::string s;s.push_back(0);put(&s,0x1234,2);put(&s,0x5678,2);put(&s,version,4);return std::vector<unsigned char>(s.begin(),s.end());}
@@ -95,7 +113,7 @@ void otaIdentityTests() {
 }
 }
 void runOtaUnitTests(){
-    OtaTestPeer::temporaryStorage(); catalogTests(); otaIdentityTests();
+    otaSocketProtocol();OtaTestPeer::temporaryStorage(); catalogTests(); otaIdentityTests();
     OtaStore& ota=OtaStore::instance();std::string error;
     assert(!ota.upload("begin","{\"size\":16777217,\"protocol\":\"zigbee\"}",&error));
     std::string image;put(&image,0x0beef11e,4);put(&image,0x100,2);put(&image,56,2);put(&image,0,2);put(&image,0x1234,2);put(&image,0x5678,2);put(&image,2,4);put(&image,2,2);image.append(32,'\0');put(&image,162,4);put(&image,0,2);put(&image,100,4);image.append(100,'x');assert(image.size()==162);

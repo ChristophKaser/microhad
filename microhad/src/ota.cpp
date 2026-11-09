@@ -23,20 +23,36 @@ struct Lock {
 };
 unsigned long le(const unsigned char* p, unsigned n) { unsigned long v=0; for(unsigned i=0;i<n;++i)v|=static_cast<unsigned long>(p[i])<<(8*i); return v; }
 void put(std::vector<unsigned char>* p,unsigned long v,unsigned n){for(unsigned i=0;i<n;++i)p->push_back(static_cast<unsigned char>(v>>(8*i)));}
-bool rpc(const std::string& socket,const std::string& body,std::string* result) {
-    if(socket.size()>=sizeof(((sockaddr_un*)0)->sun_path))return false;
-    int fd=::socket(AF_UNIX,SOCK_STREAM,0); if(fd<0)return false;
-    timeval timeout;timeout.tv_sec=2;timeout.tv_usec=0;
-    setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout));
+struct OtaReply { std::string state,error; uint64_t progress; uint32_t version; uint16_t manufacturer,type; };
+bool rpc(const std::string& socket,unsigned action,const std::string& path,const std::string& node,unsigned short endpoint,OtaReply* result) {
+    if(socket.size()>=sizeof(((sockaddr_un*)0)->sun_path)||path.size()>1008||node.size()>16)return false;
+    uint64_t nodeId=0;
+    for(size_t i=0;i<node.size();++i){char c=node[i];unsigned digit=c>='0'&&c<='9'?c-'0':c>='a'&&c<='f'?c-'a'+10:c>='A'&&c<='F'?c-'A'+10:16;if(digit>15)return false;nodeId=(nodeId<<4)|digit;}
+    if(!node.empty()&&node.size()!=16)return false;
+    std::vector<unsigned char> request;put(&request,14+path.size(),2);put(&request,1,1);put(&request,action,1);put(&request,endpoint,2);
+    for(unsigned i=0;i<8;++i)request.push_back(static_cast<unsigned char>(nodeId>>(8*i)));
+    put(&request,path.size(),2);request.insert(request.end(),path.begin(),path.end());
+    int fd=::socket(AF_UNIX,SOCK_STREAM,0);if(fd<0)return false;
+    timeval timeout;timeout.tv_sec=2;timeout.tv_usec=0;setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout));
     sockaddr_un a;memset(&a,0,sizeof(a));a.sun_family=AF_UNIX;strcpy(a.sun_path,socket.c_str());
-    bool ok=connect(fd,reinterpret_cast<sockaddr*>(&a),sizeof(a))==0;
-    std::string request=body+"\n";unsigned long sent=0;
-    while(ok&&sent<request.size()){ssize_t n=send(fd,request.data()+sent,request.size()-sent,MSG_NOSIGNAL);if(n<=0)ok=false;else sent+=n;}
-    result->clear(); char b[1024];
-    while(ok&&result->find('\n')==std::string::npos&&result->size()<4096){ssize_t n=read(fd,b,sizeof(b));if(n<=0){ok=false;break;}result->append(b,n);}
-    close(fd);return ok&&result->find('\n')!=std::string::npos;
+    bool ok=connect(fd,reinterpret_cast<sockaddr*>(&a),sizeof(a))==0;size_t sent=0;
+    while(ok&&sent<request.size()){ssize_t n=send(fd,&request[sent],request.size()-sent,MSG_NOSIGNAL);if(n<=0)ok=false;else sent+=n;}
+    std::vector<unsigned char> reply(2);size_t received=0;
+    while(ok&&received<reply.size()){ssize_t n=read(fd,&reply[received],reply.size()-received);if(n<=0){ok=false;break;}received+=n;if(received==2&&reply.size()==2){unsigned len=le(&reply[0],2);if(len<20||len>1024){ok=false;break;}reply.resize(len+2);}}
+    close(fd);if(!ok||received!=reply.size()||reply[2]!=1)return false;
+    size_t stateLen=reply[3],errorLen=le(&reply[4],2);if(22+stateLen+errorLen!=reply.size())return false;
+    result->progress=0;for(unsigned i=0;i<8;++i)result->progress|=static_cast<uint64_t>(reply[6+i])<<(8*i);
+    result->version=le(&reply[14],4);result->manufacturer=le(&reply[18],2);result->type=le(&reply[20],2);
+    const char* text=reinterpret_cast<const char*>(&reply[0])+22;
+    result->state.assign(text,stateLen);result->error.assign(text+stateLen,errorLen);return true;
 }
 }
+#ifdef MICROHAD_TESTING
+bool testMatterOtaRpc(const std::string& socket) {
+    OtaReply reply;
+    return rpc(socket,1,"","",0,&reply)&&reply.state=="empty"&&reply.error.empty()&&reply.progress==0;
+}
+#endif
 OtaStore& OtaStore::instance(){static OtaStore store;return store;}
 OtaStore::OtaStore():fd_(-1),state_("empty"),size_(0),received_(0),progress_(0),manufacturer_(0),type_(0),minHardware_(0),maxHardware_(0),version_(0),hardwareRange_(false),zigbeeOffered_(false),touched_(0){pthread_mutex_init(&mutex_,0);}
 OtaStore::~OtaStore(){clear();pthread_mutex_destroy(&mutex_);}
@@ -115,13 +131,12 @@ bool OtaStore::parse(std::string* error){
 }
 std::string OtaStore::status(){Lock lock(&mutex_);expire();
     if(!matterSocket_.empty()&&active()&&state_!="starting"&&state_!="cancelling"){
-        const std::string socket=matterSocket_,image=id_;std::string reply;
-        lock.release();bool ok=rpc(socket,"{\"action\":\"status\"}",&reply);lock.acquire();
+        const std::string socket=matterSocket_,image=id_;OtaReply reply;
+        lock.release();bool ok=rpc(socket,1,"","",0,&reply);lock.acquire();
         if(id_==image&&active()&&state_!="starting"&&state_!="cancelling"){
-            if(ok){std::string state,error;long progress=0;
-                if(jsonStringField(reply,"state",&state))state_=state;
-                if(jsonStringField(reply,"error",&error))error_=error;
-                if(jsonLongField(reply,"progress",&progress)&&progress>=0)progress_=progress;
+            if(ok){
+                if(!reply.state.empty())state_=reply.state;
+                error_=reply.error;progress_=reply.progress;
             }else{error_="Matter OTA service unavailable; installation state is unknown";}
         }
     }
@@ -132,8 +147,8 @@ bool OtaStore::cancel(const std::string& image,bool discard,std::string* error){
     if(image!=id_||id_.empty()){*error="Unknown firmware image";return false;}
     if(state_=="starting"||state_=="cancelling"){*error="OTA operation is in progress";return false;}
     if(!matterSocket_.empty()){
-        const std::string socket=matterSocket_,previous=state_;state_="cancelling";std::string reply;
-        lock.release();bool ok=rpc(socket,"{\"action\":\"cancel\"}",&reply);lock.acquire();
+        const std::string socket=matterSocket_,previous=state_;state_="cancelling";OtaReply reply;
+        lock.release();bool ok=rpc(socket,2,"","",0,&reply);lock.acquire();
         if(!ok){state_=previous;*error="Matter OTA cancellation could not be confirmed";return false;}
     }
     if(discard)clear();else state_="cancelled";return true;
@@ -141,17 +156,14 @@ bool OtaStore::cancel(const std::string& image,bool discard,std::string* error){
 bool OtaStore::matterControl(const std::string& action,const std::string& image,const std::string& node,const std::string& socket,std::string* error,unsigned short endpoint){
     Lock lock(&mutex_);expire();
     if(image!=id_||protocol_!="matter"||state_!="ready"){*error="Upload a Matter image before starting";return false;}
-    std::string reply;
-    std::string request="{\"action\":\""+action+"\",\"path\":\""+path_+"\",\"node\":\""+jsonEscape(node)+"\"}";
-    std::ostringstream suffix;suffix<<",\"endpoint\":"<<endpoint<<"}";request.erase(request.size()-1);request+=suffix.str();
-    state_="starting";lock.release();bool ok=rpc(socket,request,&reply);lock.acquire();
+    OtaReply reply;
+    const unsigned command=action=="inspect"?3:action=="start"?4:0;
+    if(!command){*error="Invalid OTA command";return false;}
+    state_="starting";lock.release();bool ok=rpc(socket,command,path_,node,endpoint,&reply);lock.acquire();
     state_="ready";
     if(!ok){if(action=="start"){matterSocket_=socket;target_=node;state_="waiting";error_="Start outcome unknown; checking Matter service";}*error="Matter OTA service unavailable";return false;}
-    std::string failure;if(jsonStringField(reply,"error",&failure)&&!failure.empty()){*error=failure;return false;}
-    long value=0;
-    std::string version;if(jsonStringField(reply,"version",&version)&&!version.empty()&&version.size()<=10&&version.find_first_not_of("0123456789")==std::string::npos){errno=0;unsigned long parsed=strtoul(version.c_str(),0,10);if(errno==0)version_=parsed;}
-    if(jsonLongField(reply,"manufacturer",&value)&&value>=0)manufacturer_=value;
-    if(jsonLongField(reply,"image_type",&value)&&value>=0)type_=value;
+    if(!reply.error.empty()){*error=reply.error;return false;}
+    version_=reply.version;manufacturer_=reply.manufacturer;type_=reply.type;
     matterSocket_=socket;if(action=="start"){target_=node;state_="waiting";touched_=time(0);}return true;
 }
 bool OtaStore::zigbee(const std::string& address,unsigned char command,const std::vector<unsigned char>& a,std::vector<unsigned char>* r){Lock lock(&mutex_);expire();

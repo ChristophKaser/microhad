@@ -56,6 +56,8 @@ pub mod time_sync;
 
 #[cfg(feature = "controller-service")]
 pub mod ota;
+#[cfg(feature = "controller-service")]
+mod ota_wire;
 
 #[cfg(feature = "controller-service")]
 pub mod electrical;
