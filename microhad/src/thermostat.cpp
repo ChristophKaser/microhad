@@ -328,7 +328,7 @@ bool applyThermostatSchedule(Device* device, const std::vector<unsigned char>& p
     if (!isThermostat(*device) || payload.size()<3 || payload[0]>32 || !payload[1] || (payload[1]&128) || !payload[2] || payload[2]>3) return false;
     unsigned int width=2+((payload[2]&1)?2:0)+((payload[2]&2)?2:0);
     if (payload.size()!=3UL+width*payload[0]) return false;
-    std::ostringstream normalized,legacy; normalized<<"{\"mode\":"<<static_cast<unsigned int>(payload[2])<<",\"transitions\":[";
+    std::ostringstream legacy;
     std::vector<unsigned char> canonical(payload.begin(),payload.begin()+3);canonical[0]=0;
     int previous=-1;
     for (unsigned int i=0;i<payload[0];++i) {
@@ -341,19 +341,15 @@ bool applyThermostatSchedule(Device* device, const std::vector<unsigned char>& p
                 payload.begin()+3+(i+1)*width,payload.begin()+3+(i-1)*width)) return false;
             continue;
         }
-        previous=at; if(i) { normalized<<','; legacy<<' '; }
+        previous=at; if(canonical[0]) legacy<<' ';
         canonical.insert(canonical.end(),payload.begin()+3+i*width,payload.begin()+3+(i+1)*width);++canonical[0];
-        normalized<<"{\"time\":"<<at;
         legacy<<std::setfill('0')<<std::setw(2)<<at/60<<':'<<std::setw(2)<<at%60<<'/';
-        if(payload[2]&1) { double value=static_cast<short>(get16(payload,offset))/100.0; offset+=2; normalized<<",\"heat\":"<<value; legacy<<value; }
-        if(payload[2]&2) { double value=static_cast<short>(get16(payload,offset))/100.0; normalized<<",\"cool\":"<<value; }
-        normalized<<'}';
+        if(payload[2]&1) { double value=static_cast<short>(get16(payload,offset))/100.0; legacy<<value; }
     }
-    normalized<<"]}";
-    if(isTrvzb(*device) && payload[0]) { std::vector<unsigned char> checked; if(!thermostatScheduleForDevice(*device,normalized.str(),0,&checked))return false; }
+    if(isTrvzb(*device) && payload[0]) { std::vector<unsigned char> checked; if(payload[2]!=1||canonical[0]>6||!thermostatSchedule(legacy.str(),0,&checked))return false; }
     device->thermostat.ensure().scheduleSupported=true;
     for (int day=0;day<7;++day) if (payload[1]&(1<<day)) {
-        device->thermostat.ensure().schedules[day]=payload[2]==1 ? legacy.str() : normalized.str();
+        if(payload[2]==1)device->thermostat.ensure().schedules[day]=legacy.str();else device->thermostat.ensure().schedules.erase(day);
         device->thermostat.ensure().scheduleDetails[day]=canonical;
         device->thermostat.ensure().scheduleSources[day]="reported";
         device->thermostat.ensure().pending.erase(2*ThermostatField::Count+day);
@@ -498,7 +494,8 @@ std::string thermostatJson(const Device& device) {
     for (int day=0;day<7;++day) {
         if(day)out<<',';
         std::map<int,std::string>::const_iterator it=t.schedules.find(day);
-        if (it==t.schedules.end()) out<<"null"; else out<<'"'<<jsonEscape(it->second)<<'"';
+        if(it!=t.schedules.end())out<<'"'<<jsonEscape(it->second)<<'"';
+        else {std::map<int,std::vector<unsigned char> >::const_iterator detail=t.scheduleDetails.find(day);if(detail==t.scheduleDetails.end())out<<"null";else out<<'"'<<jsonEscape(thermostatScheduleJson(detail->second))<<'"';}
     }
     out<<"],\"source_id\":\""<<jsonEscape(device.thermostatSourceId)<<"\",\"stale_minutes\":"<<device.thermostatStaleMinutes
        <<",\"source_observed_at\":"<<t.sourceObservedAt<<",\"status\":\""<<jsonEscape(t.status)

@@ -139,7 +139,7 @@ Value thermostatSnapshotValue(const Device& d) {
     Value& sources=out.fields["schedule_sources"];sources=Value::array();
     for(int day=0;day<7;++day){
         Value detail;std::map<int,std::vector<unsigned char> >::const_iterator it=t.scheduleDetails.find(day);
-        if(it!=t.scheduleDetails.end()){
+        if(it!=t.scheduleDetails.end()&&it->second.size()>=3&&it->second[2]>=1&&it->second[2]<=3&&it->second.size()==3UL+it->second[0]*(2+((it->second[2]&1)?2:0)+((it->second[2]&2)?2:0))){
             const std::vector<unsigned char>& p=it->second;detail=Value::object();detail.fields["mode"]=Value(static_cast<double>(p[2]));
             Value& transitions=detail.fields["transitions"];transitions=Value::array();
             unsigned width=2+((p[2]&1)?2:0)+((p[2]&2)?2:0);
@@ -150,7 +150,7 @@ Value thermostatSnapshotValue(const Device& d) {
             }
         }
         details.items.push_back(detail);std::map<int,std::string>::const_iterator text=t.schedules.find(day);
-        schedules.items.push_back(text==t.schedules.end()?Value():Value(text->second));
+        schedules.items.push_back(text!=t.schedules.end()?Value(text->second):it!=t.scheduleDetails.end()?Value(thermostatScheduleJson(it->second)):Value());
         text=t.scheduleSources.find(day);sources.items.push_back(text==t.scheduleSources.end()?Value():Value(text->second));
     }
     Value& pending=out.fields["pending"];pending=Value::array();
