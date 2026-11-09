@@ -93,7 +93,7 @@ Value electricalSnapshotValue(const ElectricalState& state) {
         if(!electricalDefinition(i->first))continue;
         const ElectricalMeasurement& v=i->second;
         Value entry=Value::object();
-        if(!v.metadata.empty()&&!parse("{"+v.metadata.substr(1)+"}",&entry))return Value();
+        for(std::map<std::string,uint64_t>::const_iterator m=v.metadata.begin();m!=v.metadata.end();++m)entry.fields[m->first]=Value(static_cast<double>(m->second));
         entry.fields["value"]=v.known?Value(v.value):Value();
         entry.fields["unit"]=Value(v.unit);
         entry.fields["quality"]=Value(v.known?"measured":"unknown");
@@ -102,8 +102,8 @@ Value electricalSnapshotValue(const ElectricalState& state) {
         result.fields[i->first]=entry;
     }
     if(!state.resetMetadata.empty()){
-        Value reset;
-        if(!parse("{"+state.resetMetadata.substr(1)+"}",&reset))return Value();
+        Value reset=Value::object();
+        for(std::map<std::string,uint64_t>::const_iterator m=state.resetMetadata.begin();m!=state.resetMetadata.end();++m)reset.fields[m->first]=Value(static_cast<double>(m->second));
         result.fields["cumulative_energy_reset"]=reset;
     }
     return result;

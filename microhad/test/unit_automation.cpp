@@ -45,10 +45,10 @@ void electricalSnapshots(){
     ElectricalState& state=d.electrical.ensure();
     ElectricalMeasurement& power=state.values["active_power"];
     power.known=true;power.value=1.234567;power.unit="W";power.observedAt=12345;power.endpoint=2;
-    power.metadata=",\"start_timestamp\":100,\"end_systime\":200";
+    power.metadata["start_timestamp"]=100;power.metadata["end_systime"]=200;
     ElectricalMeasurement& voltage=state.values["voltage"];
     voltage.unit="V";voltage.observedAt=12346;voltage.endpoint=2;
-    state.resetMetadata=",\"imported_reset_timestamp\":42";
+    state.resetMetadata["imported_reset_timestamp"]=42;
     Value expected;assert(Automation::parse(electricalJson(state),&expected));
     Automation::SnapshotPtr snapshot=Automation::capture(d);
     assert(snapshot->electrical==expected);

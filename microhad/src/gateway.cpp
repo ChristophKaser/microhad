@@ -792,16 +792,16 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     Device before = device;
     if(electricalReport){
         const MatterProto::ElectricalReading& e=reading.electricalValue.value;
-        std::ostringstream metadata;
-#define ELECTRICAL_TIME(field) if(e.field.present)metadata<<",\"" #field "\":"<<e.field.value;
+        std::map<std::string,uint64_t> metadata;
+#define ELECTRICAL_TIME(field) if(e.field.present)metadata[#field]=e.field.value;
         ELECTRICAL_TIME(start_timestamp) ELECTRICAL_TIME(end_timestamp) ELECTRICAL_TIME(start_systime) ELECTRICAL_TIME(end_systime)
         ELECTRICAL_TIME(imported_reset_timestamp) ELECTRICAL_TIME(exported_reset_timestamp) ELECTRICAL_TIME(imported_reset_systime) ELECTRICAL_TIME(exported_reset_systime)
 #undef ELECTRICAL_TIME
-        if(reading.cluster==145&&reading.attribute==5){device.electrical.ensure().resetMetadata=metadata.str();automationReport(device,"electrical");}
+        if(reading.cluster==145&&reading.attribute==5){device.electrical.ensure().resetMetadata=metadata;automationReport(device,"electrical");}
         for(size_t i=0;i<e.quantities.value.items.size();++i){const MatterProto::ElectricalQuantity& q=e.quantities.value.items[i];
             const ElectricalDefinition* def=electricalDefinition(q.key.value);if(!def)continue;
             ElectricalMeasurement& v=device.electrical.ensure().values[q.key.value];
-            v.known=q.known.value;v.value=q.value.value;v.unit=q.unit.value;v.observedAt=time(0);v.endpoint=reading.endpoint;v.metadata=metadata.str();
+            v.known=q.known.value;v.value=q.value.value;v.unit=q.unit.value;v.observedAt=time(0);v.endpoint=reading.endpoint;v.metadata=metadata;
             if(q.key.value=="active_power"){device.power.ensure().known=v.known;device.power.ensure().watts=v.value;}
             if(v.known)history_.appendNumeric(device.external.read().externalId,def->metric,v.value,def->metric==SensorHistory::Power?"watts":v.unit,time(0));
             automationReport(device,"electrical."+q.key.value);
