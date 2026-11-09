@@ -311,7 +311,7 @@ void GatewayRunner::publishAutomation(bool force) {
         // below, and repeated reports retain their individual event snapshots.
         if(before&&e.field!=Automation::FieldCount&&!Automation::sameField(*before,*current,e.field)){
             Automation::DeviceSnapshot* advanced=new Automation::DeviceSnapshot(*before);
-            const unsigned bit=1U<<e.field;advanced->present=(advanced->present&~bit)|(current->present&bit);
+            const uint64_t bit=1ULL<<e.field;advanced->present=(advanced->present&~bit)|(current->present&bit);
             advanced->values[e.field]=current->values[e.field];
             if(e.field==Automation::AirQuality)advanced->airQuality=current->airQuality;
             previous->second=Snapshot(advanced);
