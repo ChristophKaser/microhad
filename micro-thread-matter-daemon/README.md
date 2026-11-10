@@ -304,8 +304,14 @@ capabilities and recover operational addresses and subscriptions with backoff.
 Topology changes are discovered after a service start or explicit recovery.
 ICD features and idle durations are cached until metadata changes, a confirmed
 startup event arrives, or explicit recovery invalidates them. Registered
-Check-In devices retain wake-window gating; short-idle ICDs do not need
-Check-In support to remain recoverable. Negotiated report intervals and the
+Check-In devices retain wake-window gating. After a restart, a saved ICD
+registration can request an authenticated StayActive window using its saved
+management endpoint, even before metadata or subscription keys exist. Recovery
+probes run only while operational work is idle, time out after ten seconds,
+and back off for sixty seconds on failure without replacing registration keys.
+Authenticated Check-Ins also request a window when startup metadata is missing.
+Short-idle ICDs do not need Check-In support to remain recoverable.
+Negotiated report intervals and the
 response-time allowance remain authoritative for subscription liveness.
 
 The original five-minute descriptor refresh (`378ae54`, October 4, 2026)

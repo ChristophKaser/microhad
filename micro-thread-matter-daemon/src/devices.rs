@@ -482,6 +482,32 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 .any(|(awake_node, until)| *awake_node == node && *until > now)
     }
 
+    fn icd_recovery_needed(&self, node: u64, now: Instant) -> bool {
+        self.snapshots.iter().find(|snapshot| snapshot.node == node).is_none_or(|snapshot| {
+            snapshot.endpoints.is_empty() || snapshot.next.is_some_and(|next| next <= now)
+        }) || self.subscriptions.iter().any(|subscription| {
+            subscription.key.node == node && subscription.next_retry <= now
+        })
+    }
+
+    fn icd_recovery_candidate(&self, now: Instant) -> Option<(u64, u16)> {
+        // An awake promise must come from the peer, but obtaining that promise
+        // cannot itself require a Check-In. Persisted subscriptions and volatile
+        // metadata can disappear independently across a controller restart.
+        if self.local_node == 0 || self.work.is_some() || self.subscription_work.is_some() || self.active.is_some() {
+            return None;
+        }
+        let registry = self.icd_registry.as_ref()?;
+        self.registered_nodes.iter().find_map(|&node| {
+            let registration = registry.registration(self.fabric, node)?;
+            let key = (node, registration.endpoint);
+            (self.catalog.nodes().iter().any(|entry| entry.id == node && entry.phase == Phase::Complete)
+                && !self.node_awake(node, now) && self.icd_recovery_needed(node, now)
+                && !self.icd_retry_after.iter().any(|(retry_key, until)| *retry_key == key && *until > now))
+                .then_some(key)
+        })
+    }
+
     fn record_awake_until(&mut self, node: u64, until: Instant) {
         if let Some((_, current)) = self.awake_until.iter_mut().find(|(id, _)| *id == node) {
             *current = (*current).max(until);
@@ -1012,7 +1038,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if now < self.inventory_bootstrap_until || self.inventory_pending() {
             return;
         }
-        if self.poll_icd(now, context) {
+        if self.poll_icd(now, context, !commissioning) {
             return;
         }
         if commissioning {
@@ -1403,7 +1429,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
         false
     }
-    fn poll_icd(&mut self, now: Instant, context: &mut Context<'_>) -> bool {
+    fn poll_icd(&mut self, now: Instant, context: &mut Context<'_>, allow_recovery: bool) -> bool {
         let mut progressed = false;
         // Check-In capture is bounded inside Matter. Drain at most one message
         // per service turn so authentication and private-store sync cannot
@@ -1425,10 +1451,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     let until = now
                         + Duration::from_millis(u64::from(wake.active_mode_threshold_ms).max(1));
                     self.record_awake_until(wake.node, until);
-                    let subscriptions_pending = self.subscriptions.iter().any(|subscription| {
-                        subscription.key.node == wake.node && subscription.next_retry <= now
-                    });
-                    if wake.refresh_required || subscriptions_pending {
+                    if wake.refresh_required || self.icd_recovery_needed(wake.node, now) {
                         if let Some(endpoint) = self
                             .icd_registry
                             .as_ref()
@@ -1478,6 +1501,22 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         "Matter ICD Check-In received without a client registry for {:016x}/fabric {}",
                         message.node, message.fabric
                     );
+                }
+            }
+        }
+        if self.icd_work.is_none() && allow_recovery {
+            if let Some((node, endpoint)) = self.icd_recovery_candidate(now) {
+                let matter = self.matter;
+                let crypto = self.crypto;
+                let fabric = self.fabric;
+                if self.icd_registry.is_some() && self.icd_entropy.is_some() {
+                    let registry = self.icd_registry.take().unwrap();
+                    let entropy = self.icd_entropy.take().unwrap();
+                    log::info!("Matter ICD recovery probe: node={:016x} endpoint={}", node, endpoint);
+                    self.icd_work = Some((node, endpoint, now + Duration::from_secs(10), Box::pin(async move {
+                        let result = crate::icd::subscription_active_until(matter, crypto, fabric, node, endpoint).await.map(Some);
+                        (registry, entropy, result)
+                    })));
                 }
             }
         }
@@ -1567,7 +1606,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 "Matter ICD Management probe timed out for {:016x}/{}",
                 key.0, key.1
             );
-            let retry_at = now + Duration::from_secs(5);
+            let retry_at = now + Duration::from_secs(if self.registered_nodes.contains(&key.0) { 60 } else { 5 });
             if let Some((_, until)) = self
                 .icd_retry_after
                 .iter_mut()
@@ -1607,7 +1646,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         "Matter ICD management probe failed for {:016x}/{}: {:?}",
                         key.0, key.1, result
                     );
-                    let retry_at = now + Duration::from_secs(5);
+                    let retry_at = now + Duration::from_secs(if self.registered_nodes.contains(&key.0) { 60 } else { 5 });
                     if let Some((_, until)) = self
                         .icd_retry_after
                         .iter_mut()
@@ -2451,6 +2490,63 @@ mod tests {
     }
 
     #[test]
+    fn persisted_icd_recovers_metadata_and_subscriptions_without_waiting_for_check_in() {
+        use crate::{entropy::OsEntropy, store::PrivateStore};
+        use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET}, utils::init::InitMaybeUninit};
+        let directory = std::env::temp_dir().join(format!("matter-icd-restart-{}", std::process::id()));
+        let catalog = Catalog::open(PrivateStore::open(&directory).unwrap(), 1, 2).unwrap();
+        let reservation = catalog.reserve(2).unwrap();
+        reservation.fabric_installed().unwrap();reservation.thread_provisioned().unwrap();reservation.complete().unwrap();
+        let fabric = NonZeroU8::new(1).unwrap();
+        let mut registry = crate::icd::ClientRegistry::open(catalog.store()).unwrap();
+        registry.install(fabric, 2, 0, [7; 16], 123).unwrap();
+        drop(registry);
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
+        let mut manager = Manager::new(matter, &crypto, fabric, catalog).unwrap();
+        manager.local_node = 1;
+        let now = Instant::now();manager.inventory_bootstrap_until = now;
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        assert_eq!(manager.registered_nodes, vec![2]);
+        assert!(manager.snapshots.is_empty() && manager.subscriptions.is_empty());
+        assert!(!manager.node_awake(2, now));
+        assert!(manager.icd_recovery_needed(2, now), "empty metadata must request StayActive even before subscription keys exist");
+        assert_eq!(manager.icd_recovery_candidate(now), Some((2,0)));
+        manager.poll_icd(now, &mut context, false);
+        assert!(manager.icd_work.is_none(), "commissioning must not start a background recovery probe");
+        manager.poll_icd(now, &mut context, true);
+        if manager.icd_work.is_some() { manager.poll_icd(now + Duration::from_secs(10), &mut context, true); }
+        assert!(manager.icd_retry_after.iter().any(|(key, until)| *key==(2,0) && *until>=now+Duration::from_secs(60)));
+        assert_eq!(manager.icd_recovery_candidate(now + Duration::from_secs(11)), None);
+        assert!(!manager.node_awake(2, now), "failed probes cannot fabricate liveness");
+        let started = now + Duration::from_secs(12);
+        let until = started + Duration::from_secs(30);
+        let registry = manager.icd_registry.take().unwrap();let entropy=manager.icd_entropy.take().unwrap();
+        assert_eq!(registry.registration(fabric,2).unwrap().starting_counter,123);
+        manager.icd_work=Some((2,0,until,Box::pin(std::future::ready((registry,entropy,Ok(Some(until)))))));
+        assert!(manager.poll_icd(started,&mut context,true));
+        manager.poll(true,false,started,&mut context);
+        assert!(manager.work.is_some(), "a confirmed promise must admit startup discovery");
+        manager.work=Some((2,until,Box::pin(std::future::ready(Ok(Discovery {
+            endpoints: vec![Endpoint { id:0, servers:vec![47,70], clients:vec![], device_types:vec![] },
+                Endpoint { id:1, servers:vec![59], clients:vec![], device_types:vec![] },
+                Endpoint { id:2, servers:vec![59], clients:vec![], device_types:vec![] }],
+            manufacturer:String::new(),model:String::new(),firmware:FirmwareIdentity::default(),
+        })))));
+        assert!(manager.poll_background(started,&mut context));
+        assert_eq!(manager.subscriptions.len(),3);
+        manager.poll(true,false,started,&mut context);
+        assert!(manager.subscription_work.is_some(), "recovered metadata must proceed to button subscriptions");
+        manager.subscription_work=None;
+        assert_eq!(manager.icd_recovery_candidate(until),Some((2,0)), "expired promises can be renewed for outstanding work");
+        for entry in &mut manager.subscriptions {entry.id=Some(77);entry.next_retry=until+Duration::from_secs(900);}
+        assert_eq!(manager.icd_recovery_candidate(until),None,"healthy sleeping peers must not be probed");
+        drop(manager);std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn icd_registration_admits_subscriptions_only_with_a_confirmed_wake_window() {
         use crate::{entropy::OsEntropy, store::PrivateStore};
         use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
@@ -2483,7 +2579,7 @@ mod tests {
         // Complete the same work slot used by RegisterClient + StayActive.
         manager.icd_work = Some((2, 0, until, Box::pin(std::future::ready((registry, entropy, Ok(Some(until)))))));
         let mut context = Context::from_waker(std::task::Waker::noop());
-        assert!(manager.poll_icd(now, &mut context));
+        assert!(manager.poll_icd(now, &mut context, true));
         assert!(manager.registered_nodes.contains(&2));
         assert!(manager.node_awake(2, now));
         manager.poll(true, false, now, &mut context);
@@ -2500,7 +2596,7 @@ mod tests {
         let entropy = manager.icd_entropy.take().unwrap();
         manager.icd_work = Some((2, 0, asleep + Duration::from_secs(10),
             Box::pin(std::future::ready((registry, entropy, Err(ErrorCode::RxTimeout.into()))))));
-        assert!(manager.poll_icd(asleep, &mut context));
+        assert!(manager.poll_icd(asleep, &mut context, true));
         assert!(!manager.node_awake(2, asleep), "a failed StayActive must not invent an awake window");
         assert!(manager.icd_registry.as_ref().unwrap().is_registered(manager.fabric, 2),
             "a failed StayActive must retain the registration for the next authenticated Check-In");
