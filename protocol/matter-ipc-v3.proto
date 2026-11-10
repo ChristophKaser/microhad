@@ -176,6 +176,10 @@ message BleWriteEvent {
   optional uint32 write = 3;
   optional bytes data = 4;
 }
+message ContactEvent {
+  optional uint64 node = 1;
+  optional uint32 age_seconds = 2;
+}
 message ButtonEvent {
   optional uint64 node = 1;
   optional uint32 endpoint = 2;
@@ -311,6 +315,7 @@ message EventPayload {
     ButtonEvent button = 5;
     InventoryRecord inventory = 6;
     InventoryNodeManifest inventory_nodes = 7;
+    ContactEvent contact = 8;
   }
 }
 message MessageBody {

@@ -112,6 +112,7 @@ bool validEvent(const MessageBody& b){
     if(name=="matter_report")return d.reading.present&&reading(d.reading.value,0,true);
     if(name=="matter_inventory")return d.inventory.present&&inventory(d.inventory.value,0,0,0);
     if(name=="matter_inventory_nodes")return d.inventory_nodes.present&&inventoryNodes(d.inventory_nodes.value,0);
+    if(name=="matter_contact")return d.contact.present&&d.contact.value.node.present&&d.contact.value.node.value>=2&&d.contact.value.age_seconds.present;
     if(name=="matter_button")return d.button.present&&button(d.button.value,0);
     if(name!="ble_write"||!d.ble_write.present){ return false; }const BleWriteEvent& w=d.ble_write.value;
     return w.session.present&&w.session.value&&w.generation.present&&w.generation.value&&w.write.present&&w.write.value&&w.data.present&&!w.data.value.empty()&&w.data.value.size()<=244;
@@ -123,6 +124,11 @@ MatterChannel::Body MatterChannel::operationPollBody(uint64_t id){Body b;if(!id)
 bool MatterChannel::threadChannel(const Body& in,unsigned char channel,Body* out){if(channel<11||channel>26||!in.thread_control_request.present){ return false; }*out=in;if(out->thread_control_request.value.action.value!="retry")out->thread_control_request.value.zigbee_channel=channel;return true;}
 bool MatterChannel::deviceResult(const Body& b,uint64_t id,MatterReading* r){if(!r||!MatterWire::validResponse(10,b)||!b.reply.value.ok.value||!b.reply.value.result.value.job.present){ return false; }const MatterProto::DeviceOperationJob& j=b.reply.value.result.value.job.value;return j.state.value=="complete"&&j.job.value==id&&reading(j.result.value,r,false);}
 bool MatterChannel::deviceReportEvent(const Body& b,MatterReading* r){const EventPayload* e=eventData(b,"matter_report");return r&&e&&e->reading.present&&reading(e->reading.value,r,true);}
+bool MatterChannel::deviceContactEvent(const Body& b,std::string* node,uint32_t* age) {
+    const EventPayload* e=eventData(b,"matter_contact");
+    if(!node||!age||!e||!e->contact.present||!e->contact.value.node.present||e->contact.value.node.value<2||!e->contact.value.age_seconds.present)return false;
+    *node=MatterWire::hexId(e->contact.value.node.value);*age=e->contact.value.age_seconds.value;return true;
+}
 bool MatterChannel::deviceButtonEvent(const Body& b,MatterButtonEvent* v){const EventPayload* e=eventData(b,"matter_button");return v&&e&&e->button.present&&button(e->button.value,v);}
 bool MatterChannel::inventoryEvent(const Body& b,std::string* kind,unsigned* count,MatterEndpoint* out){const EventPayload* e=eventData(b,"matter_inventory");return e&&e->inventory.present&&inventory(e->inventory.value,kind,count,out);}
 bool MatterChannel::inventoryNodesEvent(const Body& b,std::vector<std::string>* out){out->clear();const EventPayload* e=eventData(b,"matter_inventory_nodes");return e&&e->inventory_nodes.present&&inventoryNodes(e->inventory_nodes.value,out);}

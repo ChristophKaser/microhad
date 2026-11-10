@@ -29,7 +29,7 @@ def normalize(v,msg,kind,op,event='',incoming=False):
             return normalize(x,f['message'],kind,op,event,True) if f['type']==11 else x
         if msg=='MessageBody':key=REQUEST_NAMES[op] if kind==0 else 'event' if kind==2 else 'matter' if op==1 else 'thread' if op==2 else 'reply'
         elif msg=='OperationResult':key='session' if op<=5 else ACK_NAMES[op] if op<=8 else 'thread' if op==9 else 'subscription_health' if 'subscriptions' in v else 'page' if 'devices' in v else 'job'
-        elif msg=='EventPayload':key={'thread':'thread','commissioning':'session','ble_write':'ble_write','matter_report':'reading','matter_button':'button','matter_inventory':'inventory','matter_inventory_nodes':'inventory_nodes'}[event]
+        elif msg=='EventPayload':key={'thread':'thread','commissioning':'session','ble_write':'ble_write','matter_report':'reading','matter_button':'button','matter_contact':'contact','matter_inventory':'inventory','matter_inventory_nodes':'inventory_nodes'}[event]
         elif v is None:key='null'
         elif msg=='NullableText':key='text'
         elif msg in ('NullableUint','NullableInt'):key='integer'

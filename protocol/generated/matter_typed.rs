@@ -322,6 +322,13 @@ pub write: Option<u32>,
 pub data: Option<Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ContactEvent {
+#[prost(uint64, optional, tag="1")]
+pub node: Option<u64>,
+#[prost(uint32, optional, tag="2")]
+pub age_seconds: Option<u32>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ButtonEvent {
 #[prost(uint64, optional, tag="1")]
 pub node: Option<u64>,
@@ -566,7 +573,7 @@ SubscriptionHealth(SubscriptionHealth),
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EventPayload {
-#[prost(oneof="EventPayloadChoice", tags="1,2,3,4,5,6,7")]
+#[prost(oneof="EventPayloadChoice", tags="1,2,3,4,5,6,7,8")]
 pub choice: Option<EventPayloadChoice>,
 }
 #[derive(Clone, PartialEq, ::prost::Oneof)]
@@ -585,6 +592,8 @@ Button(ButtonEvent),
 Inventory(InventoryRecord),
 #[prost(message, tag="7")]
 InventoryNodes(InventoryNodeManifest),
+#[prost(message, tag="8")]
+Contact(ContactEvent),
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MessageBody {
@@ -886,7 +895,7 @@ pub hysteresis: Option<f64>,
 pub unit: Option<String>,
 }
 pub(super) const MAX_FIELDS: usize = 16;
-pub(super) const IPC_ENVELOPE_SCHEMA: usize = 48;
+pub(super) const IPC_ENVELOPE_SCHEMA: usize = 49;
 pub(super) struct Field {pub tag:u32,pub kind:u32,pub message:usize,pub repeated:bool,pub oneof:bool}
 pub(super) fn schema(id:usize)->&'static [Field]{SCHEMAS[id]}
 const SCHEMAS:&[&[Field]]=&[
@@ -949,7 +958,7 @@ Field{tag:6,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:7,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:8,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:9,kind:4,message:0,repeated:false,oneof:false},
-Field{tag:10,kind:11,message:49,repeated:false,oneof:false},
+Field{tag:10,kind:11,message:50,repeated:false,oneof:false},
 Field{tag:11,kind:8,message:0,repeated:false,oneof:false},
 Field{tag:12,kind:8,message:0,repeated:false,oneof:false},
 ],
@@ -970,12 +979,12 @@ Field{tag:11,kind:11,message:24,repeated:false,oneof:false},
 Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:2,kind:8,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:9,message:0,repeated:false,oneof:false},
-Field{tag:4,kind:11,message:44,repeated:false,oneof:false},
+Field{tag:4,kind:11,message:45,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:2,kind:9,message:0,repeated:false,oneof:false},
-Field{tag:3,kind:11,message:45,repeated:false,oneof:false},
+Field{tag:3,kind:11,message:46,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:8,message:0,repeated:false,oneof:false},
@@ -1013,21 +1022,21 @@ Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
-Field{tag:2,kind:11,message:50,repeated:false,oneof:false},
-Field{tag:3,kind:11,message:38,repeated:false,oneof:false},
+Field{tag:2,kind:11,message:51,repeated:false,oneof:false},
+Field{tag:3,kind:11,message:39,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
 Field{tag:2,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:8,message:0,repeated:false,oneof:false},
-Field{tag:4,kind:11,message:37,repeated:false,oneof:false},
-Field{tag:5,kind:11,message:38,repeated:false,oneof:false},
-Field{tag:6,kind:11,message:51,repeated:false,oneof:false},
-Field{tag:7,kind:11,message:51,repeated:false,oneof:false},
+Field{tag:4,kind:11,message:38,repeated:false,oneof:false},
+Field{tag:5,kind:11,message:39,repeated:false,oneof:false},
+Field{tag:6,kind:11,message:52,repeated:false,oneof:false},
+Field{tag:7,kind:11,message:52,repeated:false,oneof:false},
 Field{tag:8,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:9,kind:9,message:0,repeated:false,oneof:false},
-Field{tag:10,kind:11,message:39,repeated:false,oneof:false},
-Field{tag:11,kind:11,message:51,repeated:false,oneof:false},
+Field{tag:10,kind:11,message:40,repeated:false,oneof:false},
+Field{tag:11,kind:11,message:52,repeated:false,oneof:false},
 Field{tag:12,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:13,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:14,kind:13,message:0,repeated:false,oneof:false},
@@ -1049,14 +1058,14 @@ Field{tag:5,kind:11,message:23,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:9,message:0,repeated:false,oneof:false},
-Field{tag:2,kind:11,message:43,repeated:false,oneof:false},
+Field{tag:2,kind:11,message:44,repeated:false,oneof:false},
 ],
 &[
-Field{tag:1,kind:11,message:36,repeated:false,oneof:false},
+Field{tag:1,kind:11,message:37,repeated:false,oneof:false},
 Field{tag:2,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:4,kind:13,message:0,repeated:false,oneof:false},
-Field{tag:5,kind:11,message:52,repeated:false,oneof:false},
+Field{tag:5,kind:11,message:53,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
@@ -1067,15 +1076,19 @@ Field{tag:4,kind:12,message:0,repeated:false,oneof:false},
 &[
 Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
 Field{tag:2,kind:13,message:0,repeated:false,oneof:false},
+],
+&[
+Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
+Field{tag:2,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:4,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:5,kind:13,message:0,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
-Field{tag:2,kind:11,message:38,repeated:false,oneof:false},
-Field{tag:3,kind:11,message:38,repeated:false,oneof:false},
-Field{tag:4,kind:11,message:53,repeated:false,oneof:false},
+Field{tag:2,kind:11,message:39,repeated:false,oneof:false},
+Field{tag:3,kind:11,message:39,repeated:false,oneof:false},
+Field{tag:4,kind:11,message:54,repeated:false,oneof:false},
 Field{tag:5,kind:13,message:0,repeated:false,oneof:false},
 ],
 &[
@@ -1088,7 +1101,7 @@ Field{tag:2,kind:11,message:20,repeated:false,oneof:false},
 Field{tag:3,kind:13,message:0,repeated:false,oneof:false},
 ],
 &[
-Field{tag:1,kind:11,message:54,repeated:false,oneof:false},
+Field{tag:1,kind:11,message:55,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
@@ -1098,23 +1111,23 @@ Field{tag:1,kind:4,message:0,repeated:false,oneof:false},
 Field{tag:2,kind:8,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:8,message:0,repeated:false,oneof:false},
 Field{tag:4,kind:9,message:0,repeated:false,oneof:false},
-Field{tag:5,kind:11,message:38,repeated:false,oneof:false},
-Field{tag:6,kind:11,message:55,repeated:false,oneof:false},
+Field{tag:5,kind:11,message:39,repeated:false,oneof:false},
+Field{tag:6,kind:11,message:56,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:2,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:13,message:0,repeated:false,oneof:false},
-Field{tag:4,kind:11,message:38,repeated:false,oneof:false},
+Field{tag:4,kind:11,message:39,repeated:false,oneof:false},
 Field{tag:5,kind:13,message:0,repeated:false,oneof:false},
-Field{tag:6,kind:11,message:38,repeated:false,oneof:false},
+Field{tag:6,kind:11,message:39,repeated:false,oneof:false},
 Field{tag:7,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:8,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:9,kind:9,message:0,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
-Field{tag:2,kind:11,message:52,repeated:false,oneof:false},
+Field{tag:2,kind:11,message:53,repeated:false,oneof:false},
 ],
 &[
 Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
@@ -1146,10 +1159,10 @@ Field{tag:3,kind:9,message:0,repeated:false,oneof:false},
 Field{tag:4,kind:8,message:0,repeated:false,oneof:false},
 ],
 &[
-Field{tag:1,kind:11,message:40,repeated:true,oneof:false},
+Field{tag:1,kind:11,message:41,repeated:true,oneof:false},
 ],
 &[
-Field{tag:1,kind:11,message:41,repeated:false,oneof:false},
+Field{tag:1,kind:11,message:42,repeated:false,oneof:false},
 Field{tag:2,kind:4,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:4,message:0,repeated:false,oneof:false},
 Field{tag:4,kind:4,message:0,repeated:false,oneof:false},
@@ -1167,8 +1180,8 @@ Field{tag:4,kind:18,message:0,repeated:false,oneof:true},
 Field{tag:5,kind:1,message:0,repeated:false,oneof:true},
 Field{tag:6,kind:9,message:0,repeated:false,oneof:true},
 Field{tag:7,kind:11,message:24,repeated:false,oneof:true},
-Field{tag:8,kind:11,message:47,repeated:false,oneof:true},
-Field{tag:9,kind:11,message:42,repeated:false,oneof:true},
+Field{tag:8,kind:11,message:48,repeated:false,oneof:true},
+Field{tag:9,kind:11,message:43,repeated:false,oneof:true},
 ],
 &[
 Field{tag:1,kind:11,message:15,repeated:false,oneof:true},
@@ -1178,16 +1191,17 @@ Field{tag:4,kind:11,message:18,repeated:false,oneof:true},
 Field{tag:5,kind:11,message:14,repeated:false,oneof:true},
 Field{tag:6,kind:11,message:19,repeated:false,oneof:true},
 Field{tag:7,kind:11,message:21,repeated:false,oneof:true},
-Field{tag:8,kind:11,message:32,repeated:false,oneof:true},
+Field{tag:8,kind:11,message:33,repeated:false,oneof:true},
 ],
 &[
 Field{tag:1,kind:11,message:14,repeated:false,oneof:true},
 Field{tag:2,kind:11,message:15,repeated:false,oneof:true},
 Field{tag:3,kind:11,message:25,repeated:false,oneof:true},
 Field{tag:4,kind:11,message:22,repeated:false,oneof:true},
-Field{tag:5,kind:11,message:26,repeated:false,oneof:true},
-Field{tag:6,kind:11,message:29,repeated:false,oneof:true},
-Field{tag:7,kind:11,message:30,repeated:false,oneof:true},
+Field{tag:5,kind:11,message:27,repeated:false,oneof:true},
+Field{tag:6,kind:11,message:30,repeated:false,oneof:true},
+Field{tag:7,kind:11,message:31,repeated:false,oneof:true},
+Field{tag:8,kind:11,message:26,repeated:false,oneof:true},
 ],
 &[
 Field{tag:1,kind:11,message:0,repeated:false,oneof:true},
@@ -1214,10 +1228,10 @@ Field{tag:1,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:2,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:3,kind:13,message:0,repeated:false,oneof:false},
 Field{tag:4,kind:13,message:0,repeated:false,oneof:false},
-Field{tag:5,kind:11,message:46,repeated:false,oneof:false},
+Field{tag:5,kind:11,message:47,repeated:false,oneof:false},
 ],
 &[
-Field{tag:1,kind:11,message:27,repeated:true,oneof:false},
+Field{tag:1,kind:11,message:28,repeated:true,oneof:false},
 ],
 &[
 Field{tag:1,kind:11,message:20,repeated:true,oneof:false},
@@ -1226,16 +1240,16 @@ Field{tag:1,kind:11,message:20,repeated:true,oneof:false},
 Field{tag:1,kind:13,message:0,repeated:true,oneof:false},
 ],
 &[
-Field{tag:1,kind:11,message:35,repeated:true,oneof:false},
+Field{tag:1,kind:11,message:36,repeated:true,oneof:false},
 ],
 &[
-Field{tag:1,kind:11,message:28,repeated:true,oneof:false},
+Field{tag:1,kind:11,message:29,repeated:true,oneof:false},
 ],
 &[
-Field{tag:1,kind:11,message:31,repeated:true,oneof:false},
+Field{tag:1,kind:11,message:32,repeated:true,oneof:false},
 ],
 &[
-Field{tag:1,kind:11,message:33,repeated:true,oneof:false},
+Field{tag:1,kind:11,message:34,repeated:true,oneof:false},
 ],
 ];
 pub(super) trait Bounded {fn bounded(&self,depth:usize)->bool;}
@@ -1332,6 +1346,9 @@ if let Some(value)=&self.transitions{if !value.bounded(depth+1){return false;}}
 true
 }}
 impl Bounded for BleWriteEvent {fn bounded(&self,depth:usize)->bool{if depth>16{return false;}
+true
+}}
+impl Bounded for ContactEvent {fn bounded(&self,depth:usize)->bool{if depth>16{return false;}
 true
 }}
 impl Bounded for ButtonEvent {fn bounded(&self,depth:usize)->bool{if depth>16{return false;}
@@ -1455,6 +1472,7 @@ Some(EventPayloadChoice::Reading(value))=>{let _=value;value.bounded(depth+1)},
 Some(EventPayloadChoice::Button(value))=>{let _=value;value.bounded(depth+1)},
 Some(EventPayloadChoice::Inventory(value))=>{let _=value;value.bounded(depth+1)},
 Some(EventPayloadChoice::InventoryNodes(value))=>{let _=value;value.bounded(depth+1)},
+Some(EventPayloadChoice::Contact(value))=>{let _=value;value.bounded(depth+1)},
 None=>true,
 }
 }}

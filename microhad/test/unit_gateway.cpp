@@ -32,6 +32,41 @@
 class GatewayTestPeer {
 public:
 
+    static void matterContactTimes() {
+        char directory[]="/tmp/microhad-contact-XXXXXX";assert(mkdtemp(directory));
+        Gateway gateway("/dev/null",115200,directory,"","","",0,std::string(directory)+"/history.values");
+        const std::string node="matter:0000000000000001:0000000000000028";
+        MatterEndpoint first;first.node="0000000000000028";first.id=node+":0001";first.endpoint=1;first.online=true;first.servers.push_back(59);
+        MatterEndpoint second=first;second.id=node+":0002";second.endpoint=2;
+        std::vector<MatterEndpoint> endpoints;endpoints.push_back(first);endpoints.push_back(second);std::string error;
+        assert(gateway.reconcileMatterDevices(endpoints,&error));
+        assert(gateway.devices_[first.id].lastSeen==0 && gateway.devices_[second.id].lastSeen==0);
+        Device parent=gateway.devices_[first.id];parent.ieeeAddress=node;parent.matter.ensure().endpoint=-1;parent.lastSeen=300;
+        gateway.devices_[node]=parent;
+        gateway.devices_[first.id].lastSeen=100;gateway.devices_[second.id].lastSeen=200;
+        assert(gateway.statusJson().find("\"last_seen\":300")!=std::string::npos);
+        gateway.devices_[node].lastSeen=50;
+        assert(gateway.statusJson().find("\"last_seen\":200")!=std::string::npos);
+        // A report from either key updates the parent, not only the preferred key.
+        for(unsigned endpoint=1;endpoint<=2;++endpoint){
+            gateway.devices_[first.id].lastSeen=100;gateway.devices_[second.id].lastSeen=100;gateway.devices_[node].lastSeen=100;
+            MatterButtonEvent button;button.node=first.node;button.endpoint=endpoint;button.event=0;
+            assert(gateway.applyMatterButtonEvent(button,&error));
+            const time_t observed=gateway.devices_[node].lastSeen;assert(observed>=time(0)-1);
+            std::ostringstream field;field<<"\"last_seen\":"<<observed;
+            assert(gateway.statusJson().find(field.str())!=std::string::npos);
+        }
+        assert(gateway.applyMatterContact(first.node,time(0)-10,&error));
+        const time_t observed=gateway.devices_[node].lastSeen;
+        assert(gateway.applyMatterContact(first.node,100,&error));
+        assert(gateway.devices_[node].lastSeen==observed);
+        assert(gateway.reconcileMatterDevices(endpoints,&error));
+        assert(gateway.devices_[first.id].lastSeen==observed);
+        assert(!gateway.applyMatterContact("0000000000000099",observed,&error));
+        assert(!gateway.applyMatterContact(first.node,0,&error));
+        unlink((std::string(directory)+"/devices.json").c_str());rmdir(directory);
+    }
+
     static void electricalMeasurements() {
         char directory[]="/tmp/microhad-electrical-XXXXXX";assert(mkdtemp(directory));
         Gateway gateway("/dev/null",115200,directory,"","","",0,std::string(directory)+"/history.values");
@@ -1061,7 +1096,7 @@ public:
         assert(gateway.devices_[endpoint.id].online && gateway.devices_[endpoint.id].lastSeen > 0);
         gateway.devices_[endpoint.id].lastSeen = 1;
         assert(gateway.reconcileMatterDevices(staleEndpoints, &error));
-        assert(!gateway.devices_[endpoint.id].online && gateway.devices_[endpoint.id].lastSeen == 0);
+        assert(!gateway.devices_[endpoint.id].online && gateway.devices_[endpoint.id].lastSeen == 1); // Offline inventory preserves the last actual contact.
         DeviceValueAlert temperatureAlert;
         temperatureAlert.hasHigh = true;
         temperatureAlert.high = 25;
@@ -4213,6 +4248,7 @@ static void testDeviceComponents() {
 void runUnitTests() {
     {DeviceCacheIsolation cache;testDeviceComponents();}
     { DeviceCacheIsolation cache; GatewayTestPeer::deviceCacheBatching(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::matterContactTimes(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::electricalMeasurements(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::genericThermostats(); }
     { DeviceCacheIsolation cache; testTrvzbProtocol(); }

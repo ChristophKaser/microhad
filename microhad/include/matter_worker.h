@@ -73,6 +73,7 @@ private:
     std::vector<MatterEndpoint> snapshotDevices_;
 
     std::deque<MatterReading> deferredReadings_;
+    std::map<std::string, time_t> deferredContacts_;
     uint32_t nextJob_;
     static bool drainMatterEvents(void* opaque);
     void unavailable();

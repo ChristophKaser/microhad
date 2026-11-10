@@ -100,6 +100,8 @@ bool write(pb_ostream_t*,const InventoryNodeList&,unsigned);
 bool read(pb_istream_t*,InventoryNodeList*,unsigned,unsigned*);
 bool write(pb_ostream_t*,const InventoryNodeManifest&,unsigned);
 bool read(pb_istream_t*,InventoryNodeManifest*,unsigned,unsigned*);
+bool write(pb_ostream_t*,const ContactEvent&,unsigned);
+bool read(pb_istream_t*,ContactEvent*,unsigned,unsigned*);
 bool write(pb_ostream_t*,const EventPayload&,unsigned);
 bool read(pb_istream_t*,EventPayload*,unsigned,unsigned*);
 bool write(pb_ostream_t*,const EventNotification&,unsigned);
@@ -2900,10 +2902,46 @@ bool read(pb_istream_t* s,InventoryNodeManifest* out,unsigned depth,unsigned* un
     }
     *out=v;return true;
 }
+bool write(pb_ostream_t* s,const ContactEvent& v,unsigned depth){
+    if(depth>16){ return false; }
+    (void)s;(void)v;
+    if(v.node.present){
+        if(!pb_encode_tag(s,PB_WT_VARINT,1)){ return false; }
+        if(!pb_encode_varint(s,v.node.value)){ return false; }
+    }
+    if(v.age_seconds.present){
+        if(!pb_encode_tag(s,PB_WT_VARINT,2)){ return false; }
+        if(!pb_encode_varint(s,v.age_seconds.value)){ return false; }
+    }
+    return true;
+}
+bool read(pb_istream_t* s,ContactEvent* out,unsigned depth,unsigned* unknown){
+    if(depth>16){ return false; }
+    ContactEvent v;
+    while(s->bytes_left){
+        pb_wire_type_t wt;uint32_t tag;bool eof=false;if(!pb_decode_tag(s,&wt,&tag,&eof)||tag==0){ return false; }
+        switch(tag){
+        case 1:{
+            if(wt!=PB_WT_VARINT){ return false; }
+            if(v.node.present){ return false; }
+            v.node.present=true;
+            uint64_t n;if(!pb_decode_varint(s,&n)){ return false; }v.node.value=static_cast<uint64_t>(n);
+            break;}
+        case 2:{
+            if(wt!=PB_WT_VARINT){ return false; }
+            if(v.age_seconds.present){ return false; }
+            v.age_seconds.present=true;
+            uint64_t n;if(!pb_decode_varint(s,&n)||n>0xffffffffUL){ return false; }v.age_seconds.value=static_cast<uint32_t>(n);
+            break;}
+        default:if(!pb_skip_field(s,wt)){ return false; }++*unknown;break;
+        }
+    }
+    *out=v;return true;
+}
 bool write(pb_ostream_t* s,const EventPayload& v,unsigned depth){
     if(depth>16){ return false; }
     (void)s;(void)v;
-    if((v.thread.present?1:0)+(v.session.present?1:0)+(v.ble_write.present?1:0)+(v.reading.present?1:0)+(v.button.present?1:0)+(v.inventory.present?1:0)+(v.inventory_nodes.present?1:0)>1){ return false; }
+    if((v.thread.present?1:0)+(v.session.present?1:0)+(v.ble_write.present?1:0)+(v.reading.present?1:0)+(v.button.present?1:0)+(v.inventory.present?1:0)+(v.inventory_nodes.present?1:0)+(v.contact.present?1:0)>1){ return false; }
     if(v.thread.present){
         if(!pb_encode_tag(s,PB_WT_STRING,1)){ return false; }
         if(!writeNested(s,v.thread.value,depth)){ return false; }
@@ -2932,6 +2970,10 @@ bool write(pb_ostream_t* s,const EventPayload& v,unsigned depth){
         if(!pb_encode_tag(s,PB_WT_STRING,7)){ return false; }
         if(!writeNested(s,v.inventory_nodes.value,depth)){ return false; }
     }
+    if(v.contact.present){
+        if(!pb_encode_tag(s,PB_WT_STRING,8)){ return false; }
+        if(!writeNested(s,v.contact.value,depth)){ return false; }
+    }
     return true;
 }
 bool read(pb_istream_t* s,EventPayload* out,unsigned depth,unsigned* unknown){
@@ -2942,45 +2984,51 @@ bool read(pb_istream_t* s,EventPayload* out,unsigned depth,unsigned* unknown){
         switch(tag){
         case 1:{
             if(wt!=PB_WT_STRING){ return false; }
-            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present){ return false; }
+            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present||v.contact.present){ return false; }
             v.thread.present=true;
             if(!readNested(s,&v.thread.value,depth,unknown)){ return false; }
             break;}
         case 2:{
             if(wt!=PB_WT_STRING){ return false; }
-            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present){ return false; }
+            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present||v.contact.present){ return false; }
             v.session.present=true;
             if(!readNested(s,&v.session.value,depth,unknown)){ return false; }
             break;}
         case 3:{
             if(wt!=PB_WT_STRING){ return false; }
-            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present){ return false; }
+            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present||v.contact.present){ return false; }
             v.ble_write.present=true;
             if(!readNested(s,&v.ble_write.value,depth,unknown)){ return false; }
             break;}
         case 4:{
             if(wt!=PB_WT_STRING){ return false; }
-            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present){ return false; }
+            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present||v.contact.present){ return false; }
             v.reading.present=true;
             if(!readNested(s,&v.reading.value,depth,unknown)){ return false; }
             break;}
         case 5:{
             if(wt!=PB_WT_STRING){ return false; }
-            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present){ return false; }
+            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present||v.contact.present){ return false; }
             v.button.present=true;
             if(!readNested(s,&v.button.value,depth,unknown)){ return false; }
             break;}
         case 6:{
             if(wt!=PB_WT_STRING){ return false; }
-            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present){ return false; }
+            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present||v.contact.present){ return false; }
             v.inventory.present=true;
             if(!readNested(s,&v.inventory.value,depth,unknown)){ return false; }
             break;}
         case 7:{
             if(wt!=PB_WT_STRING){ return false; }
-            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present){ return false; }
+            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present||v.contact.present){ return false; }
             v.inventory_nodes.present=true;
             if(!readNested(s,&v.inventory_nodes.value,depth,unknown)){ return false; }
+            break;}
+        case 8:{
+            if(wt!=PB_WT_STRING){ return false; }
+            if(v.thread.present||v.session.present||v.ble_write.present||v.reading.present||v.button.present||v.inventory.present||v.inventory_nodes.present||v.contact.present){ return false; }
+            v.contact.present=true;
+            if(!readNested(s,&v.contact.value,depth,unknown)){ return false; }
             break;}
         default:if(!pb_skip_field(s,wt)){ return false; }++*unknown;break;
         }

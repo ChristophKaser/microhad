@@ -1,4 +1,5 @@
 #include "matter_json.h"
+#include "matter_typed.h"
 #include "matter_client.h"
 #include "matter_protocol.h"
 #include "matter_worker.h"
@@ -302,6 +303,15 @@ void runMatterClientUnitTests() {
     assert(MatterChannel::deviceBindingRequest(groupBindInput, &devicePrepared));
     assert(devicePrepared.find("\"members\":[{\"node\":\"0000000000000003\",\"endpoint\":2}]") != std::string::npos);
     assert(!MatterChannel::deviceBindingRequest("{\"schema\":1,\"node\":\"0000000000000002\",\"endpoint\":1,\"targets\":[]}", &devicePrepared));
+    MatterProto::MessageBody contactBody;
+    std::string contactNode; uint32_t contactAge = 0;
+    assert(MatterWire::parseJson(2,12,"{\"schema\":1,\"event\":\"matter_contact\",\"data\":{\"node\":\"0000000000000002\",\"age_seconds\":17}}",&contactBody));
+    assert(MatterWire::validEvent(contactBody));
+    assert(MatterChannel::deviceContactEvent(contactBody,&contactNode,&contactAge));
+    assert(contactNode=="0000000000000002" && contactAge==17);
+    contactBody.event.value.data.value.contact.value.age_seconds=MatterProto::Optional<uint32_t>();
+    assert(!MatterWire::validEvent(contactBody));
+    assert(!MatterChannel::deviceContactEvent(contactBody,&contactNode,&contactAge));
     MatterButtonEvent button;
     const std::string buttonPayload = "{\"schema\":1,\"event\":\"matter_button\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"event\":0,\"position\":1,\"press_count\":1}}";
     assert(MatterChannel::deviceButtonEvent(buttonPayload, &button));

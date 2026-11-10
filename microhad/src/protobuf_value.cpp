@@ -137,7 +137,7 @@ bool normalize(Value* v,const std::string& msg,unsigned kind,unsigned op,const s
         std::string key;
         if(msg=="MessageBody"){std::ostringstream n;n<<requestName(op);key=kind==0?n.str():kind==2?"event":op==1?"matter":op==2?"thread":"reply";}
         else if(msg=="OperationResult"){std::ostringstream n;n<<ackName(op);key=op<=5?"session":op<=8?n.str():op==9?"thread":field(*v,"subscriptions")?"subscription_health":field(*v,"devices")?"page":"job";}
-        else if(msg=="EventPayload")key=ev=="thread"?"thread":ev=="commissioning"?"session":ev=="ble_write"?"ble_write":ev=="matter_report"?"reading":ev=="matter_button"?"button":ev=="matter_inventory"?"inventory":ev=="matter_inventory_nodes"?"inventory_nodes":"";
+        else if(msg=="EventPayload")key=ev=="thread"?"thread":ev=="commissioning"?"session":ev=="ble_write"?"ble_write":ev=="matter_report"?"reading":ev=="matter_button"?"button":ev=="matter_contact"?"contact":ev=="matter_inventory"?"inventory":ev=="matter_inventory_nodes"?"inventory_nodes":"";
         else if(v->type==Value::Null)key="null";
         else if(msg=="NullableText")key="text";
         else if(msg=="NullableUint"||msg=="NullableInt")key="integer";

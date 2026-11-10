@@ -364,5 +364,9 @@
     "value": "",
     "unit": "",
     "known": ""
+  },
+  "contact": {
+    "node": "@id",
+    "age_seconds": ""
   }
 }

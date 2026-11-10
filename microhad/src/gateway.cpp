@@ -662,7 +662,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
         device.matter.ensure().vendorId = endpoint.vendorId; device.matter.ensure().productId = endpoint.productId;
         device.matter.ensure().hardwareVersion = endpoint.hardwareVersion; device.matter.ensure().softwareVersion = endpoint.softwareVersion;
         device.matter.ensure().softwareVersionString = endpoint.softwareVersionString;
-        device.lastSeen = endpoint.online ? time(0) : 0;
+        device.lastSeen = 0; // Inventory describes capabilities, not a received device report.
         replacement[endpoint.id] = device;
     }
     for (std::map<std::string, Device>::const_iterator it = replacement.begin(); it != replacement.end(); ++it) {
@@ -731,6 +731,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             fresh.thermostatSourceId=current.thermostatSourceId;
             fresh.thermostatStaleMinutes=current.thermostatStaleMinutes;
             if(std::find(fresh.matter.read().servers.begin(),fresh.matter.read().servers.end(),47U)!=fresh.matter.read().servers.end())fresh.battery=current.battery;
+            fresh.lastSeen = current.lastSeen;
             if (recentlyReported) {
                 fresh.online = true;
                 fresh.lastSeen = current.lastSeen;
@@ -863,6 +864,7 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     }
     device.lastSeen = time(0);
     device.online = true;
+    applyMatterContact(reading.node, device.lastSeen, 0);
     std::map<std::string, Device>::iterator node = devices_.find(device.ieeeAddress.substr(0,40));
     if (node != devices_.end()) { node->second.online = true; node->second.lastSeen = device.lastSeen; }
     unsigned char historyMetric=0;double historyNumber=reading.numberValue;
@@ -903,6 +905,27 @@ bool Gateway::applyMatterReading(const MatterReading& reading, std::string* erro
     return true;
 }
 
+bool Gateway::applyMatterContact(const std::string& node, time_t observedAt, std::string* error) {
+    if (error) error->clear();
+    if (node.size() != 16 || observedAt <= 0) { if (error) *error = "invalid Matter contact"; return false; }
+    const time_t now = time(0);
+    if (observedAt > now) observedAt = now;
+    bool found = false, changed = false;
+    for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end(); ++it) {
+        Device& device = it->second;
+        if (device.source != "matter" || device.matter.read().node != node) continue;
+        found = true;
+        if (device.lastSeen <= observedAt && (device.lastSeen != observedAt || !device.online)) {
+            device.lastSeen = observedAt;
+            device.online = true;
+            changed = true;
+        }
+    }
+    if (changed) markViewDirty();
+    if (!found && error) *error = "Matter device not found";
+    return found;
+}
+
 bool Gateway::applyMatterButtonEvent(const MatterButtonEvent& event, std::string* error) {
     if (error) error->clear();
     if (event.node.size() != 16 || event.endpoint == 0xffff || event.event > 5 ||
@@ -913,8 +936,10 @@ bool Gateway::applyMatterButtonEvent(const MatterButtonEvent& event, std::string
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end(); ++it) {
         if (it->second.source != "matter" || it->second.matter.read().node != event.node ||
             it->second.matter.read().endpoint != static_cast<int>(event.endpoint) || !it->second.remote.present()) continue;
-        it->second.lastSeen = time(0);
+        const time_t observedAt = time(0);
+        it->second.lastSeen = observedAt;
         it->second.online = true;
+        applyMatterContact(event.node, observedAt, 0);
         if (!logMatterButtonEvent(event)) {
             if (error) *error = "Matter remote endpoint not found";
             return false;
@@ -3342,6 +3367,7 @@ std::string GatewayView::statusJson() const {
         Device node=*it->second;
         if(it->second->matter.read().endpoint>=0)node.matter.ensure().metadataState="stale";
         const std::vector<const Device*>& endpoints=matterEndpoints[it->first];
+        time_t latestContact = node.lastSeen;
         const Device* preferred=0;
         for (unsigned long index=0;index<endpoints.size();++index)
             if (endpoints[index]->actor.present() || endpoints[index]->light.present() || endpoints[index]->contact.present() ||
@@ -3353,6 +3379,7 @@ std::string GatewayView::statusJson() const {
         }
         for (unsigned long index=0;index<endpoints.size();++index) {
             const Device& endpoint=*endpoints[index];
+            latestContact = std::max(latestContact, endpoint.lastSeen);
             node.actor.setPresent(node.actor.present() || endpoint.actor.present());
             node.light.setPresent(node.light.present() || endpoint.light.present());
             node.remote.setPresent(node.remote.present() || endpoint.remote.present());
@@ -3369,6 +3396,7 @@ std::string GatewayView::statusJson() const {
             if (endpoint.battery.present()) { node.battery.setPresent(true); node.battery.ensure().percent=endpoint.battery.read().percent; }
         }
         node.ieeeAddress=node.external.ensure().externalId=it->first;
+        node.lastSeen = latestContact;
         node.external.ensure().component="node";
         if (node.matter.read().metadataState.empty()) node.matter.ensure().metadataState=endpoints.empty()?"missing":"stale";
         mergedNodes.push_back(node);

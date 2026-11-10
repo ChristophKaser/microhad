@@ -100,6 +100,8 @@ bool fromValue(const Proto::Value&,InventoryNodeList*);
 Proto::Value toValue(const InventoryNodeList&);
 bool fromValue(const Proto::Value&,InventoryNodeManifest*);
 Proto::Value toValue(const InventoryNodeManifest&);
+bool fromValue(const Proto::Value&,ContactEvent*);
+Proto::Value toValue(const ContactEvent&);
 bool fromValue(const Proto::Value&,EventPayload*);
 Proto::Value toValue(const EventPayload&);
 bool fromValue(const Proto::Value&,EventNotification*);
@@ -1374,6 +1376,23 @@ Proto::Value toValue(const InventoryNodeManifest& v){
     if(v.nodes.present)Proto::add(&out,"nodes",toValue(v.nodes.value));
     return out;
 }
+bool fromValue(const Proto::Value& v,ContactEvent* out){
+    if(v.type!=Proto::Value::Map)return false;
+    ContactEvent result;
+    if(const Proto::Value* p=Proto::field(v,"node")){
+        result.node.present=true;if(!getUInt(*p,&result.node.value))return false;
+    }
+    if(const Proto::Value* p=Proto::field(v,"age_seconds")){
+        result.age_seconds.present=true;if(!getUInt32(*p,&result.age_seconds.value))return false;
+    }
+    *out=result;return true;
+}
+Proto::Value toValue(const ContactEvent& v){
+    Proto::Value out;out.type=Proto::Value::Map;(void)v;
+    if(v.node.present)Proto::add(&out,"node",jsonUInt(v.node.value));
+    if(v.age_seconds.present)Proto::add(&out,"age_seconds",jsonUInt(v.age_seconds.value));
+    return out;
+}
 bool fromValue(const Proto::Value& v,EventPayload* out){
     if(v.type!=Proto::Value::Map)return false;
     EventPayload result;
@@ -1398,6 +1417,9 @@ bool fromValue(const Proto::Value& v,EventPayload* out){
     if(const Proto::Value* p=Proto::field(v,"inventory_nodes")){
         result.inventory_nodes.present=true;if(!fromValue(*p,&result.inventory_nodes.value))return false;
     }
+    if(const Proto::Value* p=Proto::field(v,"contact")){
+        result.contact.present=true;if(!fromValue(*p,&result.contact.value))return false;
+    }
     *out=result;return true;
 }
 Proto::Value toValue(const EventPayload& v){
@@ -1409,6 +1431,7 @@ Proto::Value toValue(const EventPayload& v){
     if(v.button.present)Proto::add(&out,"button",toValue(v.button.value));
     if(v.inventory.present)Proto::add(&out,"inventory",toValue(v.inventory.value));
     if(v.inventory_nodes.present)Proto::add(&out,"inventory_nodes",toValue(v.inventory_nodes.value));
+    if(v.contact.present)Proto::add(&out,"contact",toValue(v.contact.value));
     return out;
 }
 bool fromValue(const Proto::Value& v,EventNotification* out){

@@ -71,6 +71,7 @@ void MatterWorker::stop() {
     for (std::map<uint32_t, Job>::iterator it = jobs_.begin(); it != jobs_.end(); ++it) wipe(&it->second.body);
     jobs_.clear(); pending_.clear(); events_.clear();
     deferredReadings_.clear();
+    deferredContacts_.clear();
     started_ = false; refreshed_ = 0; matterStatus_.reset(); threadStatus_.reset();
     pthread_mutex_unlock(&mutex_);
 }
@@ -185,6 +186,8 @@ bool MatterWorker::collectEvents() {
                 if (std::find(nodes.begin(), nodes.end(), it->node) == nodes.end()) it = snapshotDevices_.erase(it); else ++it;
             for (std::deque<MatterReading>::iterator it = deferredReadings_.begin(); it != deferredReadings_.end();)
                 if (std::find(nodes.begin(), nodes.end(), it->node) == nodes.end()) it = deferredReadings_.erase(it); else ++it;
+            for (std::map<std::string, time_t>::iterator it = deferredContacts_.begin(); it != deferredContacts_.end();)
+                if (std::find(nodes.begin(), nodes.end(), it->first) == nodes.end()) deferredContacts_.erase(it++); else ++it;
             continue;
         }
         std::string kind; unsigned int count = 0; MatterEndpoint endpoint;
@@ -226,6 +229,21 @@ bool MatterWorker::collectEvents() {
         MatterReading reading;
         if (MatterChannel::deviceReportEvent(event, &reading)) {
             applyOrDeferReading(reading);
+            continue;
+        }
+        std::string contactNode;
+        uint32_t contactAge = 0;
+        if (MatterChannel::deviceContactEvent(event, &contactNode, &contactAge)) {
+            const time_t now = time(0);
+            const time_t observedAt = static_cast<uint64_t>(now) > contactAge ? now - contactAge : 0;
+            if (gateway_) {
+                std::string error;
+                if (!gateway_->applyMatterContact(contactNode, observedAt, &error) && error == "Matter device not found") {
+                    std::map<std::string, time_t>::iterator pending = deferredContacts_.find(contactNode);
+                    if (pending != deferredContacts_.end()) pending->second = std::max(pending->second, observedAt);
+                    else if (deferredContacts_.size() < 64) deferredContacts_[contactNode] = observedAt;
+                }
+            }
             continue;
         }
         MatterButtonEvent button;
@@ -271,6 +289,7 @@ void MatterWorker::applyOrDeferReading(const MatterReading& reading) {
 void MatterWorker::flushDeferredReadings() {
     if (!gateway_) {
         deferredReadings_.clear();
+        deferredContacts_.clear();
         return;
     }
     for (std::deque<MatterReading>::iterator it = deferredReadings_.begin();
@@ -278,6 +297,12 @@ void MatterWorker::flushDeferredReadings() {
         std::string error;
         if (gateway_->applyMatterReading(*it, &error) || error != "Matter endpoint not found")
             it = deferredReadings_.erase(it);
+        else ++it;
+    }
+    for (std::map<std::string, time_t>::iterator it = deferredContacts_.begin(); it != deferredContacts_.end();) {
+        std::string error;
+        if (gateway_->applyMatterContact(it->first, it->second, &error) || error != "Matter device not found")
+            deferredContacts_.erase(it++);
         else ++it;
     }
 }

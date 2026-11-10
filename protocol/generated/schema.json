@@ -1025,6 +1025,24 @@
       "oneof": false
     }
   ],
+  "ContactEvent": [
+    {
+      "name": "node",
+      "tag": 1,
+      "type": 4,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    },
+    {
+      "name": "age_seconds",
+      "tag": 2,
+      "type": 13,
+      "message": "",
+      "repeated": false,
+      "oneof": false
+    }
+  ],
   "ButtonEvent": [
     {
       "name": "node",
@@ -1741,6 +1759,14 @@
       "tag": 7,
       "type": 11,
       "message": "InventoryNodeManifest",
+      "repeated": false,
+      "oneof": true
+    },
+    {
+      "name": "contact",
+      "tag": 8,
+      "type": 11,
+      "message": "ContactEvent",
       "repeated": false,
       "oneof": true
     }

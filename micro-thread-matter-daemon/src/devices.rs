@@ -163,7 +163,7 @@ type IcdWork<'a> = Pin<
                 Output = (
                     crate::icd::ClientRegistry,
                     crate::entropy::OsEntropy,
-                    Result<(), Error>,
+                    Result<Option<Instant>, Error>,
                 ),
             > + 'a,
     >,
@@ -221,6 +221,7 @@ pub struct Manager<'a, C: Crypto> {
     icd_checked: Vec<(u64, u16)>,
     icd_retry_after: Vec<((u64, u16), Instant)>,
     awake_until: Vec<(u64, Instant)>,
+    contacts: Vec<(u64, Instant)>,
     snapshots: Vec<Snapshot>,
     work: Option<(u64, Instant, Work<'a>)>,
     revision: u64,
@@ -323,6 +324,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             icd_checked: Vec::new(),
             icd_retry_after: Vec::new(),
             awake_until: Vec::new(),
+            contacts: Vec::new(),
             snapshots: Vec::new(),
             work: None,
             revision,
@@ -480,6 +482,14 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 .any(|(awake_node, until)| *awake_node == node && *until > now)
     }
 
+    fn record_awake_until(&mut self, node: u64, until: Instant) {
+        if let Some((_, current)) = self.awake_until.iter_mut().find(|(id, _)| *id == node) {
+            *current = (*current).max(until);
+        } else if self.awake_until.len() < crate::icd::MAX_ICD_CLIENTS {
+            self.awake_until.push((node, until));
+        }
+    }
+
     /// Deliver queued production Manager reports to connected IPC clients.
     /// Keep the front report queued until at least one client accepts it.
     pub fn publish_reports(
@@ -487,6 +497,15 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         ipc: &mut crate::service::IpcServer,
     ) -> std::io::Result<usize> {
         let mut published = 0;
+        while let Some(&(node, received)) = self.contacts.first() {
+            let age_seconds = u32::try_from(Instant::now().saturating_duration_since(received).as_secs()).unwrap_or(u32::MAX);
+            let event = crate::responses::event(crate::responses::Event::MatterContact {
+                node: crate::control::Id(node), age_seconds,
+            }).ok_or_else(|| std::io::Error::other("invalid Matter contact"))?;
+            if ipc.publish_all(&event)? == 0 { break; }
+            self.contacts.remove(0);
+            published += 1;
+        }
         while let Some(button) = self.button_events.front() {
             let event = crate::responses::event(crate::responses::Event::MatterButton(button))
                 .ok_or_else(|| {
@@ -790,6 +809,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         );
         self.reports.retain(|entry| entry.node.0 != node);
         self.button_events.retain(|entry| entry.node.0 != node);
+        self.contacts.retain(|(id, _)| *id != node);
         let removed = self.matter.with_state(|state| {
             state.sessions.remove_where(|session| {
                 session.get_local_fabric_idx() == self.fabric.get() && session.get_peer_node_id() == Some(node)
@@ -1404,16 +1424,11 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     progressed = true;
                     let until = now
                         + Duration::from_millis(u64::from(wake.active_mode_threshold_ms).max(1));
-                    if let Some((_, awake_until)) = self
-                        .awake_until
-                        .iter_mut()
-                        .find(|(node, _)| *node == wake.node)
-                    {
-                        *awake_until = until;
-                    } else if self.awake_until.len() < crate::icd::MAX_ICD_CLIENTS {
-                        self.awake_until.push((wake.node, until));
-                    }
-                    if wake.refresh_required {
+                    self.record_awake_until(wake.node, until);
+                    let subscriptions_pending = self.subscriptions.iter().any(|subscription| {
+                        subscription.key.node == wake.node && subscription.next_retry <= now
+                    });
+                    if wake.refresh_required || subscriptions_pending {
                         if let Some(endpoint) = self
                             .icd_registry
                             .as_ref()
@@ -1437,17 +1452,22 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                                 endpoint,
                                 now + Duration::from_secs(10),
                                 Box::pin(async move {
-                                    let result = registry
-                                        .register(
-                                            matter,
-                                            crypto,
-                                            fabric,
-                                            node,
-                                            endpoint,
-                                            local_node,
-                                            &mut entropy,
-                                        )
-                                        .await;
+                                    let result = async {
+                                        if wake.refresh_required {
+                                            registry.register(
+                                                matter,
+                                                crypto,
+                                                fabric,
+                                                node,
+                                                endpoint,
+                                                local_node,
+                                                &mut entropy,
+                                            ).await?;
+                                        }
+                                        crate::icd::subscription_active_until(
+                                            matter, crypto, fabric, node, endpoint,
+                                        ).await.map(Some)
+                                    }.await;
                                     (registry, entropy, result)
                                 }),
                             ));
@@ -1521,7 +1541,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                                     )
                                     .await?;
                             }
-                            Ok(())
+                            if registry.is_registered(fabric, node) {
+                                return crate::icd::subscription_active_until(
+                                    matter, crypto, fabric, node, endpoint,
+                                ).await.map(Some);
+                            }
+                            Ok(None)
                         }
                         .await;
                         (registry, entropy, result)
@@ -1564,6 +1589,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 self.icd_entropy = Some(entropy);
                 if node_registered && !self.registered_nodes.contains(&key.0) {
                     self.registered_nodes.push(key.0);
+                }
+                if let Ok(Some(until)) = &result {
+                    self.record_awake_until(key.0, *until);
+                    log::debug!("Matter ICD subscription wake window: node={:016x}", key.0);
                 }
                 if result.is_ok() {
                     self.icd_retry_after
@@ -1772,6 +1801,13 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             entry.failures = 0;
         }
         if !accepted { return; }
+        // One pending contact per catalog node; preserve the actual receipt time
+        // while IPC is disconnected, without repeating unchanged value events.
+        if let Some((_, received)) = self.contacts.iter_mut().find(|(id, _)| *id == node) {
+            *received = (*received).max(now);
+        } else if self.contacts.len() < crate::catalog::MAX_NODES {
+            self.contacts.push((node, now));
+        }
         if let Some(snapshot) = self.snapshots.iter_mut().find(|snapshot| snapshot.node == node) {
             let returned = !snapshot.online;
             snapshot.online = true;
@@ -2087,6 +2123,7 @@ mod tests {
             assert!(matches!(&entry.value, Value::Measurement(v) if v.unit==unit));
         }
         assert!(manager.button_events.is_empty());
+        assert!(manager.contacts.is_empty());
         assert!(manager.time_preferences.entries.is_empty());
         assert!(!manager.snapshots[0].online);
         assert_eq!((manager.snapshots[0].failures,manager.snapshots[0].next),(9,Some(deadline)));
@@ -2157,6 +2194,10 @@ mod tests {
         assert!(manager.subscriptions[..5].iter().all(|entry| entry.last_received == Some(later)));
         let heartbeat = later + Duration::from_secs(60);
         manager.record_report_at(report(77, vec![]), false, heartbeat);
+        assert_eq!(manager.contacts, vec![(2, heartbeat)], "unchanged and empty reports coalesce using receipt time");
+        manager.record_heartbeat(2, 2, 77, heartbeat + Duration::from_secs(5));
+        manager.record_heartbeat(1, 2, 999, heartbeat + Duration::from_secs(5));
+        assert_eq!(manager.contacts, vec![(2, heartbeat)], "invalid fabric and stale subscription cannot refresh contact");
         assert!(manager.subscriptions[..5].iter().all(|entry| entry.last_received == Some(heartbeat) && entry.next_retry > heartbeat));
         assert!(manager.subscriptions[5..].iter().all(|entry| entry.last_received.is_none()));
         manager.record_report_at(report(10, vec![value(keys[0], Value::RawMeasurement(Some(99.0)))]), false, heartbeat);
@@ -2296,16 +2337,19 @@ mod tests {
             node: crate::control::Id(2), endpoint: 2, event: 0,
             position: Some(1), press_count: Some(1),
         });
+        assert_eq!(manager.contacts.len(), 1);
+        manager.contacts[0].1 = Instant::now() - Duration::from_secs(5);
         assert_eq!(manager.publish_reports(&mut ipc).unwrap(), 0);
+        assert_eq!(manager.contacts.len(), 1);
         assert!(manager.front_report().is_some());
 
         let mut peer = UnixStream::connect(&socket).unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
         ipc.poll(|_| None).unwrap();
-        assert_eq!(manager.publish_reports(&mut ipc).unwrap(), 2);
+        assert_eq!(manager.publish_reports(&mut ipc).unwrap(), 3);
         ipc.poll(|_| None).unwrap();
         let mut events = Vec::new();
-        for _ in 0..2 {
+        for _ in 0..3 {
             let mut header = [0; 2];
             peer.read_exact(&mut header).unwrap();
             let length = usize::from(u16::from_le_bytes([header[0], header[1]]));
@@ -2318,6 +2362,11 @@ mod tests {
             assert_eq!((event.kind, event.opcode, event.id), (2, 12, 0));
             events.push(event.payload);
         }
+        let contact: serde_json::Value = serde_json::from_slice(&crate::wire_json::json_bytes(&events.remove(0))).unwrap();
+        assert_eq!(contact["event"], "matter_contact");
+        assert_eq!(contact["data"]["node"], "0000000000000002");
+        assert!(contact["data"]["age_seconds"].as_u64().unwrap() >= 5);
+        assert!(manager.contacts.is_empty());
         assert_eq!(serde_json::from_slice::<serde_json::Value>(&crate::wire_json::json_bytes(&events[0])).unwrap(), serde_json::from_slice::<serde_json::Value>(br#"{"schema":1,"event":"matter_button","data":{"node":"0000000000000002","endpoint":2,"event":0,"position":1,"press_count":1}}"#).unwrap());
         assert_eq!(serde_json::from_slice::<serde_json::Value>(&crate::wire_json::json_bytes(&events[1])).unwrap(), serde_json::from_slice::<serde_json::Value>(br#"{"schema":1,"event":"matter_report","data":{"node":"0000000000000002","endpoint":1,"cluster":1026,"attribute":0,"value":{"type":"measurement","value":{"value":-5.25,"unit":"celsius","quality":"measured"}}}}"#).unwrap());
         assert!(manager.front_report().is_none());
@@ -2397,6 +2446,66 @@ mod tests {
         manager.subscription_health(2, true, 0, later).unwrap();
         assert_eq!(manager.snapshots[0].next, Some(later), "explicit recovery may refresh metadata");
         assert!(!manager.icd_checked.contains(&(2, 0)));
+        drop(manager);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn icd_registration_admits_subscriptions_only_with_a_confirmed_wake_window() {
+        use crate::{entropy::OsEntropy, store::PrivateStore};
+        use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET}, utils::init::InitMaybeUninit,
+        };
+        let directory = std::env::temp_dir().join(format!("matter-icd-subscription-wake-{}", std::process::id()));
+        let catalog = Catalog::open(PrivateStore::open(&directory).unwrap(), 1, 2).unwrap();
+        let reservation = catalog.reserve(2).unwrap();
+        reservation.fabric_installed().unwrap();
+        reservation.thread_provisioned().unwrap();
+        reservation.complete().unwrap();
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
+        let mut manager = Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+        let now = Instant::now();
+        manager.inventory_bootstrap_until = now;
+        manager.snapshots.push(Snapshot { node: 2, endpoints: vec![
+            Endpoint { id: 0, servers: vec![47, 70], clients: vec![], device_types: vec![] },
+            Endpoint { id: 1, servers: vec![59], clients: vec![], device_types: vec![] },
+            Endpoint { id: 2, servers: vec![59], clients: vec![], device_types: vec![] },
+        ], manufacturer: String::new(), model: String::new(),
+            rssi_dbm: None, firmware: FirmwareIdentity::default(), online: true, next: None, failures: 0 });
+        manager.sync_subscriptions(now);
+        assert_eq!(manager.subscriptions.len(), 3);
+        let mut registry = manager.icd_registry.take().unwrap();
+        registry.install(manager.fabric, 2, 0, [7; 16], 0).unwrap();
+        let entropy = manager.icd_entropy.take().unwrap();
+        let until = now + Duration::from_secs(30);
+        // Complete the same work slot used by RegisterClient + StayActive.
+        manager.icd_work = Some((2, 0, until, Box::pin(std::future::ready((registry, entropy, Ok(Some(until)))))));
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        assert!(manager.poll_icd(now, &mut context));
+        assert!(manager.registered_nodes.contains(&2));
+        assert!(manager.node_awake(2, now));
+        manager.poll(true, false, now, &mut context);
+        assert!(manager.subscription_work.is_some(), "registration must not strand initial subscriptions waiting for Check-In");
+        manager.subscription_work = None;
+        assert!(!manager.node_awake(2, until));
+        manager.poll(true, false, until, &mut context);
+        assert!(manager.subscription_work.is_none(), "an expired promise must not admit more work");
+        manager.record_awake_until(2, until + Duration::from_secs(20));
+        manager.record_awake_until(2, until + Duration::from_secs(1));
+        assert!(manager.node_awake(2, until + Duration::from_secs(10)), "a short Check-In must not shorten a StayActive promise");
+        let asleep = until + Duration::from_secs(20);
+        let registry = manager.icd_registry.take().unwrap();
+        let entropy = manager.icd_entropy.take().unwrap();
+        manager.icd_work = Some((2, 0, asleep + Duration::from_secs(10),
+            Box::pin(std::future::ready((registry, entropy, Err(ErrorCode::RxTimeout.into()))))));
+        assert!(manager.poll_icd(asleep, &mut context));
+        assert!(!manager.node_awake(2, asleep), "a failed StayActive must not invent an awake window");
+        assert!(manager.icd_registry.as_ref().unwrap().is_registered(manager.fabric, 2),
+            "a failed StayActive must retain the registration for the next authenticated Check-In");
+        manager.poll(true, false, asleep, &mut context);
+        assert!(manager.subscription_work.is_none());
         drop(manager);
         std::fs::remove_dir_all(directory).unwrap();
     }

@@ -14,6 +14,31 @@ use zeroize::Zeroizing;
 
 pub const ICD_CLIENTS_KEY: u16 = 0x1003;
 pub const MAX_ICD_CLIENTS: usize = 64;
+/// Bound background subscription setup without keeping a battery peer awake
+/// indefinitely. Only the duration promised by the peer admits new work.
+pub const SUBSCRIPTION_ACTIVE_MS: u32 = 30_000;
+
+pub async fn subscription_active_until<C: Crypto>(
+    matter: &Matter<'_>,
+    crypto: &C,
+    fabric: NonZeroU8,
+    node: u64,
+    endpoint: u16,
+) -> Result<std::time::Instant, Error> {
+    let handle = Exchange::initiate(matter, crypto, fabric, node)
+        .await?
+        .icd_management()
+        .stay_active_request(endpoint, |request| {
+            request.stay_active_duration(SUBSCRIPTION_ACTIVE_MS)?.end()
+        })
+        .await?;
+    let promised = handle.response()?.promised_active_duration()?;
+    // Start at receipt, not after response completion or a later manager poll.
+    let until = std::time::Instant::now()
+        + std::time::Duration::from_millis(u64::from(promised.min(SUBSCRIPTION_ACTIVE_MS)));
+    handle.complete().await?;
+    Ok(until)
+}
 const MAGIC: &[u8; 8] = b"TMICD\x01\0\0";
 const RECORD_BYTES: usize = 35;
 const MAX_STORE_BYTES: usize = 8 + 1 + MAX_ICD_CLIENTS * RECORD_BYTES;

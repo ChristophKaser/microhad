@@ -38,6 +38,8 @@ const WireField wireFields[] = {
     {"commissioning_status_request", "schema", ""},
     {"commissioning_status_request", "session", "@id"},
     {"commissioning_status_request", "subscribe", ""},
+    {"contact", "age_seconds", ""},
+    {"contact", "node", "@id"},
     {"device", "clients", ""},
     {"device", "device_types", ""},
     {"device", "endpoint", ""},

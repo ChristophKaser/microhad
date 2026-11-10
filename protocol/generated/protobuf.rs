@@ -324,6 +324,13 @@ pub write: Option<u32>,
 pub data: Option<Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ContactEvent {
+#[prost(uint64, optional, tag="1")]
+pub node: Option<u64>,
+#[prost(uint32, optional, tag="2")]
+pub age_seconds: Option<u32>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ButtonEvent {
 #[prost(uint64, optional, tag="1")]
 pub node: Option<u64>,
@@ -568,7 +575,7 @@ SubscriptionHealth(SubscriptionHealth),
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EventPayload {
-#[prost(oneof="EventPayloadChoice", tags="1,2,3,4,5,6,7")]
+#[prost(oneof="EventPayloadChoice", tags="1,2,3,4,5,6,7,8")]
 pub choice: Option<EventPayloadChoice>,
 }
 #[derive(Clone, PartialEq, ::prost::Oneof)]
@@ -587,6 +594,8 @@ Button(ButtonEvent),
 Inventory(InventoryRecord),
 #[prost(message, tag="7")]
 InventoryNodes(InventoryNodeManifest),
+#[prost(message, tag="8")]
+Contact(ContactEvent),
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MessageBody {
@@ -1365,6 +1374,19 @@ if let Some(v)=m.write { fields.push((Value::Text("write".into()), Value::Intege
 if let Some(v)=m.data { fields.push((Value::Text("data".into()), Value::Bytes(v))); }
 Value::Map(fields)
 }
+fn to_ContactEvent(v: &Value) -> std::result::Result<ContactEvent, ProtocolError> {
+let mut m=ContactEvent::default();
+let fields=object(v)?;
+if let Some(v)=lookup(fields,"node") { m.node=Some(unsigned(v)?); }
+if let Some(v)=lookup(fields,"age_seconds") { m.age_seconds=Some(u32::try_from(unsigned(v)?).map_err(|_| ProtocolError::Malformed)?); }
+Ok(m)
+}
+fn from_ContactEvent(m: ContactEvent) -> Value {
+let mut fields=Vec::new();
+if let Some(v)=m.node { fields.push((Value::Text("node".into()), Value::Integer(i128::from(v)))); }
+if let Some(v)=m.age_seconds { fields.push((Value::Text("age_seconds".into()), Value::Integer(i128::from(v)))); }
+Value::Map(fields)
+}
 fn to_ButtonEvent(v: &Value) -> std::result::Result<ButtonEvent, ProtocolError> {
 let mut m=ButtonEvent::default();
 let fields=object(v)?;
@@ -1733,6 +1755,7 @@ m.choice=Some(match key {
 "button" => EventPayloadChoice::Button(to_ButtonEvent(v)?),
 "inventory" => EventPayloadChoice::Inventory(to_InventoryRecord(v)?),
 "inventory_nodes" => EventPayloadChoice::InventoryNodes(to_InventoryNodeManifest(v)?),
+"contact" => EventPayloadChoice::Contact(to_ContactEvent(v)?),
 _ => return Err(ProtocolError::Malformed),
 });
 Ok(m)
@@ -1747,6 +1770,7 @@ EventPayloadChoice::Reading(v) => ("reading", from_AttributeReading(v)),
 EventPayloadChoice::Button(v) => ("button", from_ButtonEvent(v)),
 EventPayloadChoice::Inventory(v) => ("inventory", from_InventoryRecord(v)),
 EventPayloadChoice::InventoryNodes(v) => ("inventory_nodes", from_InventoryNodeManifest(v)),
+EventPayloadChoice::Contact(v) => ("contact", from_ContactEvent(v)),
 }; fields.push((Value::Text(key.into()),v)); }
 Value::Map(fields)
 }
@@ -2341,6 +2365,10 @@ Field { name:"generation", tag:2, kind:13, message:"", repeated:false, oneof:fal
 Field { name:"write", tag:3, kind:13, message:"", repeated:false, oneof:false },
 Field { name:"data", tag:4, kind:12, message:"", repeated:false, oneof:false },
 ],
+"ContactEvent" => &[
+Field { name:"node", tag:1, kind:4, message:"", repeated:false, oneof:false },
+Field { name:"age_seconds", tag:2, kind:13, message:"", repeated:false, oneof:false },
+],
 "ButtonEvent" => &[
 Field { name:"node", tag:1, kind:4, message:"", repeated:false, oneof:false },
 Field { name:"endpoint", tag:2, kind:13, message:"", repeated:false, oneof:false },
@@ -2465,6 +2493,7 @@ Field { name:"reading", tag:4, kind:11, message:"AttributeReading", repeated:fal
 Field { name:"button", tag:5, kind:11, message:"ButtonEvent", repeated:false, oneof:true },
 Field { name:"inventory", tag:6, kind:11, message:"InventoryRecord", repeated:false, oneof:true },
 Field { name:"inventory_nodes", tag:7, kind:11, message:"InventoryNodeManifest", repeated:false, oneof:true },
+Field { name:"contact", tag:8, kind:11, message:"ContactEvent", repeated:false, oneof:true },
 ],
 "MessageBody" => &[
 Field { name:"matter_status_request", tag:1, kind:11, message:"MatterStatusRequest", repeated:false, oneof:true },

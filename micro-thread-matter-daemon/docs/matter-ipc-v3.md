@@ -36,6 +36,20 @@ behavior retain their existing semantics. Interrupted mutations are never
 replayed. Inventory bootstrap still sends identities before endpoints and
 commits only complete node records.
 
+## Contact updates
+
+The `matter_contact` event carries `ContactEvent { node, age_seconds }`.
+Only reports matching the controller fabric, node and a current subscription
+refresh contact state. Empty reports and unchanged values count as contact.
+Pending contacts coalesce per node; their age is measured from receipt using
+the service monotonic clock. MicroHAD reconstructs the contact time on receipt
+and retains it while waiting for inventory or coordinator delivery. Contact
+updates affect RAM status only, without generating value history or automation
+triggers. The grouped dashboard timestamp is the latest contact across the
+node and all endpoints; inventory refreshes preserve it.
+
+Deploy native and Matter services together when adding this event.
+
 ## Bindings and builds
 
 The native implementation uses generated owned C++03 message structs with

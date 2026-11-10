@@ -359,6 +359,11 @@ struct InventoryNodeManifest {
     Optional<InventoryNodeList> nodes;
     bool operator==(const InventoryNodeManifest& other) const {return nodes==other.nodes;}
 };
+struct ContactEvent {
+    Optional<uint64_t> node;
+    Optional<uint32_t> age_seconds;
+    bool operator==(const ContactEvent& other) const {return node==other.node&&age_seconds==other.age_seconds;}
+};
 struct EventPayload {
     Optional<ThreadStatus> thread;
     Optional<CommissioningSession> session;
@@ -367,7 +372,8 @@ struct EventPayload {
     Optional<ButtonEvent> button;
     Optional<InventoryRecord> inventory;
     Optional<InventoryNodeManifest> inventory_nodes;
-    bool operator==(const EventPayload& other) const {return thread==other.thread&&session==other.session&&ble_write==other.ble_write&&reading==other.reading&&button==other.button&&inventory==other.inventory&&inventory_nodes==other.inventory_nodes;}
+    Optional<ContactEvent> contact;
+    bool operator==(const EventPayload& other) const {return thread==other.thread&&session==other.session&&ble_write==other.ble_write&&reading==other.reading&&button==other.button&&inventory==other.inventory&&inventory_nodes==other.inventory_nodes&&contact==other.contact;}
 };
 struct EventNotification {
     Optional<uint32_t> schema;

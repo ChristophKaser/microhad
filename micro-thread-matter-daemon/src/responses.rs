@@ -66,6 +66,8 @@ pub enum Event<'a> {
     #[cfg(feature = "controller-service")]
     MatterButton(&'a crate::subscriptions::MatterButtonEvent),
     #[cfg(feature = "controller-service")]
+    MatterContact { node: crate::control::Id, age_seconds: u32 },
+    #[cfg(feature = "controller-service")]
     MatterInventory(&'a crate::devices::InventoryRecord),
     #[cfg(feature = "controller-service")]
     MatterInventoryNodes(&'a crate::devices::InventoryNodes),
@@ -124,6 +126,13 @@ pub fn event(event: Event<'_>) -> Option<Frame> {
                 press_count: v.press_count.map(u32::from),
             }),
         ),
+        #[cfg(feature = "controller-service")]
+        Event::MatterContact { node, age_seconds } => {
+            if node.0 < 2 { return None; }
+            ("matter_contact", p::EventPayloadChoice::Contact(p::ContactEvent {
+                node: Some(node.0), age_seconds: Some(age_seconds),
+            }))
+        },
         #[cfg(feature = "controller-service")]
         Event::MatterInventory(v) => (
             "matter_inventory",

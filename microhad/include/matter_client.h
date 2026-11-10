@@ -39,6 +39,7 @@ public:
     static bool inventoryEvent(const Body&,std::string*,unsigned int*,MatterEndpoint*);
     static bool deviceReportEvent(const Body&,MatterReading*);
     static bool deviceButtonEvent(const Body&,MatterButtonEvent*);
+    static bool deviceContactEvent(const Body&,std::string*,uint32_t*);
     static uint64_t relayResponseSession(const Body&);
     static uint32_t relayGeneration(const Body&);
     static bool relayEvent(const Body&,uint64_t,uint32_t);

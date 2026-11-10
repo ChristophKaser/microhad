@@ -71,6 +71,7 @@ public:
     bool reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoints, std::string* error);
     bool applyMatterReading(const MatterReading& reading, std::string* error);
     bool applyMatterButtonEvent(const MatterButtonEvent& event, std::string* error);
+    bool applyMatterContact(const std::string& node, time_t observedAt, std::string* error);
     bool reconcileFritzClients(const std::vector<std::string>& ids, std::string* error);
     bool applyShellyEvent(const std::string& id, int metric, int channelIndex, double value, std::string* error);
     bool applyFritzEvent(const std::string& id, bool connected, bool hasSignal, int signalPercent, std::string* error);
@@ -119,7 +120,7 @@ public:
     bool submitAutomation(const Automation::Action& action, std::string* error);
 
 private:
-    enum CommandType { DeviceDelete, DeviceDeleteStatus, MatterDeleteTarget, MatterNodeRemove, MatterNodesReconcile, GatewaySettings, TimeZoneSettings, MatterRegionSettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceReconfigure, DeviceIdentify, OtaStart, DeviceConfiguration, LightState, ThermostatSetting, ThermostatResult, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
+    enum CommandType { DeviceDelete, DeviceDeleteStatus, MatterDeleteTarget, MatterNodeRemove, MatterNodesReconcile, GatewaySettings, TimeZoneSettings, MatterRegionSettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceReconfigure, DeviceIdentify, OtaStart, DeviceConfiguration, LightState, ThermostatSetting, ThermostatResult, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, MatterContact, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
     struct Command {
         CommandType type;
         unsigned int seconds;
@@ -134,6 +135,7 @@ private:
         std::vector<MatterEndpoint> matterEndpoints;
         MatterReading matterReading;
         MatterButtonEvent matterButton;
+        time_t matterContactAt;
         int metric;
         double value;
         bool on;

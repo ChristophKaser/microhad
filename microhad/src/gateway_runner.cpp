@@ -438,6 +438,7 @@ void GatewayRunner::execute(Command* command) {
     else if (command->type == MatterReconcile) result = gateway_->reconcileMatterDevices(command->matterEndpoints, &error);
     else if (command->type == MatterValue) result = gateway_->applyMatterReading(command->matterReading, &error);
     else if (command->type == MatterButton) result = gateway_->applyMatterButtonEvent(command->matterButton, &error);
+    else if (command->type == MatterContact) result = gateway_->applyMatterContact(command->address, command->matterContactAt, &error);
     else if (command->type == ShellyEvent) result = gateway_->applyShellyEvent(command->address, command->metric,
                                                                                 command->channelIndex, command->value, &error);
     else if (command->type == FritzEvent) result = gateway_->applyFritzEvent(command->address, command->on,
@@ -699,6 +700,11 @@ bool GatewayRunner::reconcileMatterDevices(const std::vector<MatterEndpoint>& en
 bool GatewayRunner::applyMatterReading(const MatterReading& reading, std::string* error) {
     Command command; command.type = MatterValue; command.matterReading = reading; return invoke(&command, error);
 }
+bool GatewayRunner::applyMatterContact(const std::string& node, time_t observedAt, std::string* error) {
+    Command command; command.type = MatterContact; command.address = node; command.matterContactAt = observedAt;
+    return invoke(&command, error);
+}
+
 bool GatewayRunner::applyMatterButtonEvent(const MatterButtonEvent& event, std::string* error) {
     Command command; command.type = MatterButton; command.matterButton = event; return invoke(&command, error);
 }

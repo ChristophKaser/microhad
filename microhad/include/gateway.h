@@ -256,6 +256,7 @@ public:
     bool reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoints, std::string* error);
     bool applyMatterReading(const MatterReading& reading, std::string* error);
     bool applyMatterButtonEvent(const MatterButtonEvent& event, std::string* error);
+    bool applyMatterContact(const std::string& node, time_t observedAt, std::string* error);
     bool reconcileFritzClients(const std::vector<std::string>& ids, std::string* error);
     bool applyShellyEvent(const std::string& id, int metric, int channelIndex, double value, std::string* error);
     bool applyFritzEvent(const std::string& id, bool connected, bool hasSignal, int signalPercent, std::string* error);
