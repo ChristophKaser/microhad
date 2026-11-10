@@ -709,6 +709,7 @@ export function DeviceSettings({
     return field === 'hysteresis' ? '0' : ''
   }
   const [deleting, setDeleting] = useState(false)
+  const [firmwareOpen, setFirmwareOpen] = useState(false)
   const [name, setName] = useState(device.name)
   const [alertValues, setAlertValues] = useState<Record<string, { low: string; high: string; hysteresis: string }>>(
     Object.fromEntries(alertMetrics.map(metric => [metric.id, {
@@ -805,7 +806,6 @@ export function DeviceSettings({
             {error}
           </p>
         )}
-        {(device.source === 'zigbee' || device.source === 'matter') && <OtaUpdate device={device} />}
         <label className="field">
           Name
           <input
@@ -899,6 +899,18 @@ export function DeviceSettings({
               {syncingClock ? 'Synchronizing…' : 'Synchronize clock now'}
             </button>
           </fieldset>
+        )}
+        {(device.source === 'zigbee' || device.source === 'matter') && (
+          <section>
+            <button type="button" className="accordion-toggle" aria-expanded={firmwareOpen} aria-controls="device-firmware-update" onClick={() => setFirmwareOpen(open => !open)}>
+              <span className="accordion-title">Firmware update</span>
+              <span className="accordion-detail">Firmware file and installation</span>
+              <span className="accordion-chevron" aria-hidden="true">⌄</span>
+            </button>
+            <div id="device-firmware-update" className="accordion-body" hidden={!firmwareOpen}>
+              <OtaUpdate device={device} />
+            </div>
+          </section>
         )}
         <div className="dialog-actions">
           {['zigbee', 'matter'].includes(device.source) && <button type="button" className="button danger" disabled={saving} onClick={() => setDeleting(true)}>Delete device</button>}
