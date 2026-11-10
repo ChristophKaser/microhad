@@ -1,12 +1,18 @@
+import { OtaUpdate } from '../src/OtaUpdate'
 import { createRoot } from 'react-dom/client'
 import { FirmwareDownloads } from '../src/FirmwareDownloads'
 import { MatterFirmwareDownloads } from '../src/MatterFirmwareDownloads'
 import type { Device } from '../src/api'
 const calls: string[] = []
 let scenario = 'matching'
+let installBody: { address: string; endpoint: number } | undefined
 const provider = { id: 'sonoff', label: 'SONOFF', url: 'https://catalog.example.test/upgrade.json', manufacturer: 4742 }
-window.fetch = async (input) => {
+window.fetch = async (input, init) => {
   const url = String(input); calls.push(url)
+  if (url === '/api/ota/status' || url === '/api/ota/start') {
+    if (url === '/api/ota/start') installBody = JSON.parse(String(init?.body))
+    return Response.json({ image: 'test-image', protocol: 'matter', state: 'ready', target: '', size: 1500000, uploaded: 1500000, progress: 0, version: 0, manufacturer: 0, image_type: 0, error: '' })
+  }
   if (url === '/api/ota/catalogs') return Response.json(scenario.startsWith('matter') ? [{ id: 'matter-dcl-testnet', label: 'Matter testnet (test release)', url: `https://ledger.example.test/${scenario}/dcl/model/versions` }] : [provider])
   if (url.startsWith('https://ledger.example.test/')) throw new TypeError('CORS blocked')
   if (url === '/api/ota/catalog/matter-dcl-testnet/4476/4096') {
@@ -60,6 +66,14 @@ async function main() {
   check(document.body.textContent?.includes('Could not read:'), 'Matter catalog failure distinguished')
   root.render(<MatterFirmwareDownloads device={{ ...device, source: 'matter', matter_vendor_id: null }} />); await wait()
   check(document.body.textContent?.includes('identification is pending'), 'Matter missing identity distinguished')
+  const matterId = 'matter:0000000000000001:1'
+  root.render(<OtaUpdate device={{ ...device, id: matterId, name: 'Matter switch', source: 'matter', ieee_address: '', matter_node: '0000000000000001', endpoint_descriptors: [{ endpoint: 1, input_clusters: [0x002a] }] } as Device} />)
+  await wait(); await wait()
+  const install = Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Install on Matter switch')
+  check(install, 'Matter install button is available')
+  install!.click(); await wait()
+  check(installBody?.address === matterId, 'Matter OTA sends device ID rather than empty Zigbee address')
+  check(installBody?.endpoint === 1, 'Matter OTA sends requestor endpoint')
   document.getElementById('result')!.textContent = 'PASS firmware catalogs: direct links, matching, CORS fallback, errors, keyboard and mobile layout'
   document.getElementById('result')!.dataset.result = 'passed'
 }

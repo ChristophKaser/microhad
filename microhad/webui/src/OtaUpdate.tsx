@@ -48,7 +48,7 @@ export function OtaUpdate({ device }: { device: Device }) {
   }
   const act = async (action: string) => {
     setBusy(true); setError('')
-    try { setStatus(await request(action, { image: status?.image, address: device.ieee_address, endpoint: device.endpoint_descriptors.find(endpoint => endpoint.input_clusters.includes(0x002a))?.endpoint ?? 0 })) }
+    try { setStatus(await request(action, { image: status?.image, address: device.id, endpoint: device.endpoint_descriptors.find(endpoint => endpoint.input_clusters.includes(0x002a))?.endpoint ?? 0 })) }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
     finally { setBusy(false) }
   }
