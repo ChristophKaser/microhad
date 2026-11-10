@@ -144,7 +144,6 @@ start_snapshot() {
         sleep 1;snapshot_wait=$((snapshot_wait+1))
     done
     stop_child "$snapshot_pid";snapshot_pid=
-    stop_child "$ftp_collector_pid";ftp_collector_pid=
     echo 'Crash snapshot collector unavailable; services continue without snapshots' >&2
     return 1
 }
@@ -155,6 +154,7 @@ cleanup() {
     stop_child "$native_pid";native_pid=
     stop_child "$zig_pid";zig_pid=
     stop_child "$snapshot_pid";snapshot_pid=
+    stop_child "$ftp_collector_pid";ftp_collector_pid=
     drain_stderr "$matter_logger_pid"
     drain_stderr "$zig_logger_pid"
     rm -f "$control/matter.pid" "$control/matter.failed" "$control/active-matter-log-level" "$control/requested-matter-log-level" "$control/requested-matter-log-level."* "$control/native.pid" "$control/ziggurat.pid" "$control/supervisor.pid" "$control/quiesce" "$control/quiesced" "$control/stop" "$control/active-log-level" "$control/requested-log-level" "$control/requested-log-level."*

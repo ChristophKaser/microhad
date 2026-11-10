@@ -167,6 +167,19 @@ class Paired(unittest.TestCase):
             except subprocess.TimeoutExpired:self.process.kill();self.process.wait()
         self.syslog_stop.set();self.syslog_thread.join(timeout=2);self.syslog_socket.close()
         self.log.close();os.close(self.master);self.tmp.cleanup()
+    def test_collector_stops_on_supervisor_exit_and_restarts_cleanly(self):
+        collector = self.root/'ftp-log-collector'
+        collector.write_text(FAKE)
+        collector.chmod(0o700)
+        (self.root/'ftp-log-collector.conf').write_text('fixture')
+        for attempt in range(2):
+            self.start();self.ready()
+            wait(lambda:self.events.read_text().count('ftp-log-collector start') == attempt+1)
+            self.quiesce();self.stop()
+            self.assertEqual(self.events.read_text().count('ftp-log-collector stop'), attempt+1)
+            self.assertFalse(self.control.exists())
+            self.events.write_text(self.events.read_text().replace('native start', 'native previous'))
+
     def test_rust_backtraces_reach_syslog_and_keep_child_exit_status(self):
         self.enable_matter()
         self.env['RUST_BACKTRACE'] = '0'

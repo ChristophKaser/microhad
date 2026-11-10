@@ -281,6 +281,12 @@ selected_service_paths() {
         supervisor) service_source="$project_dir/paired_start.sh"; service_name=paired_start.sh ;;
     esac
 }
+stop_remote_ftp_collector() {
+    # Legacy supervisors did not stop the collector during cleanup. Run after
+    # supervisor exit for every stack restart, even when its binary is unchanged.
+    ssh_command "for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/ftp-log-collector\") id=\${p#/proc/}; id=\${id%/exe}; kill -TERM \"\$id\" 2>/dev/null || true ;; esac; done; n=0; while [ \$n -lt 20 ]; do active=false; for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/ftp-log-collector\") active=true ;; esac; done; [ \"\$active\" = true ] || exit 0; sleep 1; n=\$((n+1)); done; echo 'FTP collector remains active' >&2; exit 1" || return 1
+}
+
 selected_services_deploy() {
     selected_readelf=${TARGET_READELF:-$(python3 "$repo_root/scripts/toolchain_config.py" TARGET_READELF)}
     [ -x "$selected_readelf" ] || { echo 'MIPS readelf is missing' >&2; return 1; }
@@ -373,12 +379,7 @@ selected_services_deploy() {
     echo "Updating services:$changed_services; quiescing the paired stack"
     ssh_command "kill -0 $supervisor_pid && : > /tmp/ziggurat-supervisor/quiesce; n=0; while [ ! -f /tmp/ziggurat-supervisor/quiesced ] && [ \$n -lt 20 ]; do sleep 1; n=\$((n+1)); done; test -f /tmp/ziggurat-supervisor/quiesced" || return 1
     ssh_command "kill -TERM $supervisor_pid; n=0; while [ -d /proc/$supervisor_pid ] && [ \$n -lt 20 ]; do sleep 1; n=\$((n+1)); done; test ! -d /proc/$supervisor_pid" || return 1
-    case " $changed_services " in *" ftp "*)
-        # Older supervisors leave their collector alive across stack restarts.
-        # Stop exact collector executable owners before replacing that inode.
-        ssh_command "for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/ftp-log-collector\") id=\${p#/proc/}; id=\${id%/exe}; kill -TERM \"\$id\" 2>/dev/null || true ;; esac; done; n=0; while [ \$n -lt 20 ]; do active=false; for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/ftp-log-collector\") active=true ;; esac; done; [ \"\$active\" = true ] || exit 0; sleep 1; n=\$((n+1)); done; echo 'FTP collector remains active' >&2; exit 1" || return 1
-        ;;
-    esac
+    stop_remote_ftp_collector || return 1
     ssh_command "for p in /proc/[0-9]*/exe; do x=\$(ls -l \"\$p\" 2>/dev/null) || continue; case \"\$x\" in *\" -> $target/microhad\"|*\" -> $target/ziggurat\"|*\" -> $target/mthread-matter\") echo 'Paired process remains active' >&2; exit 1 ;; esac; done" || return 1
     selected_upload() {
         upload_source=$1; upload_destination=$2; upload_mode=$3
@@ -526,6 +527,7 @@ maintenance_deploy_run() {
         echo "A deployment executable is still active after supervisor shutdown; refusing replacement" >&2
         return 1
     }
+    stop_remote_ftp_collector || return 1
     old_service_size=$(ssh_command "for service in \"$target/thread-matter\" \"$target/mthread-matter\"; do if [ -f \"\$service\" ]; then wc -c < \"\$service\"; fi; done | awk '{total += \$1} END {print total + 0}'") || return 1
     old_ziggurat_size=$(ssh_command "if [ -f \"$target/ziggurat\" ]; then wc -c < \"$target/ziggurat\" | awk '{print \$1}'; else echo 0; fi") || return 1
     if [ -f "$rollback_dir/webui.tar" ]; then

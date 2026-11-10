@@ -176,6 +176,20 @@ echo '{"available":true,"controller_initialized":true,"fabric_ready":true,"state
             self.assertFalse(any(row['bytes'] for row in calls))
             self.assertFalse(any('( /tuya/tuya_start.sh ' in row['command'] for row in calls))
 
+    def test_supervisor_update_stops_legacy_collector_before_upload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result,calls=self.selected_deployment(Path(directory), ['--services','supervisor'])
+            self.assertEqual(result.returncode,0,result.stderr)
+            stop=next(i for i,row in enumerate(calls) if 'FTP collector remains active' in row['command'])
+            self.assertLess(stop, next(i for i,row in enumerate(calls) if row['bytes']))
+
+    def test_supervisor_update_aborts_if_legacy_collector_will_not_stop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result,calls=self.selected_deployment(Path(directory), ['--services','supervisor'],
+                SELECTED_FTP_STOP_FAIL='1')
+            self.assertNotEqual(result.returncode,0)
+            self.assertFalse(any(row['bytes'] for row in calls))
+
     def test_selected_supervisor_uploads_only_supervisor_and_control(self):
         with tempfile.TemporaryDirectory() as directory:
             result,calls=self.selected_deployment(Path(directory), ['--services','supervisor'])
