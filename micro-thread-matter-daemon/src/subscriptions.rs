@@ -437,6 +437,26 @@ pub async fn establish_device_paths_cached<C: Crypto>(
     })
 }
 
+fn switch_event_path(endpoint: u16) -> EventPath {
+    EventPath {
+        endpoint: Some(endpoint), cluster: Some(59), event: None,
+        // Non-urgent events may wait until the publisher's maximum interval.
+        is_urgent: Some(true), ..EventPath::default()
+    }
+}
+
+fn switch_event(node: u64, event: &rs_matter::im::EventData<'_>) -> Result<Option<MatterButtonEvent>, Error> {
+    if event.path.cluster != Some(59) { return Ok(None); }
+    let (Some(endpoint), Some(event_id)) = (event.path.endpoint, event.path.event) else { return Ok(None); };
+    if event_id > 6 { return Ok(None); }
+    let data = event.data.structure()?;
+    Ok(Some(MatterButtonEvent {
+        node: crate::control::Id(node), endpoint, event: event_id as u8,
+        position: data.ctx(0).ok().and_then(|v| v.u8().ok()),
+        press_count: data.ctx(1).ok().and_then(|v| v.u8().ok()),
+    }))
+}
+
 pub async fn establish_switch_events<C: Crypto>(
     matter: &Matter<'_>,
     crypto: &C,
@@ -477,12 +497,7 @@ pub async fn establish_switch_events_for_device_cached<C: Crypto>(
         cache.as_ref(),
     )
     .await?;
-    let path = EventPath {
-        endpoint: Some(endpoint),
-        cluster: Some(59),
-        event: None,
-        ..EventPath::default()
-    };
+    let path = switch_event_path(endpoint);
     let chunk = Exchange::initiate(matter, crypto, fabric, node)
         .await?
         .subscribe_with(|builder| {
@@ -806,26 +821,9 @@ async fn receive_report_exchange_progress(
                     let rs_matter::im::EventResp::Data(event) = event? else {
                         continue;
                     };
-                    if event.path.cluster != Some(59)
-                        || event.path.event.is_none()
-                        || event.path.endpoint.is_none()
-                    {
-                        continue;
+                    if let Some(button) = switch_event(node, &event)? {
+                        chunk_buttons.push(button);
                     }
-                    let event_id = event.path.event.unwrap();
-                    if event_id > 5 {
-                        continue;
-                    }
-                    let data = event.data.structure()?;
-                    let position = data.ctx(0).ok().and_then(|value| value.u8().ok());
-                    let press_count = data.ctx(1).ok().and_then(|value| value.u8().ok());
-                    chunk_buttons.push(MatterButtonEvent {
-                        node: crate::control::Id(node),
-                        endpoint: event.path.endpoint.unwrap(),
-                        event: event_id as u8,
-                        position,
-                        press_count,
-                    });
                 }
             }
             (
@@ -1022,6 +1020,32 @@ mod tests {
         let mut work = std::pin::pin!(interval_bounds(matter, &crypto,
             NonZeroU8::new(1).unwrap(), 2, Some(0), 3600, Some(&cache)));
         assert!(matches!(work.as_mut().poll(&mut context), Poll::Ready(Ok((0, 300)))));
+    }
+
+    #[test]
+    fn switch_subscription_requests_urgent_events_and_accepts_multi_press_complete() {
+        use rs_matter::{im::{EventData, EventDataTimestamp, EventPriority},
+            tlv::{TLVElement, TLVTag, ToTLV}, utils::storage::WriteBuf};
+        for endpoint in [1, 2] {
+            let path = switch_event_path(endpoint);
+            let mut bytes=[0;64];let mut writer=WriteBuf::new(&mut bytes);
+            path.to_tlv(&TLVTag::Anonymous,&mut writer).unwrap();
+            let decoded=EventPath::from_tlv(&TLVElement::new(writer.as_slice())).unwrap();
+            assert_eq!(decoded.is_urgent,Some(true),"button events must not wait for the 900-second heartbeat");
+            assert_eq!(decoded.endpoint,Some(endpoint));assert_eq!(decoded.cluster,Some(59));assert_eq!(decoded.event,None);
+            let data=[0x15,0x24,0,1,0x24,1,2,0x18];
+            for id in 0..=6 {
+                let event=EventData::new(EventPath {event:Some(id),..path.clone()},17,EventPriority::Info,
+                    EventDataTimestamp::SystemTimestamp(0),TLVElement::new(&data));
+                let button=switch_event(2,&event).unwrap().unwrap();
+                assert_eq!((button.endpoint,button.event,button.position,button.press_count),(endpoint,id as u8,Some(1),Some(2)));
+                let frame=crate::responses::event(crate::responses::Event::MatterButton(&button)).unwrap();
+                assert!(frame.encode().is_ok());
+            }
+            let event=EventData::new(EventPath {event:Some(7),..path},17,EventPriority::Info,
+                EventDataTimestamp::SystemTimestamp(0),TLVElement::new(&data));
+            assert!(switch_event(2,&event).unwrap().is_none());
+        }
     }
 
     #[test]

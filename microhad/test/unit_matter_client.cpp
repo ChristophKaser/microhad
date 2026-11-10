@@ -316,7 +316,8 @@ void runMatterClientUnitTests() {
     const std::string buttonPayload = "{\"schema\":1,\"event\":\"matter_button\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"event\":0,\"position\":1,\"press_count\":1}}";
     assert(MatterChannel::deviceButtonEvent(buttonPayload, &button));
     assert(button.node == "0000000000000002" && button.endpoint == 1 && button.event == 0 && button.position == 1 && button.pressCount == 1);
-    assert(!MatterChannel::deviceButtonEvent("{\"schema\":1,\"event\":\"matter_button\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"event\":6}}", &button));
+    assert(MatterChannel::deviceButtonEvent("{\"schema\":1,\"event\":\"matter_button\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"event\":6}}", &button));
+    assert(!MatterChannel::deviceButtonEvent("{\"schema\":1,\"event\":\"matter_button\",\"data\":{\"node\":\"0000000000000002\",\"endpoint\":1,\"event\":7}}", &button));
     assert(MatterChannel::validRequest(10, readBody));
     const std::string levelReadBody = "{\"schema\":1,\"action\":\"read\",\"node\":\"0000000000000002\",\"endpoint\":1,\"cluster\":8,\"attribute\":0}";
     const std::string levelCommandBody = "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":124,\"transition_deciseconds\":20}";

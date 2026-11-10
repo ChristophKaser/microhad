@@ -95,7 +95,7 @@ pub fn event(event: Event<'_>) -> Option<Frame> {
     if let Event::MatterButton(button) = &event {
         if button.node.0 < 2
             || button.endpoint == u16::MAX
-            || button.event > 5
+            || button.event > 6
             || button.position.is_some_and(|value| value > 254)
             || button.press_count.is_some_and(|value| value > 32)
         {

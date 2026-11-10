@@ -293,6 +293,12 @@ void acceptedReportSources(){Fixture f;Gateway gateway("/dev/null",115200,f.root
     std::string error;assert(gateway.registerShelly("1234567890abcdef","Phone","Phone","fritz",-1,&error));assert(gateway.applyFritzEvent("1234567890abcdef",true,true,65,&error));reports=gateway.takeAutomationReports();assert(reports.size()==2);assert(reports[0].field=="occupied");assert(Automation::snapshot(reports[0].device).fields["occupied"].boolean);
     MatterEndpoint endpoint;endpoint.id="matter:0000000000000001:0000000000000002:0001";endpoint.node="0000000000000002";endpoint.endpoint=1;endpoint.servers.push_back(1026);endpoint.online=true;assert(gateway.reconcileMatterDevices(std::vector<MatterEndpoint>(1,endpoint),&error));MatterReading reading;reading.node=endpoint.node;reading.endpoint=1;reading.cluster=1026;reading.known=true;reading.numberValue=19;assert(gateway.applyMatterReading(reading,&error));assert(gateway.applyMatterReading(reading,&error));reports=gateway.takeAutomationReports();assert(reports.size()==2);assert(Automation::snapshot(reports[0].device).fields["source"].string=="matter");assert(reports[1].field=="temperature_celsius");
     MatterEndpoint remote=endpoint;remote.id="matter:0000000000000001:0000000000000002:0002";remote.endpoint=2;remote.servers.clear();remote.servers.push_back(59);assert(gateway.reconcileMatterDevices(std::vector<MatterEndpoint>(1,remote),&error));MatterButtonEvent press;press.node=remote.node;press.endpoint=remote.endpoint;press.event=0;press.position=1;press.pressCount=2;assert(gateway.applyMatterButtonEvent(press,&error));reports=gateway.takeAutomationReports();assert(reports.size()==1&&reports[0].remoteAction&&reports[0].action=="matter_press"&&reports[0].endpoint==2&&reports[0].position==1&&reports[0].pressCount==2);
+    const char* actions[]={"matter_press","matter_press","matter_hold","matter_release","matter_release",0,"matter_multi_press"};
+    for(unsigned event=0;event<=6;++event){
+        press.event=event;assert(gateway.applyMatterButtonEvent(press,&error));reports=gateway.takeAutomationReports();
+        if(actions[event])assert(reports.size()==1&&reports[0].action==actions[event]);
+        else assert(reports.empty());
+    }
 }
 void manualTriggers(){Fixture f;
     const std::string source="triggers.register('run','Run action',function()automation.sleep(.01);persistent.presses=(persistent.presses or 0)+1 end)";

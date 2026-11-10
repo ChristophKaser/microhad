@@ -297,6 +297,12 @@ acknowledgement. Capacity and receive failures produce rate-limited warnings.
 An admitted exchange with no valid chunk progress for 60 seconds is reclaimed;
 this does not change the negotiated subscription deadline or idle parent polls.
 
+Switch subscriptions request urgent events, so button presses can be delivered
+immediately instead of waiting for the idle/maximum reporting interval. The
+private button event preserves the Matter Switch cluster's IDs: 0 SwitchLatched,
+1 InitialPress, 2 LongPress, 3 ShortRelease, 4 LongRelease,
+5 MultiPressOngoing and 6 MultiPressComplete.
+
 Descriptor interviews run at startup, after commissioning, for incomplete
 metadata, and on explicit subscription recovery. A successful interview does
 not schedule another timed interview. Transient failures retain verified

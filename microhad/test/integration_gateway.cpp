@@ -1908,7 +1908,7 @@ void testGatewayRunnerCommandDispatch() {
         press.node = matter.node; press.endpoint = matter.endpoint; press.event = 0;
         press.position = 1; press.pressCount = 1;
         assert(runner.applyMatterButtonEvent(press, &error));
-        press.event = 6;
+        press.event = 7;
         assert(!runner.applyMatterButtonEvent(press, &error) && error == "invalid Matter button event");
         MatterReading co2;
         co2.node = matter.node;

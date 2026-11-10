@@ -928,7 +928,7 @@ bool Gateway::applyMatterContact(const std::string& node, time_t observedAt, std
 
 bool Gateway::applyMatterButtonEvent(const MatterButtonEvent& event, std::string* error) {
     if (error) error->clear();
-    if (event.node.size() != 16 || event.endpoint == 0xffff || event.event > 5 ||
+    if (event.node.size() != 16 || event.endpoint == 0xffff || event.event > 6 ||
         event.position < -1 || event.position > 254 || event.pressCount < -1 || event.pressCount > 32) {
         if (error) *error = "invalid Matter button event";
         return false;
@@ -955,12 +955,13 @@ bool Gateway::logMatterButtonEvent(const MatterButtonEvent& event) {
     const char* name = 0;
     const char* action = 0;
     switch (event.event) {
-    case 0: name = "initial_press"; action = "matter_press"; break;
-    case 1: name = "long_press"; action = "matter_hold"; break;
-    case 2: name = "short_release"; action = "matter_release"; break;
-    case 3: name = "long_release"; action = "matter_release"; break;
-    case 4: name = "multi_press_ongoing"; break;
-    case 5: name = "multi_press_complete"; action = "matter_multi_press"; break;
+    case 0: name = "switch_latched"; action = "matter_press"; break;
+    case 1: name = "initial_press"; action = "matter_press"; break;
+    case 2: name = "long_press"; action = "matter_hold"; break;
+    case 3: name = "short_release"; action = "matter_release"; break;
+    case 4: name = "long_release"; action = "matter_release"; break;
+    case 5: name = "multi_press_ongoing"; break;
+    case 6: name = "multi_press_complete"; action = "matter_multi_press"; break;
     default: return false;
     }
     std::map<std::string, Device>::const_iterator device = devices_.end();
