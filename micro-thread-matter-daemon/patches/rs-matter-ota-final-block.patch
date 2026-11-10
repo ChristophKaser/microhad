@@ -1,0 +1,153 @@
+From fed502a2126071dc3a38dbe5ac40bba229dc67c6 Mon Sep 17 00:00:00 2001
+From: Gateway development <dev@localhost>
+Date: Tue, 10 Nov 2026 09:29:54 +0100
+Subject: [PATCH] Send Matter OTA EOF with the final payload block
+
+---
+ rs-matter/src/bdx/write.rs            | 11 ++++
+ rs-matter/src/dm/clusters/ota_prov.rs |  4 ++
+ rs-matter/tests/bdx.rs                | 94 +++++++++++++++++++++++++++
+ 3 files changed, 109 insertions(+)
+
+diff --git a/rs-matter/src/bdx/write.rs b/rs-matter/src/bdx/write.rs
+index 0086134..c0d3b6c 100644
+--- a/rs-matter/src/bdx/write.rs
++++ b/rs-matter/src/bdx/write.rs
+@@ -120,6 +120,17 @@ impl<'a, 'b> BdxWriter<'a, 'b> {
+         self.send_block(false).await
+     }
+ 
++    /// Send the final bytes filled into `block_buf` with the end-of-file marker.
++    /// This avoids requiring a receiver to request an extra empty block after
++    /// it has already received the advertised transfer length.
++    pub async fn finish_with(mut self, len: usize) -> Result<(), Error> {
++        if len > self.max_block_size {
++            return Err(ErrorCode::Invalid.into());
++        }
++        self.block_len = len;
++        self.finish().await
++    }
++
+     /// Flush the final (possibly empty) block and complete the transfer.
+     pub async fn finish(mut self) -> Result<(), Error> {
+         self.send_block(true).await?;
+diff --git a/rs-matter/src/dm/clusters/ota_prov.rs b/rs-matter/src/dm/clusters/ota_prov.rs
+index 8d79b8e..6a3745d 100644
+--- a/rs-matter/src/dm/clusters/ota_prov.rs
++++ b/rs-matter/src/dm/clusters/ota_prov.rs
+@@ -601,6 +601,10 @@ where
+                 break;
+             }
+ 
++            if n as u64 == size - offset {
++                return writer.finish_with(n).await;
++            }
++
+             writer.commit(n).await?;
+ 
+             offset += n as u64;
+diff --git a/rs-matter/tests/bdx.rs b/rs-matter/tests/bdx.rs
+index 3cdac8d..1428ceb 100644
+--- a/rs-matter/tests/bdx.rs
++++ b/rs-matter/tests/bdx.rs
+@@ -544,3 +544,97 @@ fn test_bdx_read_aborted_mid_stream() {
+         .unwrap();
+     });
+ }
++
++/// An OTA receiver need not query another block after the advertised length.
++/// Completing must therefore send EOF together with the last payload bytes.
++struct FinalPayloadResponder {
++    image: Vec<u8>,
++    finished: core::sync::atomic::AtomicBool,
++}
++impl ExchangeHandler for &FinalPayloadResponder {
++    async fn handle(&self, exchange: Exchange<'_>) -> Result<(), Error> {
++        let responder = BdxDownloadResponder::accept(exchange).await?;
++        let mut buf = [0u8; 1024];
++        let mut writer = responder.reply(&mut buf, Some(self.image.len() as u64)).await?;
++        let mut offset = 0;
++        loop {
++            let n = writer.max_block_size().min(self.image.len() - offset);
++            writer.block_buf()[..n].copy_from_slice(&self.image[offset..offset + n]);
++            offset += n;
++            if offset == self.image.len() {
++                writer.finish_with(n).await?;
++                self.finished.store(true, Ordering::Relaxed);
++                return Ok(());
++            }
++            writer.commit(n).await?;
++        }
++    }
++}
++
++#[test]
++fn test_bdx_final_payload_completes_without_extra_query() {
++    init_env_logger();
++    for size in [1, 721, 1024, 1025, 2048, 515793] {
++        let runner = new_default_runner();
++        let responder = FinalPayloadResponder {
++            image: image_of(size),
++            finished: core::sync::atomic::AtomicBool::new(false),
++        };
++        futures_lite::future::block_on(async {
++            select(runner.run_responder(&responder), with_timeout(async {
++                let mut exchange = runner.initiate_exchange().await?;
++                exchange.send_with(|_, wb| {
++                    bdx::TransferInit {
++                        transfer_control: bdx::TransferControl {
++                            version: bdx::BDX_VERSION,
++                            sender_drive: false,
++                            receiver_drive: true,
++                            async_mode: false,
++                        },
++                        range_control: bdx::RangeControl::default(),
++                        max_block_size: 1024,
++                        start_offset: 0,
++                        length: 0,
++                        file_designator: FILE_DESIGNATOR,
++                        metadata: &[],
++                    }.write(wb)?;
++                    Ok(Some(bdx::OpCode::ReceiveInit.into()))
++                }).await?;
++                exchange.recv_fetch().await?;
++                assert_eq!(exchange.rx()?.meta().opcode::<bdx::OpCode>()?, bdx::OpCode::ReceiveAccept);
++                exchange.rx_done()?;
++                let mut received = Vec::new();
++                let mut counter = 0;
++                loop {
++                    exchange.send_with(|_, wb| {
++                        bdx::BlockQuery { block_counter: counter }.write(wb)?;
++                        Ok(Some(bdx::OpCode::BlockQuery.into()))
++                    }).await?;
++                    exchange.recv_fetch().await?;
++                    let opcode = exchange.rx()?.meta().opcode::<bdx::OpCode>()?;
++                    let block = bdx::Block::parse(exchange.rx()?.payload())?;
++                    assert_eq!(block.block_counter, counter);
++                    received.extend_from_slice(block.data);
++                    let final_block = received.len() == size;
++                    assert_eq!(opcode, if final_block { bdx::OpCode::BlockEof } else { bdx::OpCode::Block });
++                    exchange.rx_done()?;
++                    if final_block {
++                        exchange.send_with(|_, wb| {
++                            bdx::BlockQuery { block_counter: counter }.write(wb)?;
++                            Ok(Some(bdx::OpCode::BlockAckEof.into()))
++                        }).await?;
++                        exchange.acknowledge().await?;
++                        break;
++                    }
++                    counter += 1;
++                }
++                assert_eq!(received, responder.image);
++                // No further read/query: the sender must already have sent EOF.
++                while !responder.finished.load(Ordering::Relaxed) {
++                    Timer::after(Duration::from_millis(1)).await;
++                }
++                Ok::<_, Error>(())
++            })).coalesce().await.unwrap();
++        });
++    }
++}
+-- 
+2.43.0
+
