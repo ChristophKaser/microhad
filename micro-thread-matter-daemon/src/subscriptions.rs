@@ -121,13 +121,12 @@ async fn interval_bounds<C: Crypto>(
 pub struct ReportSubscriptions(Rc<RefCell<Vec<(u8, u64, u32)>>>);
 
 impl ReportSubscriptions {
-    pub fn replace(&self, fabric: u8, identities: impl Iterator<Item = (u64, u32)>) {
-        let mut active = self.0.borrow_mut();
-        active.clear();
-        for (node, id) in identities {
-            let identity = (fabric, node, id);
-            if !active.contains(&identity) { active.push(identity); }
-        }
+    pub fn replace(&self, fabric: u8, identities: impl Iterator<Item = (u64, u32)>) -> bool {
+        let mut next=Vec::new();
+        for (node,id) in identities {let identity=(fabric,node,id);if !next.contains(&identity){next.push(identity);}}
+        let mut active=self.0.borrow_mut();
+        if *active==next{return false;}
+        *active=next;true
     }
 
     fn is_current(&self, fabric: u8, node: u64, id: u32) -> bool {

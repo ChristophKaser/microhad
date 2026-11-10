@@ -30,6 +30,8 @@ pub mod controller;
 #[cfg(feature = "controller-service")]
 pub mod devices;
 #[cfg(feature = "controller-service")]
+pub mod runtime_cache;
+#[cfg(feature = "controller-service")]
 pub mod discovery;
 #[cfg(feature = "controller-service")]
 pub mod icd;

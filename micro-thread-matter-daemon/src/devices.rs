@@ -11,7 +11,7 @@ use rs_matter::{
     transport::exchange::Exchange,
     Matter,
 };
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::{
     collections::VecDeque,
     future::Future,
@@ -33,7 +33,7 @@ const CLOCK_EVENT_ATTRIBUTE: u32 = u32::MAX - 1;
 const ICD_MANAGEMENT_CLUSTER: u32 = 0x0046;
 const MAX_ICD_CANDIDATES: usize = crate::icd::MAX_ICD_CLIENTS * MAX_ENDPOINTS;
 
-#[derive(Clone, Default, PartialEq, Serialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct FirmwareIdentity {
     pub vendor_id: Option<u16>,
     pub product_id: Option<u16>,
@@ -71,7 +71,7 @@ pub enum PageError {
     Capacity,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Endpoint {
     pub id: u16,
     pub servers: Vec<u32>,
@@ -101,6 +101,7 @@ struct InventoryPeer {
     next: Instant,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Snapshot {
     pub node: u64,
     pub endpoints: Vec<Endpoint>,
@@ -109,7 +110,9 @@ pub struct Snapshot {
     pub rssi_dbm: Option<i8>,
     pub firmware: FirmwareIdentity,
     pub online: bool,
+    #[serde(skip)]
     next: Option<Instant>,
+    #[serde(skip)]
     failures: u8,
 }
 struct Discovery {
@@ -138,7 +141,7 @@ struct ActiveOperation<'a> {
     deadline: Instant,
     work: OperationWork<'a>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct SubscriptionKey {
     node: u64,
     endpoint: u16,
@@ -155,6 +158,19 @@ struct SubscriptionState {
     last_report: Option<crate::operations::ResultValue>,
     last_received: Option<Instant>,
 }
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CachedSubscription { key:SubscriptionKey, id:Option<u32>, max_interval:u16, retry_in:u64, received_age:Option<u64>, unit:Option<String> }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CachedDevices { version:u8, fabric:u64, written_at:u64, snapshots:Vec<Snapshot>, subscriptions:Vec<CachedSubscription> }
+#[derive(Serialize)]
+struct SavedDevices<'a> { version:u8, fabric:u64, written_at:u64, snapshots:&'a [Snapshot], subscriptions:Vec<CachedSubscription> }
+fn unix_seconds()->u64 {std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()}
+fn cached_unit(unit:Option<&str>)->Option<&'static str> {match unit {
+    Some("celsius")=>Some("celsius"),Some("percent")=>Some("percent"),Some("ppm")=>Some("ppm"),
+    Some("ppb")=>Some("ppb"),Some("ug/m3")=>Some("ug/m3"),_=>None,
+}}
 type SubscriptionWork<'a> =
     Pin<Box<dyn Future<Output = Result<Option<crate::subscriptions::DeviceSubscription>, Error>> + 'a>>;
 type IcdWork<'a> = Pin<
@@ -221,6 +237,11 @@ pub struct Manager<'a, C: Crypto> {
     icd_checked: Vec<(u64, u16)>,
     icd_retry_after: Vec<((u64, u16), Instant)>,
     awake_until: Vec<(u64, Instant)>,
+    runtime_cache: Option<crate::runtime_cache::RuntimeCache>,
+    cache_dirty: std::cell::Cell<bool>,
+    cache_next: Instant,
+    cached_bootstrap: bool,
+    cached_sessions:Vec<u64>,
     contacts: Vec<(u64, Instant)>,
     snapshots: Vec<Snapshot>,
     work: Option<(u64, Instant, Work<'a>)>,
@@ -324,6 +345,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             icd_checked: Vec::new(),
             icd_retry_after: Vec::new(),
             awake_until: Vec::new(),
+            runtime_cache: None, cache_dirty: std::cell::Cell::new(false), cache_next: Instant::now(), cached_bootstrap:false, cached_sessions:Vec::new(),
             contacts: Vec::new(),
             snapshots: Vec::new(),
             work: None,
@@ -356,6 +378,48 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         let records = self.catalog.nodes().len() * 2
             + self.snapshots.iter().map(|snapshot| snapshot.endpoints.len()).sum::<usize>();
         self.inventory_peers.iter().any(|peer| peer.revision != self.revision || peer.index < records)
+    }
+    pub fn enable_runtime_cache(&mut self, cache:crate::runtime_cache::RuntimeCache)->std::io::Result<()> {
+        self.runtime_cache=Some(cache.clone());self.cache_dirty.set(true);
+        let saved=cache.read::<CachedDevices>("devices")?;
+        if let Some(saved)=saved {
+            let elapsed=unix_seconds().checked_sub(saved.written_at).filter(|age|*age<=86400);
+            if saved.version!=1 || saved.fabric!=self.compressed_fabric || elapsed.is_none() ||
+                saved.snapshots.len()>crate::catalog::MAX_NODES || saved.subscriptions.len()>self.subscription_limit ||
+                saved.snapshots.iter().enumerate().any(|(i,s)|saved.snapshots[..i].iter().any(|p|p.node==s.node) ||
+                    s.endpoints.iter().enumerate().any(|(j,e)|s.endpoints[..j].iter().any(|p|p.id==e.id))) ||
+                saved.subscriptions.iter().enumerate().any(|(i,s)|saved.subscriptions[..i].iter().any(|p|p.key==s.key)) ||
+                saved.snapshots.iter().any(|s|s.endpoints.len()>MAX_ENDPOINTS || s.manufacturer.len()>256 || s.model.len()>256 ||
+                    s.endpoints.iter().any(|e|e.id==u16::MAX || e.servers.len()>MAX_CLUSTERS || e.clients.len()>MAX_CLUSTERS || e.device_types.len()>MAX_CLUSTERS)) {
+                return Err(std::io::Error::other("invalid cached Matter inventory"));
+            }
+            let now=Instant::now();let elapsed=elapsed.unwrap();
+            let nodes=self.catalog.nodes();
+            self.snapshots=saved.snapshots.into_iter().filter(|s|nodes.iter().any(|n|n.id==s.node&&n.phase==Phase::Complete))
+                .map(|mut s|{s.online=false;s.next=s.endpoints.is_empty().then_some(now);s}).collect();
+            let keys=subscription_keys(&self.snapshots,self.subscription_limit);
+            self.subscriptions=saved.subscriptions.into_iter().filter(|s|keys.contains(&s.key)&&s.max_interval>0)
+                .map(|s|SubscriptionState {key:s.key,id:s.id,max_interval:s.max_interval,
+                    next_retry:now+Duration::from_secs(s.retry_in.min(86400).saturating_sub(elapsed)),
+                    last_received:s.received_age.and_then(|age|now.checked_sub(Duration::from_secs(age.saturating_add(elapsed)))),
+                    failures:0,unit:cached_unit(s.unit.as_deref()),last_report:None}).collect();
+            self.sync_subscriptions(now);self.sync_report_subscriptions();self.changed();
+            self.cached_bootstrap=true;
+            self.cached_sessions=self.registered_nodes.iter().copied().filter(|node|self.subscriptions.iter().any(|s|s.key.node==*node&&s.id.is_some())).collect();
+            log::info!("Matter RAM recovery restored nodes={} subscriptions={}",self.snapshots.len(),self.subscriptions.len());
+        }
+        self.runtime_cache=Some(cache);self.cache_dirty.set(true);Ok(())
+    }
+    pub fn flush_runtime_cache(&mut self, force:bool) {
+        let now=Instant::now();
+        if !self.cache_dirty.get() || (!force && now<self.cache_next){return;}
+        let Some(cache)=self.runtime_cache.as_ref() else{return;};
+        let saved=SavedDevices {version:1,fabric:self.compressed_fabric,written_at:unix_seconds(),snapshots:&self.snapshots,
+            subscriptions:self.subscriptions.iter().map(|s|CachedSubscription {key:s.key,id:s.id,max_interval:s.max_interval,
+                retry_in:s.next_retry.saturating_duration_since(now).as_secs(),
+                received_age:s.last_received.map(|at|now.saturating_duration_since(at).as_secs()),unit:s.unit.map(str::to_owned)}).collect()};
+        if cache.write("devices",&saved).is_ok(){self.cache_dirty.set(false);}else{log::warn!("Matter RAM recovery cache write failed");}
+        self.cache_next=now+Duration::from_secs(1);
     }
     pub fn subscribe_inventory(&mut self, peer: u64) {
         if !self.inventory_peers.iter().any(|entry| entry.peer == peer) {
@@ -483,13 +547,20 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
     }
 
     fn icd_recovery_needed(&self, node: u64, now: Instant) -> bool {
-        self.snapshots.iter().find(|snapshot| snapshot.node == node).is_none_or(|snapshot| {
+        self.cached_sessions.contains(&node) || self.snapshots.iter().find(|snapshot| snapshot.node == node).is_none_or(|snapshot| {
             snapshot.endpoints.is_empty() || snapshot.next.is_some_and(|next| next <= now)
         }) || self.subscriptions.iter().any(|subscription| {
             subscription.key.node == node && subscription.next_retry <= now
         })
     }
 
+    fn recover_peer_activity(&mut self,now:Instant) {
+        for &node in &self.registered_nodes {
+            if self.signals.take_activity(self.compressed_fabric,node) && self.icd_recovery_needed(node,now) {
+                self.icd_retry_after.retain(|(key,_)|key.0!=node);
+            }
+        }
+    }
     fn icd_recovery_candidate(&self, now: Instant) -> Option<(u64, u16)> {
         // An awake promise must come from the peer, but obtaining that promise
         // cannot itself require a Check-In. Persisted subscriptions and volatile
@@ -836,6 +907,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         self.reports.retain(|entry| entry.node.0 != node);
         self.button_events.retain(|entry| entry.node.0 != node);
         self.contacts.retain(|(id, _)| *id != node);
+        self.cached_sessions.retain(|id|*id!=node);
         let removed = self.matter.with_state(|state| {
             state.sessions.remove_where(|session| {
                 session.get_local_fabric_idx() == self.fabric.get() && session.get_peer_node_id() == Some(node)
@@ -846,6 +918,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         Ok(())
     }
     fn changed(&mut self) {
+        self.cache_dirty.set(true);
         if self.revision != 0 {
             self.revision = self.revision.checked_add(1).unwrap_or(0);
         }
@@ -962,9 +1035,11 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 snapshot.online = false;
                 snapshot.next = snapshot.endpoints.is_empty().then_some(now);
             }
-            for subscription in &mut self.subscriptions {
-                subscription.id = None;
-                subscription.next_retry = now;
+            if !self.cached_bootstrap {
+                for subscription in &mut self.subscriptions {
+                    subscription.id = None;
+                    subscription.next_retry = now;
+                }
             }
             self.sync_report_subscriptions();
             if changed {
@@ -972,6 +1047,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             }
             return;
         }
+        self.cached_bootstrap=false;
         #[cfg(feature = "controller-service-test-hooks")]
         {
             let now = Instant::now();
@@ -1038,6 +1114,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if now < self.inventory_bootstrap_until || self.inventory_pending() {
             return;
         }
+        self.recover_peer_activity(now);
         if self.poll_icd(now, context, !commissioning) {
             return;
         }
@@ -1292,6 +1369,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 }
             };
             if let Some(result) = result {
+                self.cache_dirty.set(true);
                 let key = *key;
                 self.subscription_work = None;
                 let mut members = std::mem::take(&mut self.subscription_members);
@@ -1630,6 +1708,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     self.registered_nodes.push(key.0);
                 }
                 if let Ok(Some(until)) = &result {
+                    self.cached_sessions.retain(|node|*node!=key.0);
                     self.record_awake_until(key.0, *until);
                     log::debug!("Matter ICD subscription wake window: node={:016x}", key.0);
                 }
@@ -1825,10 +1904,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .find(|members| members.contains(&key)).map(|members| members.to_vec()).unwrap_or_else(|| vec![key])
     }
     fn sync_report_subscriptions(&self) {
-        self.report_subscriptions.replace(
+        if self.report_subscriptions.replace(
             self.fabric.get(),
             self.subscriptions.iter().filter_map(|subscription| subscription.id.map(|id| (subscription.key.node, id))),
-        );
+        ){self.cache_dirty.set(true);}
     }
     fn record_heartbeat(&mut self, fabric: u8, node: u64, id: u32, now: Instant) {
         if fabric != self.fabric.get() { return; }
@@ -1840,6 +1919,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             entry.failures = 0;
         }
         if !accepted { return; }
+        self.cached_sessions.retain(|id|*id!=node);
+        self.cache_dirty.set(true);
         // One pending contact per catalog node; preserve the actual receipt time
         // while IPC is disconnected, without repeating unchanged value events.
         if let Some((_, received)) = self.contacts.iter_mut().find(|(id, _)| *id == node) {
@@ -2487,6 +2568,58 @@ mod tests {
         assert!(!manager.icd_checked.contains(&(2, 0)));
         drop(manager);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn ram_cache_restores_existing_subscriptions_and_delivers_the_first_press() {
+        use crate::{entropy::OsEntropy,store::PrivateStore,runtime_cache::RuntimeCache};
+        use rs_matter::{crypto::{default_crypto,CryptoSensitiveRef},dm::devices::test::{TEST_DEV_ATT,TEST_DEV_COMM,TEST_DEV_DET},utils::init::InitMaybeUninit};
+        let directory=std::env::temp_dir().join(format!("matter-ram-restart-{}",std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let catalog=Catalog::open(PrivateStore::open(&directory.join("state")).unwrap(),1,2).unwrap();
+        let reservation=catalog.reserve(2).unwrap();reservation.fabric_installed().unwrap();reservation.thread_provisioned().unwrap();reservation.complete().unwrap();
+        let crypto=default_crypto(OsEntropy::open().unwrap(),CryptoSensitiveRef::new(&[9;32]));
+        let mut memory=Box::new(std::mem::MaybeUninit::uninit());
+        let matter=memory.init_with(Matter::init(&TEST_DEV_DET,TEST_DEV_COMM,&TEST_DEV_ATT,5540));
+        let fabric=NonZeroU8::new(1).unwrap();let now=Instant::now();
+        let cache=RuntimeCache::open_at(&directory.join("ram")).unwrap();
+        let mut registry=crate::icd::ClientRegistry::open(catalog.store()).unwrap();
+        registry.install(fabric,2,0,[7;16],123).unwrap();drop(registry);
+        let mut manager=Manager::new(matter,&crypto,fabric,catalog.clone()).unwrap();
+        manager.enable_runtime_cache(cache.clone()).unwrap();
+        manager.snapshots.push(Snapshot {node:2,endpoints:vec![
+            Endpoint{id:1,servers:vec![59],clients:vec![],device_types:vec![]},
+            Endpoint{id:2,servers:vec![59],clients:vec![],device_types:vec![]}],
+            manufacturer:"IKEA".into(),model:"BILRESA dual button".into(),rssi_dbm:None,firmware:FirmwareIdentity::default(),online:true,next:None,failures:0});
+        manager.sync_subscriptions(now);
+        for (i,s) in manager.subscriptions.iter_mut().enumerate(){s.id=Some(77+i as u32);s.max_interval=900;s.next_retry=now+Duration::from_secs(900);s.last_received=Some(now);}
+        manager.sync_report_subscriptions();manager.flush_runtime_cache(true);
+        assert!(!manager.cache_dirty.get());manager.sync_subscriptions(now);
+        assert!(!manager.cache_dirty.get(),"unchanged service turns must not rewrite the cache");
+        drop(manager);
+        let mut restarted=Manager::new(matter,&crypto,fabric,catalog).unwrap();
+        restarted.enable_runtime_cache(cache.clone()).unwrap();
+        assert_eq!(restarted.snapshots.len(),1);assert!(!restarted.snapshots[0].online,"cached inventory is not liveness evidence");
+        assert_eq!(restarted.subscriptions.iter().map(|s|s.id).collect::<Vec<_>>(),vec![Some(77),Some(78)]);
+        let mut context=Context::from_waker(std::task::Waker::noop());
+        restarted.poll(false,false,now,&mut context);
+        assert_eq!(restarted.subscriptions[1].id,Some(78),"Thread attachment must not erase restored subscription IDs");
+        assert_eq!(restarted.cached_sessions,vec![2]);restarted.local_node=1;
+        restarted.icd_retry_after.push(((2,0),now+Duration::from_secs(60)));
+        let peer="fd00::42".parse().unwrap();
+        restarted.signals.update(0,2,&[rs_matter::transport::network::IpAddr::V6(peer)]);
+        restarted.signals.note_receive(peer);restarted.recover_peer_activity(now);
+        assert!(restarted.icd_retry_after.is_empty(),"a peer's first packet expedites authenticated session recovery");
+        assert_eq!(restarted.icd_recovery_candidate(now),Some((2,0)));
+        assert!(!restarted.node_awake(2,now)&&!restarted.snapshots[0].online,"traffic hints must not fabricate authenticated liveness");
+        restarted.record_report_at(crate::subscriptions::ReceivedReport {fabric:1,node:2,subscription_id:78,
+            values:vec![],clock_events:vec![],buttons:vec![crate::subscriptions::MatterButtonEvent {
+                node:crate::control::Id(2),endpoint:2,event:1,position:Some(1),press_count:None}]},false,Instant::now());
+        assert_eq!(restarted.button_events.len(),1,"the first press must be delivered without an extra setup tap");
+        assert_eq!(restarted.button_events[0].endpoint,2);assert!(restarted.snapshots[0].online);
+        assert!(restarted.cached_sessions.is_empty());
+        assert_eq!(restarted.contacts.len(),1);
+        drop(restarted);std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

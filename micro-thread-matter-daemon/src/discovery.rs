@@ -26,19 +26,57 @@ const MAX_REFRESH_REQUESTS: usize = 64;
 /// Last DNS-SD addresses advertised by operational nodes. The manager uses this
 /// only to ask OpenThread for a direct-neighbor RSSI; indirect routes return None.
 #[derive(Clone, Default)]
-pub struct SignalBook(Rc<RefCell<Vec<(u64, u64, Vec<[u8; 16]>)>>>);
+pub struct SignalBook {
+    entries:Rc<RefCell<Vec<(u64,u64,Vec<[u8;16]>)>>>,
+    runtime:Rc<RefCell<Option<crate::runtime_cache::RuntimeCache>>>,
+    activity:Rc<RefCell<Vec<(u64,u64,Instant,bool)>>>,
+}
 impl SignalBook {
-    pub fn update(&self, fabric: u64, node: u64, addresses: &[IpAddr]) {
-        let mut entries = self.0.borrow_mut();
-        entries.retain(|entry| entry.0 != fabric || entry.1 != node);
-        let addresses = addresses.iter().filter_map(|address| match address {
-            IpAddr::V6(address) => Some(address.octets()), _ => None,
-        }).collect();
-        entries.push((fabric, node, addresses));
+    pub fn enable_runtime_cache(&self,cache:crate::runtime_cache::RuntimeCache)->std::io::Result<()> {
+        *self.runtime.borrow_mut()=Some(cache.clone());
+        if let Some(entries)=cache.read::<Vec<(u64,u64,Vec<[u8;16]>)>>("addresses")? {
+            if entries.len()>crate::catalog::MAX_NODES || entries.iter().any(|(_,node,addresses)|*node<2 || addresses.len()>4 ||
+                addresses.iter().any(|a|{let ip=Ipv6Addr::from(*a);ip.is_unspecified()||ip.is_loopback()||ip.is_multicast()||ip.is_unicast_link_local()})) {
+                return Err(std::io::Error::other("invalid cached Matter addresses"));
+            }
+            *self.entries.borrow_mut()=entries;
+        }
+        *self.runtime.borrow_mut()=Some(cache);Ok(())
     }
-    pub fn rssi(&self, fabric: u64, node: u64) -> Option<i8> {
-        self.0.borrow().iter().find(|entry| entry.0 == fabric && entry.1 == node)
-            .and_then(|entry| entry.2.iter().find_map(crate::openthread::direct_rssi))
+    pub fn update(&self, fabric:u64,node:u64,addresses:&[IpAddr]) {
+        let addresses:Vec<_>=addresses.iter().filter_map(|a|match a{IpAddr::V6(a)=>Some(a.octets()),_=>None}).take(4).collect();
+        let mut entries=self.entries.borrow_mut();
+        if entries.iter().any(|e|e.0==fabric&&e.1==node&&e.2==addresses){return;}
+        entries.retain(|e|e.0!=fabric||e.1!=node);
+        if entries.len()==crate::catalog::MAX_NODES{entries.remove(0);}
+        entries.push((fabric,node,addresses));
+        if let Some(cache)=self.runtime.borrow().as_ref(){if cache.write("addresses",&*entries).is_err(){log::warn!("Matter RAM address cache write failed");}}
+    }
+    pub fn note_receive(&self,address:Ipv6Addr) {self.note_receive_at(address,Instant::now());}
+    fn note_receive_at(&self,address:Ipv6Addr,now:Instant) {
+        // This is only a rate-limited hint to initiate authenticated CASE; it
+        // cannot mark a node awake/online or deliver an application event.
+        let entries=self.entries.borrow();let mut activity=self.activity.borrow_mut();
+        for (fabric,node,addresses) in entries.iter().filter(|e|e.2.contains(&address.octets())) {
+            let _=addresses;
+            if let Some(entry)=activity.iter_mut().find(|e|e.0==*fabric&&e.1==*node) {
+                if now.saturating_duration_since(entry.2)>=Duration::from_secs(5){entry.2=now;entry.3=true;}
+            } else if activity.len()<crate::catalog::MAX_NODES {activity.push((*fabric,*node,now,true));}
+        }
+    }
+    pub fn take_activity(&self,fabric:u64,node:u64)->bool {
+        let mut activity=self.activity.borrow_mut();
+        let Some(entry)=activity.iter_mut().find(|e|e.0==fabric&&e.1==node) else{return false;};
+        std::mem::take(&mut entry.3)
+    }
+    fn fallback(&self,key:Key,now:Instant)->Option<Record> {
+        let entries=self.entries.borrow();
+        let entry=entries.iter().find(|e|e.0==key.fabric&&e.1==key.node)?;
+        (!entry.2.is_empty()).then(||Record {key,port:5540,addresses:entry.2.iter().map(|a|IpAddr::V6(Ipv6Addr::from(*a))).collect(),
+            txt:Vec::new(),expires:now+Duration::from_secs(5)})
+    }
+    pub fn rssi(&self,fabric:u64,node:u64)->Option<i8> {
+        self.entries.borrow().iter().find(|e|e.0==fabric&&e.1==node).and_then(|e|e.2.iter().find_map(crate::openthread::direct_rssi))
     }
 }
 
@@ -314,6 +352,12 @@ async fn run_with_refresh_and_signals(
                     break;
                 }
             }
+            if thread.ready() && matter.transport().mdns_resolve_in_flight() {
+                if let Some(record)=signals.fallback(key,Instant::now()) {
+                    log::info!("Operational recovery using last known address for {}",key.label());
+                    record.deposit(matter);break;
+                }
+            }
             Timer::after_millis(delay).await;
         }
     }
@@ -479,6 +523,28 @@ mod tests {
         }
         assert!(parse_txt(b"\x03X=\xff").unwrap().is_empty());
     }
+    #[test]
+    fn ram_addresses_survive_restart_and_remain_scoped_to_the_authenticated_peer() {
+        let directory=std::env::temp_dir().join(format!("matter-ram-addresses-{}",std::process::id()));
+        let cache=crate::runtime_cache::RuntimeCache::open_at(&directory).unwrap();
+        let signals=SignalBook::default();signals.enable_runtime_cache(cache.clone()).unwrap();
+        let ip=IpAddr::V6("fd00::42".parse().unwrap());signals.update(1,2,&[ip]);drop(signals);
+        let restored=SignalBook::default();restored.enable_runtime_cache(cache).unwrap();
+        let key=Key{fabric:1,node:2};
+        assert_eq!(restored.fallback(key,Instant::now()).unwrap().addresses,vec![ip]);
+        assert!(restored.fallback(Key{fabric:2,node:2},Instant::now()).is_none());
+        assert!(restored.fallback(Key{fabric:1,node:3},Instant::now()).is_none());
+        let now=Instant::now();
+        restored.note_receive_at("fd00::99".parse().unwrap(),now);assert!(!restored.take_activity(1,2));
+        restored.note_receive_at("fd00::42".parse().unwrap(),now);assert!(restored.take_activity(1,2));
+        assert!(!restored.take_activity(1,2));
+        restored.note_receive_at("fd00::42".parse().unwrap(),now+Duration::from_secs(1));assert!(!restored.take_activity(1,2));
+        restored.note_receive_at("fd00::42".parse().unwrap(),now+Duration::from_secs(5));assert!(restored.take_activity(1,2));
+        let replacement=IpAddr::V6("fd00::43".parse().unwrap());restored.update(1,2,&[replacement]);
+        assert_eq!(restored.fallback(key,Instant::now()).unwrap().addresses,vec![replacement]);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     #[test]
     fn ttl_is_capped_and_cached_reads_never_extend_expiration() {
         let now = Instant::now();

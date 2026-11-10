@@ -464,6 +464,13 @@ fn run(
             address_refresh.clone(),
             signals.clone(),
         )?;
+    match micro_thread_matter_daemon::runtime_cache::RuntimeCache::open(compressed_fabric) {
+        Ok(cache)=>{
+            if signals.enable_runtime_cache(cache.clone()).is_err(){log::warn!("Matter RAM address cache unavailable");}
+            if devices.enable_runtime_cache(cache).is_err(){log::warn!("Matter RAM inventory cache unavailable");}
+        }
+        Err(_)=>log::warn!("Matter RAM recovery cache unavailable"),
+    }
     #[cfg(feature = "controller-service-test-hooks")]
     if let Some(node) = std::env::var("MICROHAD_MATTER_TEST_SEED_SENSOR_REPORT_NODE").ok() {
         let node = u64::from_str_radix(node.trim_start_matches("0x"), 16)
@@ -479,6 +486,7 @@ fn run(
     log::info!("Matter controller service started");
     let channel = loop {
         if STOP.load(Ordering::Relaxed) {
+            devices.flush_runtime_cache(true);
             log::info!("Matter controller service stopped");
             return Ok(());
         }
@@ -499,6 +507,7 @@ fn run(
             )
         })?;
         devices.publish_inventory(&mut ipc)?;
+        devices.flush_runtime_cache(false);
         publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
         if let Some(channel) = lifecycle.boot_channel(Instant::now()) {
             break channel;
@@ -518,10 +527,11 @@ fn run(
         compressed_fabric,
         next_node,
         address_refresh,
-        signals,
+        signals.clone(),
     );
     let mut discovery = pin!(discovery);
     let network = thread.bind(MATTER_PORT)?;
+    network.set_activity_observer(signals.clone());
     let route_btp = |address: &Address| matches!(address, Address::Btp(_));
     let send = ChainedNetwork::new(route_btp, relay.transport(), &network);
     let receive = send.clone();
@@ -599,6 +609,7 @@ fn run(
         measured("publish_reports", || devices.publish_reports(&mut ipc))?;
         controller.publish(&mut ipc, Instant::now())?;
         devices.publish_inventory(&mut ipc)?;
+        devices.flush_runtime_cache(false);
         publish_thread(&mut ipc, &mut subscribers, &lifecycle)?;
         last_turn_end = Instant::now();
         max_turn_us = max_turn_us.max(last_turn_end.duration_since(turn_start).as_micros());
@@ -617,6 +628,7 @@ fn run(
             return Err("Thread radio stop failed".into());
         }
     }
+    devices.flush_runtime_cache(true);
     log::info!("Matter controller service stopped");
     Ok(())
 }

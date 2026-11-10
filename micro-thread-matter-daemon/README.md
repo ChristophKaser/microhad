@@ -303,7 +303,17 @@ private button event preserves the Matter Switch cluster's IDs: 0 SwitchLatched,
 1 InitialPress, 2 LongPress, 3 ShortRelease, 4 LongRelease,
 5 MultiPressOngoing and 6 MultiPressComplete.
 
-Descriptor interviews run at startup, after commissioning, for incomplete
+Verified endpoint metadata, active subscription IDs and their original report
+deadlines are cached atomically under private `/tmp/mthread-matter-runtime-*`
+directories. They survive service restarts on the same boot, without recording
+keys or writing frequent state to flash. Cached inventory does not prove a peer
+is online. Last advertised addresses provide a CASE-authenticated fallback while
+SRP registrations are rebuilding; a rate-limited packet hint from a cached peer
+can expedite that authentication without generating events or liveness itself.
+Malformed, oversized, foreign-fabric or stale inventory caches fall back to normal
+recovery. A full gateway reboot clears this RAM cache.
+
+Descriptor interviews run at cold startup, after commissioning, for incomplete
 metadata, and on explicit subscription recovery. A successful interview does
 not schedule another timed interview. Transient failures retain verified
 capabilities and recover operational addresses and subscriptions with backoff.

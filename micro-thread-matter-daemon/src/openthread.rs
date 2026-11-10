@@ -223,6 +223,8 @@ impl OpenThread {
             _owner: self,
             id,
             queue,
+            #[cfg(feature="controller-service")]
+            activity:RefCell::new(None),
         })
     }
 }
@@ -273,6 +275,12 @@ pub struct ThreadNetwork<'a> {
     _owner: &'a OpenThread,
     id: i32,
     queue: Box<RefCell<Queue>>,
+    #[cfg(feature="controller-service")]
+    activity:RefCell<Option<crate::discovery::SignalBook>>,
+}
+#[cfg(feature="controller-service")]
+impl ThreadNetwork<'_> {
+    pub fn set_activity_observer(&self,signals:crate::discovery::SignalBook){*self.activity.borrow_mut()=Some(signals);}
 }
 impl Drop for ThreadNetwork<'_> {
     fn drop(&mut self) {
@@ -321,6 +329,10 @@ impl NetworkReceive for &ThreadNetwork<'_> {
             return Err(ErrorCode::BufferTooSmall.into());
         }
         buffer[..data.len()].copy_from_slice(&data);
+        #[cfg(feature="controller-service")]
+        if let Address::Udp(SocketAddr::V6(peer))=address {
+            if peer.port()==5540 {if let Some(signals)=self.activity.borrow().as_ref(){signals.note_receive(*peer.ip());}}
+        }
         Ok((data.len(), address))
     }
 }
