@@ -978,7 +978,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         const std::string body=request.substr(request.find("\r\n\r\n")+4);
         std::string error,image,address;bool ok=false;
         jsonStringField(body,"image",&image);jsonStringField(body,"address",&address);
-        if(action=="begin"||action=="chunk"||action=="finish")ok=OtaStore::instance().upload(action,body,&error);
+        if(action=="begin"||action=="chunk"||action=="finish"||action=="stream-chunk")ok=OtaStore::instance().upload(action,body,&error);
         else if(action=="cancel"||action=="discard")ok=OtaStore::instance().cancel(image,action=="discard",&error);
         else if(action=="start") {
             std::string node, ignored;

@@ -14,7 +14,7 @@ pub struct Request {
 pub fn decode_request(frame: &[u8]) -> Option<Request> {
     if frame.len() < 16 || frame.len() > MAX_FRAME + 2 { return None; }
     let size = u16::from_le_bytes([frame[0], frame[1]]) as usize;
-    if size != frame.len() - 2 || frame[2] != 1 || !(1..=4).contains(&frame[3]) { return None; }
+    if size != frame.len() - 2 || frame[2] != 1 || !(1..=7).contains(&frame[3]) { return None; }
     let endpoint = u16::from_le_bytes([frame[4], frame[5]]);
     let node = u64::from_le_bytes(frame[6..14].try_into().ok()?);
     let path_len = u16::from_le_bytes([frame[14], frame[15]]) as usize;

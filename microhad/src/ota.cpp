@@ -22,7 +22,7 @@ struct Lock {
 };
 unsigned long le(const unsigned char* p, unsigned n) { unsigned long v=0; for(unsigned i=0;i<n;++i)v|=static_cast<unsigned long>(p[i])<<(8*i); return v; }
 void put(std::vector<unsigned char>* p,unsigned long v,unsigned n){for(unsigned i=0;i<n;++i)p->push_back(static_cast<unsigned char>(v>>(8*i)));}
-struct OtaReply { std::string state,error; uint64_t progress; uint32_t version; uint16_t manufacturer,type; };
+struct OtaReply { std::string state,error; uint64_t progress; uint32_t version; uint16_t manufacturer,type; unsigned long requestedOffset,requestedLength; };
 bool rpc(const std::string& socket,unsigned action,const std::string& path,const std::string& node,unsigned short endpoint,OtaReply* result) {
     if(socket.size()>=sizeof(((sockaddr_un*)0)->sun_path)||path.size()>1008||node.size()>16)return false;
     uint64_t nodeId=0;
@@ -39,7 +39,9 @@ bool rpc(const std::string& socket,unsigned action,const std::string& path,const
     std::vector<unsigned char> reply(2);size_t received=0;
     while(ok&&received<reply.size()){ssize_t n=read(fd,&reply[received],reply.size()-received);if(n<=0){ok=false;break;}received+=n;if(received==2&&reply.size()==2){unsigned len=le(&reply[0],2);if(len<20||len>1024){ok=false;break;}reply.resize(len+2);}}
     close(fd);if(!ok||received!=reply.size()||reply[2]!=1)return false;
-    size_t stateLen=reply[3],errorLen=le(&reply[4],2);if(22+stateLen+errorLen!=reply.size())return false;
+    size_t stateLen=reply[3],errorLen=le(&reply[4],2);if(22+stateLen+errorLen!=reply.size()&&32+stateLen+errorLen!=reply.size())return false;
+    result->requestedOffset=result->requestedLength=0;
+    if(32+stateLen+errorLen==reply.size()){result->requestedOffset=le(&reply[22+stateLen+errorLen],4);result->requestedLength=le(&reply[30+stateLen+errorLen],2);if(result->requestedLength>480)return false;}
     result->progress=0;for(unsigned i=0;i<8;++i)result->progress|=static_cast<uint64_t>(reply[6+i])<<(8*i);
     result->version=le(&reply[14],4);result->manufacturer=le(&reply[18],2);result->type=le(&reply[20],2);
     const char* text=reinterpret_cast<const char*>(&reply[0])+22;
@@ -53,9 +55,9 @@ bool testMatterOtaRpc(const std::string& socket) {
 }
 #endif
 OtaStore& OtaStore::instance(){static OtaStore store;return store;}
-OtaStore::OtaStore():fd_(-1),state_("empty"),size_(0),received_(0),progress_(0),manufacturer_(0),type_(0),minHardware_(0),maxHardware_(0),version_(0),hardwareRange_(false),zigbeeOffered_(false),touched_(0){pthread_mutex_init(&mutex_,0);}
+OtaStore::OtaStore():fd_(-1),state_("empty"),size_(0),received_(0),progress_(0),manufacturer_(0),type_(0),minHardware_(0),maxHardware_(0),version_(0),hardwareRange_(false),zigbeeOffered_(false),streaming_(false),headerSize_(0),requestedOffset_(0),requestedLength_(0),touched_(0){pthread_mutex_init(&mutex_,0);}
 OtaStore::~OtaStore(){clear();pthread_mutex_destroy(&mutex_);}
-void OtaStore::clear(){if(fd_>=0)close(fd_);fd_=-1;if(!path_.empty())unlink(path_.c_str());path_.clear();id_.clear();protocol_.clear();state_="empty";target_.clear();error_.clear();matterSocket_.clear();size_=received_=progress_=0;manufacturer_=type_=minHardware_=maxHardware_=0;version_=0;hardwareRange_=false;zigbeeOffered_=false;touched_=0;}
+void OtaStore::clear(){if(fd_>=0)close(fd_);fd_=-1;if(!path_.empty())unlink(path_.c_str());path_.clear();id_.clear();protocol_.clear();state_="empty";target_.clear();error_.clear();matterSocket_.clear();size_=received_=progress_=0;manufacturer_=type_=minHardware_=maxHardware_=0;version_=0;hardwareRange_=false;zigbeeOffered_=false;streaming_=false;headerSize_=requestedOffset_=requestedLength_=0;touched_=0;}
 bool OtaStore::active() const{return state_=="starting"||state_=="cancelling"||state_=="waiting"||state_=="transferring"||state_=="awaiting_confirmation";}
 void OtaStore::expire(){if(!matterSocket_.empty())return;if(touched_&&time(0)-touched_>3600&&(active()||state_=="uploading")){state_="failed";error_="Update timed out; wake the device and start again";}}
 bool OtaStore::upload(const std::string& action,const std::string& body,std::string* error){
@@ -64,24 +66,39 @@ bool OtaStore::upload(const std::string& action,const std::string& body,std::str
         long size=0;std::string protocol;
         if(active()||state_=="uploading"){*error="An upload or installation is already active";return false;}
         if(!jsonLongField(body,"size",&size)||size<56||size>16*1024*1024||!jsonStringField(body,"protocol",&protocol)||(protocol!="zigbee"&&protocol!="matter")){*error="Invalid firmware size or protocol (maximum 16 MiB)";return false;}
-        clear();char path[]="/tmp/microhad-ota-XXXXXX";fd_=mkstemp(path);if(fd_<0){*error="Cannot create temporary firmware file";return false;}
+        std::string mode;jsonStringField(body,"mode",&mode);
+        long headerSize=0;
+        if(!mode.empty()&&mode!="upload"&&mode!="stream"){*error="Invalid firmware transfer mode";return false;}
+        if(mode=="stream"&&(protocol!="matter"||!jsonLongField(body,"header_size",&headerSize)||headerSize<16||headerSize>4112||headerSize>=size)){*error="Invalid Matter streaming header size";return false;}
+        clear();streaming_=mode=="stream";headerSize_=headerSize;
+        char path[]="/tmp/microhad-ota-XXXXXX";fd_=mkstemp(path);if(fd_<0){*error="Cannot create temporary firmware file";return false;}
         fcntl(fd_,F_SETFD,FD_CLOEXEC);path_=path;id_=path_.substr(path_.size()-6);protocol_=protocol;size_=size;state_="uploading";touched_=time(0);return true;
+    }
+    if(action=="stream-chunk"){
+        long offset=-1;std::string hex;
+        if(image!=id_||id_.empty()||!streaming_||!active()||matterSocket_.empty()||!jsonLongField(body,"offset",&offset)||offset<0||!jsonStringField(body,"data",&hex)||hex.empty()||hex.size()>960||hex.size()%2||hex.find_first_not_of("0123456789abcdef")!=std::string::npos||static_cast<unsigned long>(offset)>size_||hex.size()/2>size_-static_cast<unsigned long>(offset)){*error="Invalid browser firmware chunk";return false;}
+        std::ostringstream payload;payload<<id_<<':'<<offset<<':'<<hex;
+        const std::string socket=matterSocket_,selected=id_;OtaReply reply;
+        lock.release();bool ok=rpc(socket,7,payload.str(),"",0,&reply);lock.acquire();
+        if(id_!=selected){*error="Browser firmware stream was replaced";return false;}
+        if(!ok||!reply.error.empty()){*error=ok?reply.error:"Matter OTA service unavailable";return false;}
+        touched_=time(0);return true;
     }
     if(image!=id_||id_.empty()||state_!="uploading"){*error="Upload is no longer available";return false;}
     if(action=="chunk"){
         long offset=-1;std::string hex;
-        if(!jsonLongField(body,"offset",&offset)||offset<0||static_cast<unsigned long>(offset)!=received_||!jsonStringField(body,"data",&hex)||hex.empty()||hex.size()>8192||hex.size()%2||hex.find_first_not_of("0123456789abcdef")!=std::string::npos||hex.size()/2>size_-received_){*error="Invalid firmware chunk or offset";return false;}
+        if(!jsonLongField(body,"offset",&offset)||offset<0||static_cast<unsigned long>(offset)!=received_||!jsonStringField(body,"data",&hex)||hex.empty()||hex.size()>8192||hex.size()%2||hex.find_first_not_of("0123456789abcdef")!=std::string::npos||hex.size()/2>(streaming_?headerSize_:size_)-received_){*error="Invalid firmware chunk or offset";return false;}
         std::string bytes;for(unsigned long i=0;i<hex.size();i+=2)bytes+=static_cast<char>(strtoul(hex.substr(i,2).c_str(),0,16));
         unsigned long at=0;while(at<bytes.size()){ssize_t n=write(fd_,bytes.data()+at,bytes.size()-at);if(n<0&&errno==EINTR)continue;if(n<=0){clear();*error="Firmware write failed; upload discarded";return false;}at+=n;}
         received_+=bytes.size();touched_=time(0);return true;
     }
-    if(action=="finish"&&received_==size_){if(!parse(error)){clear();return false;}state_="ready";return true;}
+    if(action=="finish"&&received_==(streaming_?headerSize_:size_)){if(!parse(error)){clear();return false;}state_="ready";return true;}
     *error="Incomplete firmware upload";return false;
 }
 bool OtaStore::parse(std::string* error){
     unsigned char h[128];ssize_t n=pread(fd_,h,sizeof(h),0);
     if(protocol_=="matter"){
-        if(n>=16&&le(h,4)==0x1beef11eUL&&le(h+4,4)==size_&&le(h+8,4)==0&&le(h+12,4)<=4096&&16+le(h+12,4)<size_)return true;
+        if(n>=16&&le(h,4)==0x1beef11eUL&&le(h+4,4)==size_&&le(h+8,4)==0&&le(h+12,4)<=4096&&16+le(h+12,4)<size_&&(!streaming_||headerSize_==16+le(h+12,4)))return true;
         *error="Invalid Matter OTA container";return false;
     }
     if(n<56||le(h,4)!=0x0beef11eUL||le(h+4,2)!=0x0100||le(h+52,4)!=size_){*error="Invalid Zigbee OTA container";return false;}
@@ -99,11 +116,11 @@ std::string OtaStore::status(){Lock lock(&mutex_);expire();
         if(id_==image&&active()&&state_!="starting"&&state_!="cancelling"){
             if(ok){
                 if(!reply.state.empty())state_=reply.state;
-                error_=reply.error;progress_=reply.progress;
+                error_=reply.error;progress_=reply.progress;requestedOffset_=reply.requestedOffset;requestedLength_=reply.requestedLength;
             }else{error_="Matter OTA service unavailable; installation state is unknown";}
         }
     }
-    std::ostringstream out;out<<"{\"image\":\""<<id_<<"\",\"protocol\":\""<<protocol_<<"\",\"state\":\""<<state_<<"\",\"target\":\""<<jsonEscape(target_)<<"\",\"size\":"<<size_<<",\"uploaded\":"<<received_<<",\"progress\":"<<progress_<<",\"version\":"<<version_<<",\"manufacturer\":"<<manufacturer_<<",\"image_type\":"<<type_<<",\"error\":\""<<jsonEscape(error_)<<"\"}";return out.str();}
+    std::ostringstream out;out<<"{\"image\":\""<<id_<<"\",\"protocol\":\""<<protocol_<<"\",\"state\":\""<<state_<<"\",\"target\":\""<<jsonEscape(target_)<<"\",\"size\":"<<size_<<",\"mode\":\""<<(streaming_?"stream":"upload")<<"\",\"requested_offset\":"<<requestedOffset_<<",\"requested_length\":"<<requestedLength_<<",\"uploaded\":"<<received_<<",\"progress\":"<<progress_<<",\"version\":"<<version_<<",\"manufacturer\":"<<manufacturer_<<",\"image_type\":"<<type_<<",\"error\":\""<<jsonEscape(error_)<<"\"}";return out.str();}
 bool OtaStore::startZigbee(const std::string& image,const std::string& address,std::string* error){Lock lock(&mutex_);expire();if(image!=id_||protocol_!="zigbee"||state_!="ready"){*error="Upload a Zigbee image before starting";return false;}target_=address;state_="waiting";progress_=0;zigbeeOffered_=false;touched_=time(0);return true;}
 bool OtaStore::cancel(const std::string& image,bool discard,std::string* error){
     Lock lock(&mutex_);
@@ -120,7 +137,7 @@ bool OtaStore::matterControl(const std::string& action,const std::string& image,
     Lock lock(&mutex_);expire();
     if(image!=id_||protocol_!="matter"||state_!="ready"){*error="Upload a Matter image before starting";return false;}
     OtaReply reply;
-    const unsigned command=action=="inspect"?3:action=="start"?4:0;
+    const unsigned command=action=="inspect"?(streaming_?5:3):action=="start"?(streaming_?6:4):0;
     if(!command){*error="Invalid OTA command";return false;}
     state_="starting";lock.release();bool ok=rpc(socket,command,path_,node,endpoint,&reply);lock.acquire();
     state_="ready";

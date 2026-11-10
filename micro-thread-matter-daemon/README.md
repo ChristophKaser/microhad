@@ -55,6 +55,23 @@ The native integration builds a separate service artifact with test-only report
 hooks. Production builds check that those hooks are absent.
 See [runtime](../docs/matter-service-runtime.md).
 
+## Browser OTA streaming
+
+The Matter device firmware panel offers **Upload to gateway** (the default) and
+**Stream from this browser**. Streaming retains the selected file in the browser
+and uploads only its OTA header, at most 4112 bytes, to the gateway. The provider
+requests payload ranges of at most 480 bytes through the authenticated native
+API; no complete firmware payload is stored in gateway RAM or flash.
+
+Keep the device firmware page open until transfer completes. A missing browser
+response fails the transfer after 30 seconds. Closing or reloading the page loses
+the file attachment; cancel the interrupted transfer and select the file again.
+The SHA-256 payload digest is checked incrementally, and a mismatch prevents the
+final payload block from being delivered. Full uploads retain their existing
+digest verification before the image is offered. Streaming supports downloads
+from offset zero; a new download can restart there, but arbitrary resume offsets
+are not supported. This option currently applies only to Matter devices.
+
 OpenThread is pinned to release `v2026.10.0`, commit
 `53e8322140dde7b26827332100504507cec9cc4e`. Its build initializes the nested
 Mbed TLS dependency without requiring the Silicon Labs firmware installer.

@@ -30,6 +30,8 @@ private:
     uint32_t version_;
     bool hardwareRange_;
     bool zigbeeOffered_;
+    bool streaming_;
+    unsigned long headerSize_, requestedOffset_, requestedLength_;
     long touched_;
     void clear();
     bool parse(std::string* error);

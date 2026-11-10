@@ -31,8 +31,18 @@ use std::{
     time::{Duration, Instant},
 };
 
+// One browser response at a time; firmware payload is never written to disk.
+struct BrowserStream {
+    id: String,
+    pending: Option<(u64, usize, Instant)>,
+    bytes: Option<Vec<u8>>,
+    hash: sha2::Sha256,
+    offset: u64,
+}
+
 struct Image {
     file: File,
+    stream: Option<BrowserStream>,
     header: Vec<u8>,
     size: u64,
     node: u64,
@@ -120,12 +130,16 @@ impl Provider {
             ProviderStatus { state:"empty",progress:0,error:String::new(),version:None,manufacturer:None,image_type:None }
         }
     }
-    fn start<C: Crypto>(
+    fn start<C: Crypto>(&self, path: &str, node: u64, endpoint: u16, crypto: &C) -> Result<(), Error> {
+        self.start_source(path, node, endpoint, crypto, false)
+    }
+    fn start_source<C: Crypto>(
         &self,
         path: &str,
         node: u64,
         endpoint: u16,
         crypto: &C,
+        streaming: bool,
     ) -> Result<(), Error> {
         if self.image.borrow().as_ref().is_some_and(Image::active) {
             return Err(ErrorCode::Busy.into());
@@ -153,7 +167,9 @@ impl Provider {
         file.read_exact(&mut prefix)
             .map_err(|_| ErrorCode::InvalidData)?;
         let length = u32::from_le_bytes(prefix[12..16].try_into().unwrap()) as usize;
-        if length > 4096 || u64::from_le_bytes(prefix[4..12].try_into().unwrap()) != meta.len() {
+        let total = u64::from_le_bytes(prefix[4..12].try_into().unwrap());
+        if length > 4096 || !(56..=16 * 1024 * 1024).contains(&total)
+            || if streaming { meta.len() != (16 + length) as u64 } else { total != meta.len() } {
             return Err(ErrorCode::InvalidData.into());
         }
         let mut header = vec![0; 16 + length];
@@ -164,21 +180,23 @@ impl Provider {
         if m.image_digest_type != OTA_IMAGE_DIGEST_SHA256 {
             return Err(ErrorCode::InvalidData.into());
         }
-        let mut hasher = crypto.hash()?;
-        let mut bytes = [0; 4096];
-        let mut count = offset as u64;
-        loop {
-            let n = file.read(&mut bytes).map_err(|_| ErrorCode::InvalidData)?;
-            if n == 0 {
-                break;
+        if !streaming {
+            let mut hasher = crypto.hash()?;
+            let mut bytes = [0; 4096];
+            let mut count = offset as u64;
+            loop {
+                let n = file.read(&mut bytes).map_err(|_| ErrorCode::InvalidData)?;
+                if n == 0 {
+                    break;
+                }
+                hasher.update(&bytes[..n])?;
+                count += n as u64;
             }
-            hasher.update(&bytes[..n])?;
-            count += n as u64;
-        }
-        let mut digest = CryptoSensitive::new();
-        hasher.finish(&mut digest)?;
-        if count != meta.len() || digest.access().as_slice() != m.image_digest.0 {
-            return Err(ErrorCode::InvalidData.into());
+            let mut digest = CryptoSensitive::new();
+            hasher.finish(&mut digest)?;
+            if count != meta.len() || digest.access().as_slice() != m.image_digest.0 {
+                return Err(ErrorCode::InvalidData.into());
+            }
         }
         let mut token = [0; 16];
         File::open("/dev/urandom")
@@ -187,8 +205,12 @@ impl Provider {
         let designator = token.iter().map(|b| format!("{b:02x}")).collect();
         *self.image.borrow_mut() = Some(Image {
             file,
+            stream: if streaming { Some(BrowserStream {
+                id: suffix.into(), pending: None, bytes: None,
+                hash: sha2::Digest::new(), offset: header.len() as u64,
+            }) } else { None },
             header,
-            size: meta.len(),
+            size: total,
             node,
             endpoint,
             token,
@@ -200,6 +222,31 @@ impl Provider {
             announce: node != 0,
         });
         Ok(())
+    }
+    fn stream_chunk(&self, data: &str) -> Result<(), Error> {
+        let mut fields = data.splitn(3, ':');
+        let id = fields.next().ok_or(ErrorCode::InvalidData)?;
+        let offset: u64 = fields.next().ok_or(ErrorCode::InvalidData)?.parse().map_err(|_| ErrorCode::InvalidData)?;
+        let hex = fields.next().ok_or(ErrorCode::InvalidData)?;
+        let mut image = self.image.borrow_mut();
+        let i = image.as_mut().filter(|i| i.active()).ok_or(ErrorCode::InvalidData)?;
+        let stream = i.stream.as_mut().ok_or(ErrorCode::InvalidData)?;
+        let (want, count, _) = stream.pending.ok_or(ErrorCode::InvalidData)?;
+        if id != stream.id || offset != want || hex.len() != count * 2 || count > 480 || stream.bytes.is_some() {
+            return Err(ErrorCode::InvalidData.into());
+        }
+        let mut bytes = Vec::with_capacity(count);
+        for pair in hex.as_bytes().chunks_exact(2) {
+            let digit = |c: u8| match c { b'0'..=b'9' => Some(c-b'0'), b'a'..=b'f' => Some(c-b'a'+10), _ => None };
+            bytes.push((digit(pair[0]).ok_or(ErrorCode::InvalidData)? << 4) | digit(pair[1]).ok_or(ErrorCode::InvalidData)?);
+        }
+        stream.bytes = Some(bytes);
+        Ok(())
+    }
+    fn pending(&self) -> (u64, u16) {
+        self.image.borrow().as_ref().filter(|i| i.active())
+            .and_then(|i| i.stream.as_ref()).and_then(|s| s.pending)
+            .map(|(offset, count, _)| (offset, count as u16)).unwrap_or((0,0))
     }
     pub async fn announce<C: Crypto>(&self, matter: &Matter<'_>, crypto: &C) {
         loop {
@@ -364,25 +411,64 @@ impl OtaImages for Provider {
     }
     async fn read(&self, fd: &[u8], offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
         use std::os::unix::fs::FileExt;
-        let mut image = self.image.borrow_mut();
-        let i = image
-            .as_mut()
-            .filter(|i| i.active() && i.designator.as_bytes() == fd)
-            .ok_or(ErrorCode::InvalidData)?;
-        if offset > i.size {
-            return Err(ErrorCode::InvalidData.into());
+        use sha2::Digest as _;
+        // Never hold a RefCell borrow while waiting for browser HTTP traffic.
+        loop {
+            {
+                let mut image = self.image.borrow_mut();
+                let i = image.as_mut().filter(|i| i.active() && i.designator.as_bytes() == fd)
+                    .ok_or(ErrorCode::InvalidData)?;
+                if offset > i.size { return Err(ErrorCode::InvalidData.into()); }
+                let len = buf.len().min((i.size - offset) as usize);
+                if len == 0 { return Ok(0); }
+                let n = if let Some(stream) = i.stream.as_mut() {
+                    if offset == 0 {
+                        // A fresh download may restart after an interrupted exchange.
+                        stream.hash = sha2::Sha256::new();
+                        stream.offset = i.header.len() as u64;
+                        stream.pending = None; stream.bytes = None; i.progress = 0;
+                    }
+                    if offset < i.header.len() as u64 {
+                        let n = len.min(i.header.len() - offset as usize);
+                        buf[..n].copy_from_slice(&i.header[offset as usize..offset as usize+n]);
+                        n
+                    } else {
+                        if offset != stream.offset { return Err(ErrorCode::InvalidData.into()); }
+                        if let Some(bytes) = stream.bytes.take() {
+                            if bytes.len() > len { return Err(ErrorCode::InvalidData.into()); }
+                            stream.hash.update(&bytes);
+                            stream.offset += bytes.len() as u64;
+                            stream.pending = None;
+                            if stream.offset == i.size {
+                                let actual = stream.hash.clone().finalize();
+                                let expected = OtaImageHeader::decode(&i.header)?.0.image_digest.0;
+                                if actual.as_slice() != expected {
+                                    i.state = "failed"; i.error = "Browser firmware digest mismatch".into();
+                                    return Err(ErrorCode::InvalidData.into());
+                                }
+                            }
+                            buf[..bytes.len()].copy_from_slice(&bytes);
+                            bytes.len()
+                        } else {
+                            let pending = stream.pending.get_or_insert((offset, len.min(480), Instant::now()));
+                            if pending.0 != offset || pending.1 > len { return Err(ErrorCode::InvalidData.into()); }
+                            if pending.2.elapsed() > Duration::from_secs(30) {
+                                i.state = "failed"; i.error = "Browser stream disconnected or timed out; keep the firmware page open".into();
+                                return Err(ErrorCode::TxTimeout.into());
+                            }
+                            drop(image);
+                            embassy_time::Timer::after_millis(20).await;
+                            continue;
+                        }
+                    }
+                } else {
+                    i.file.read_at(&mut buf[..len], offset).map_err(|_| ErrorCode::InvalidData)?
+                };
+                if offset <= i.progress { i.progress = i.progress.max(offset+n as u64); }
+                i.state = "transferring"; i.touched = Instant::now();
+                return Ok(n);
+            }
         }
-        let len = buf.len().min((i.size - offset) as usize);
-        let n = i
-            .file
-            .read_at(&mut buf[..len], offset)
-            .map_err(|_| ErrorCode::InvalidData)?;
-        if offset <= i.progress {
-            i.progress = i.progress.max(offset + n as u64);
-        }
-        i.state = "transferring";
-        i.touched = Instant::now();
-        Ok(n)
     }
 }
 fn same_user(stream: &UnixStream) -> bool {
@@ -464,12 +550,19 @@ impl Control {
                     1=>None,
                     2=>{provider.cancel();None},
                     3=>provider.start(&cmd.path,0,0,crypto).err().map(|_|"Invalid Matter OTA container or unsupported payload digest"),
-                    4=>if catalog.nodes().iter().any(|n|n.id==cmd.node&&n.phase==Phase::Complete){provider.start(&cmd.path,cmd.node,cmd.endpoint,crypto).err().map(|_|"Invalid, incompatible, or unsupported Matter firmware image")}else{Some("Unknown Matter node")},
+                    5=>provider.start_source(&cmd.path,0,0,crypto,true).err().map(|_|"Invalid Matter streaming header"),
+                    7=>provider.stream_chunk(&cmd.path).err().map(|_|"Invalid or stale browser stream chunk"),
+                    4|6=>if catalog.nodes().iter().any(|n|n.id==cmd.node&&n.phase==Phase::Complete){provider.start_source(&cmd.path,cmd.node,cmd.endpoint,crypto,cmd.action==6).err().map(|_|"Invalid, incompatible, or unsupported Matter firmware image")}else{Some("Unknown Matter node")},
                     _=>Some("Invalid OTA command"),
                 };
                 let status=provider.status();
                 let message=error.unwrap_or(&status.error);
-                let Some(reply)=ota_wire::encode_response(if error.is_some(){""}else{status.state},message,status.progress,status.version.as_ref().and_then(|v|v.parse().ok()).unwrap_or(0),status.manufacturer.unwrap_or(0),status.image_type.unwrap_or(0)) else{return false;};
+                let Some(mut reply)=ota_wire::encode_response(if error.is_some(){""}else{status.state},message,status.progress,status.version.as_ref().and_then(|v|v.parse().ok()).unwrap_or(0),status.manufacturer.unwrap_or(0),status.image_type.unwrap_or(0)) else{return false;};
+                let (offset, count) = provider.pending();
+                reply.extend_from_slice(&offset.to_le_bytes());
+                reply.extend_from_slice(&count.to_le_bytes());
+                let len = (reply.len()-2) as u16;
+                reply[..2].copy_from_slice(&len.to_le_bytes());
                 c.reply=reply;
             }
             match c.stream.write(&c.reply[c.sent..]){Ok(0)=>false,Ok(n)=>{c.sent+=n;c.sent<c.reply.len()},Err(e)=>e.kind()==std::io::ErrorKind::WouldBlock}
@@ -604,7 +697,9 @@ mod tests {
         }
     }
     fn fixture<C: Crypto>(crypto: &C) -> Fixture {
-        let payload = b"signed-vendor-image-payload";
+        fixture_payload(crypto, b"signed-vendor-image-payload")
+    }
+    fn fixture_payload<C: Crypto>(crypto: &C, payload: &[u8]) -> Fixture {
         let mut hash = crypto.hash().unwrap();
         hash.update(payload).unwrap();
         let mut digest = CryptoSensitive::new();
@@ -703,6 +798,106 @@ mod tests {
         assert_eq!(provider.status().state, "complete");
         provider.cancel();
         assert_eq!(ready(provider.size(&fd)), None);
+    }
+    #[test]
+    fn browser_stream_is_bounded_checks_digest_and_cancellation() {
+        use core::future::Future;
+        use core::task::{Context, Poll};
+        let crypto = default_crypto(crate::entropy::OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[0;32]));
+        for corrupt in [false, true] {
+            let file = fixture(&crypto);
+            let original = std::fs::read(&file.path).unwrap();
+            let header_len = 16 + u32::from_le_bytes(original[12..16].try_into().unwrap()) as usize;
+            OpenOptions::new().write(true).open(&file.path).unwrap().set_len(header_len as u64).unwrap();
+            let provider = Provider::new(NonZeroU8::new(1).unwrap());
+            provider.start_source(&file.path,2,0,&crypto,true).unwrap();
+            let fd = provider.image.borrow().as_ref().unwrap().designator.clone();
+            let id = file.path.strip_prefix("/tmp/microhad-ota-").unwrap();
+            assert!(provider.stream_chunk(&format!("{id}:0:00")).is_err());
+            let mut buf = [0;480];
+            assert_eq!(ready(provider.read(fd.as_bytes(),0,&mut buf)).unwrap(),header_len);
+            assert!(ready(provider.read(fd.as_bytes(),header_len as u64+1,&mut buf)).is_err());
+            let mut read = core::pin::pin!(provider.read(fd.as_bytes(),header_len as u64,&mut buf));
+            let mut cx = Context::from_waker(std::task::Waker::noop());
+            assert!(matches!(read.as_mut().poll(&mut cx),Poll::Pending));
+            let (offset,count) = provider.pending();
+            assert_eq!(offset,header_len as u64);
+            assert!(count>0&&count<=480);
+            assert!(provider.stream_chunk(&format!("stale0:{offset}:00")).is_err());
+            assert!(provider.stream_chunk(&format!("{id}:{}:00",offset+1)).is_err());
+            let mut payload=original[header_len..].to_vec();
+            if corrupt { payload[0]^=1; }
+            let hex:String=payload.iter().map(|b|format!("{b:02x}")).collect();
+            provider.stream_chunk(&format!("{id}:{offset}:{hex}")).unwrap();
+            assert!(provider.stream_chunk(&format!("{id}:{offset}:{hex}")).is_err());
+            std::thread::sleep(Duration::from_millis(25));
+            let result=ready(read);
+            if corrupt {
+                assert!(result.is_err());assert_eq!(provider.status().state,"failed");
+                assert!(provider.status().error.contains("digest"));
+            } else {
+                assert_eq!(result.unwrap(),payload.len());
+                assert_eq!(provider.status().progress,original.len() as u64);
+                assert_eq!(std::fs::metadata(&file.path).unwrap().len(),header_len as u64);
+                assert_eq!(provider.pending(),(0,0));
+            }
+            provider.cancel();assert!(provider.stream_chunk(&format!("{id}:{offset}:{hex}")).is_err());
+        }
+    }
+    #[test]
+    fn browser_stream_multiple_chunks_and_download_restart() {
+        use core::future::Future;
+        use core::task::{Context, Poll};
+        let crypto = default_crypto(crate::entropy::OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[0; 32]));
+        let payload = vec![0x5a; 1450];
+        let file = fixture_payload(&crypto, &payload);
+        let original = std::fs::read(&file.path).unwrap();
+        let header_len = 16 + u32::from_le_bytes(original[12..16].try_into().unwrap()) as usize;
+        OpenOptions::new().write(true).open(&file.path).unwrap().set_len(header_len as u64).unwrap();
+        let provider = Provider::new(NonZeroU8::new(1).unwrap());
+        provider.start_source(&file.path, 2, 0, &crypto, true).unwrap();
+        let fd = provider.image.borrow().as_ref().unwrap().designator.clone();
+        let id = file.path.strip_prefix("/tmp/microhad-ota-").unwrap();
+        let mut buf = [0; 1024];
+        for restart in [false, true] {
+            assert_eq!(ready(provider.read(fd.as_bytes(), 0, &mut buf)).unwrap(), header_len);
+            let mut offset = header_len;
+            loop {
+                let mut read = core::pin::pin!(provider.read(fd.as_bytes(), offset as u64, &mut buf));
+                let mut cx = Context::from_waker(std::task::Waker::noop());
+                assert!(matches!(read.as_mut().poll(&mut cx), Poll::Pending));
+                let (want, count) = provider.pending();
+                assert_eq!(want, offset as u64); assert!(count > 0 && count <= 480);
+                let hex = "5a".repeat(count as usize);
+                provider.stream_chunk(&format!("{id}:{offset}:{hex}")).unwrap();
+                std::thread::sleep(Duration::from_millis(25));
+                offset += ready(read).unwrap();
+                if !restart { break; } // Restart a partially delivered download at zero.
+                if offset == original.len() { break; }
+            }
+            if restart { assert_eq!(provider.status().progress, original.len() as u64); }
+        }
+        assert_eq!(std::fs::metadata(&file.path).unwrap().len(), header_len as u64);
+    }
+    #[test]
+    fn browser_stream_missing_browser_fails_and_cancel_wakes_reader() {
+        use core::future::Future;
+        use core::task::{Context,Poll};
+        let crypto=default_crypto(crate::entropy::OsEntropy::open().unwrap(),CryptoSensitiveRef::new(&[0;32]));
+        for cancel in [false,true] {
+            let file=fixture(&crypto);let bytes=std::fs::read(&file.path).unwrap();
+            let len=16+u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+            OpenOptions::new().write(true).open(&file.path).unwrap().set_len(len as u64).unwrap();
+            let provider=Provider::new(NonZeroU8::new(1).unwrap());provider.start_source(&file.path,2,0,&crypto,true).unwrap();
+            let fd=provider.image.borrow().as_ref().unwrap().designator.clone();let mut buf=[0;480];
+            let mut read=core::pin::pin!(provider.read(fd.as_bytes(),len as u64,&mut buf));
+            let mut cx=Context::from_waker(std::task::Waker::noop());assert!(matches!(read.as_mut().poll(&mut cx),Poll::Pending));
+            if cancel { provider.cancel(); } else {
+                provider.image.borrow_mut().as_mut().unwrap().stream.as_mut().unwrap().pending.as_mut().unwrap().2=Instant::now()-Duration::from_secs(31);
+            }
+            std::thread::sleep(Duration::from_millis(25));assert!(ready(read).is_err());
+            if !cancel { assert!(provider.status().error.contains("timed out")); }
+        }
     }
     #[test]
     fn malformed_digest_paths_and_timeout() {

@@ -144,8 +144,26 @@ void otaIdentityTests() {
     unlink(path.c_str());
 }
 }
+void runBrowserOtaUploadTests(){
+    OtaStore& ota=OtaStore::instance();std::string error,id;
+    assert(!ota.upload("begin","{\"size\":1500000,\"protocol\":\"zigbee\",\"mode\":\"stream\",\"header_size\":56}",&error));
+    assert(!ota.upload("begin","{\"size\":1500000,\"protocol\":\"matter\",\"mode\":\"stream\",\"header_size\":5000}",&error));
+    assert(ota.upload("begin","{\"size\":1500000,\"protocol\":\"matter\",\"mode\":\"stream\",\"header_size\":56}",&error));
+    assert(jsonStringField(ota.status(),"image",&id));
+    const std::string prefix="{\"image\":\""+id+"\"";
+    std::string header;put(&header,0x1beef11e,4);put(&header,1500000,4);put(&header,0,4);put(&header,40,4);header.append(40,'x');
+    assert(!ota.upload("chunk",prefix+",\"offset\":0,\"data\":\""+hex(header+"x")+"\"}",&error));
+    assert(ota.upload("chunk",prefix+",\"offset\":0,\"data\":\""+hex(header)+"\"}",&error));
+    assert(ota.upload("finish",prefix+"}",&error));
+    long uploaded=0,total=0;std::string mode;
+    assert(jsonLongField(ota.status(),"uploaded",&uploaded)&&uploaded==56);
+    assert(jsonLongField(ota.status(),"size",&total)&&total==1500000);
+    assert(jsonStringField(ota.status(),"mode",&mode)&&mode=="stream");
+    assert(!ota.upload("stream-chunk",prefix+",\"offset\":56,\"data\":\"00\"}",&error));
+    assert(ota.cancel(id,true,&error));
+}
 void runOtaUnitTests(){
-    otaSocketProtocol(); catalogTests(); otaIdentityTests();
+    runBrowserOtaUploadTests();otaSocketProtocol(); catalogTests(); otaIdentityTests();
     OtaStore& ota=OtaStore::instance();std::string error;
     assert(!ota.upload("begin","{\"size\":16777217,\"protocol\":\"zigbee\"}",&error));
     std::string image;put(&image,0x0beef11e,4);put(&image,0x100,2);put(&image,56,2);put(&image,0,2);put(&image,0x1234,2);put(&image,0x5678,2);put(&image,2,4);put(&image,2,2);image.append(32,'\0');put(&image,162,4);put(&image,0,2);put(&image,100,4);image.append(100,'x');assert(image.size()==162);

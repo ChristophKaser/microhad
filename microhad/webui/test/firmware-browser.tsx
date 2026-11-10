@@ -5,10 +5,22 @@ import { MatterFirmwareDownloads } from '../src/MatterFirmwareDownloads'
 import type { Device } from '../src/api'
 const calls: string[] = []
 let scenario = 'matching'
+let streamedBody: { image: string; offset: number; data: string } | undefined
+let headerBytes = 0
+let streamState = 'empty'
 let installBody: { address: string; endpoint: number } | undefined
 const provider = { id: 'sonoff', label: 'SONOFF', url: 'https://catalog.example.test/upgrade.json', manufacturer: 4742 }
 window.fetch = async (input, init) => {
   const url = String(input); calls.push(url)
+  if (scenario === 'stream' && url.startsWith('/api/ota/') && !url.includes('catalog')) {
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined
+    if (url.endsWith('/begin')) { check(body.mode === 'stream' && body.header_size === 56, 'stream header declaration'); streamState = 'uploading' }
+    if (url.endsWith('/chunk')) headerBytes += body.data.length / 2
+    if (url.endsWith('/finish')) streamState = 'ready'
+    if (url.endsWith('/start')) streamState = 'waiting'
+    if (url.endsWith('/stream-chunk')) { streamedBody = body; streamState = 'awaiting_confirmation' }
+    return Response.json({ image: streamState === 'empty' ? '' : 'browser-image', mode: 'stream', protocol: 'matter', state: streamState, target: streamState === 'waiting' ? '0000000000000001' : '', size: 1500000, uploaded: headerBytes, progress: 0, version: 0, manufacturer: 0, image_type: 0, error: '', requested_offset: 56, requested_length: streamState === 'waiting' ? 480 : 0 })
+  }
   if (url === '/api/ota/status' || url === '/api/ota/start') {
     if (url === '/api/ota/start') installBody = JSON.parse(String(init?.body))
     return Response.json({ image: 'test-image', protocol: 'matter', state: 'ready', target: '', size: 1500000, uploaded: 1500000, progress: 0, version: 0, manufacturer: 0, image_type: 0, error: '' })
@@ -74,6 +86,28 @@ async function main() {
   install!.click(); await wait()
   check(installBody?.address === matterId, 'Matter OTA sends device ID rather than empty Zigbee address')
   check(installBody?.endpoint === 1, 'Matter OTA sends requestor endpoint')
+  scenario = 'stream'
+  root.render(<OtaUpdate key="stream" device={{ ...device, id: matterId, name: 'Matter switch', source: 'matter', ieee_address: '', matter_node: '0000000000000001', endpoint_descriptors: [{ endpoint: 1, input_clusters: [0x002a] }] } as Device} />)
+  await wait(); await wait()
+  const mode = document.querySelector<HTMLSelectElement>('select[aria-label="Firmware transfer mode"]')!
+  check(mode.value === 'upload', 'stored upload remains the default')
+  mode.value = 'stream'; mode.dispatchEvent(new Event('change', { bubbles: true })); await wait()
+  check(document.body.textContent?.includes('Keep this page open'), 'browser lifetime explained')
+  const firmware = new Uint8Array(1500000).fill(0x5a)
+  const prefix = new DataView(firmware.buffer); prefix.setUint32(0, 0x1beef11e, true); prefix.setUint32(4, firmware.length, true); prefix.setUint32(8, 0, true); prefix.setUint32(12, 40, true)
+  const file = new File([firmware], 'test.ota')
+  // Deterministic file reads: Chromium's virtual clock can outrun native Blob I/O.
+  Object.defineProperty(file, 'slice', { value: (start: number, end: number) => ({ arrayBuffer: async () => firmware.slice(start, end).buffer }) })
+  const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
+  Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+  await wait(); await wait(); await wait()
+  check(headerBytes === 56, `only the header is uploaded for browser streaming (received ${headerBytes})`)
+  const streamInstall = Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Install on Matter switch')!
+  check(streamInstall && !streamInstall.disabled, 'attached browser file can be installed')
+  streamInstall.click(); await wait(); await wait(); await wait(); await wait()
+  check(streamedBody?.image === 'browser-image' && streamedBody.offset === 56, 'stream responds to requested image and offset')
+  check(streamedBody?.data === '5a'.repeat(480), 'stream serves only the requested bounded file slice')
   document.getElementById('result')!.textContent = 'PASS firmware catalogs: direct links, matching, CORS fallback, errors, keyboard and mobile layout'
   document.getElementById('result')!.dataset.result = 'passed'
 }

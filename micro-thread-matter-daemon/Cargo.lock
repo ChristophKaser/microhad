@@ -873,6 +873,7 @@ dependencies = [
  "rs-matter",
  "serde",
  "serde_json",
+ "sha2",
  "static_cell",
  "zeroize",
  "ziggurat-stock-uclibc-compat",
