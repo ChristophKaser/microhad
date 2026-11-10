@@ -659,7 +659,7 @@ if failures < 0 or count <= failures:
             self.assertNotIn('killall', commands)
             self.assertIn('Existing processes were not restarted', result.stdout)
 
-    def test_paired_activation_requires_explicit_service_and_native_target(self):
+    def test_paired_activation_requires_available_service_and_native_target(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fake = root / 'sshpass';fake.write_text(FAKE_SSH);fake.chmod(0o700)
@@ -669,7 +669,8 @@ if failures < 0 or count <= failures:
             calls = root / 'calls'
             env = dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'],STAGING_CALLS=str(calls))
             base = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
-                    '--binary-only', '--binary', str(binary), '--activate-paired']
+                    '--binary-only', '--binary', str(binary), '--activate-paired',
+                    '--matter-service', str(root / 'missing-service')]
             result = subprocess.run(base, env=env, stdin=subprocess.DEVNULL, capture_output=True,
                                     text=True, check=False, timeout=10)
             self.assertNotEqual(result.returncode, 0)
@@ -681,11 +682,12 @@ if failures < 0 or count <= failures:
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(calls.exists())
             staging = ['sh', str(ROOT.parent / 'deploy.sh'), '--password-file', str(password),
-                       '--binary-only', '--matter-service', str(service), '--target', '/tuya/native-test']
+                       '--binary-only', '--binary', str(root / 'missing-native'),
+                       '--matter-service', str(service), '--target', '/tuya/native-test']
             result = subprocess.run(staging, env=env, stdin=subprocess.DEVNULL, capture_output=True,
                                     text=True, check=False, timeout=10)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn('ZIGGURAT=1 MATTER=1', result.stderr)
+            self.assertIn('Matter build manifest', result.stderr)
             self.assertFalse(calls.exists())
 
     def test_matter_deployment_rejects_disabled_or_stale_build_manifest(self):

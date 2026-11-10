@@ -51,6 +51,7 @@ refusal to overwrite an unknown live network when the private state is missing.
 | Matter/shared-radio supervision | `python3 microhad/scripts/test_matter_spinel_supervisor.py --native-worker` |
 | Protobuf codec/vectors | `python3 microhad/scripts/test-matter-ipc-codec.py` |
 | Deployment guards | `python3 microhad/scripts/test_deployment_tools.py` |
+| Deployment artifact defaults and override warnings | `python3 microhad/scripts/test_deploy_artifact_paths.py` |
 | Matter package deployment | `python3 microhad/scripts/test_matter_service_deployment.py` |
 | Matter archive preflight/extraction | `python3 microhad/scripts/test_matter_archive.py` |
 

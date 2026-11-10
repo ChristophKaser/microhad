@@ -14,8 +14,13 @@ user=$SSH_USER
 target=/tuya/native
 build_subdir=$(python3 "$repo_root/scripts/toolchain_config.py" TARGET_BUILD_SUBDIR)
 binary="$project_dir/build/${build_subdir}mips-ziggurat-matter/microhad"
-binary_explicit=false
+default_binary=$binary
+default_matter_service="$repo_root/build/${build_subdir}micro-thread-matter-daemon/mthread-matter-mips"
+target_spec=$(python3 "$repo_root/scripts/toolchain_config.py" TARGET_SPEC_NAME)
+default_ziggurat="$repo_root/build/${build_subdir}ziggurat-hdlc/$target_spec/release/ziggurat"
+default_maintenance_helper="$repo_root/build/${build_subdir}gateway-maintenance"
 ftp_collector="$repo_root/build/${build_subdir}ftp-log-collector"
+default_ftp_collector=$ftp_collector
 password_file=$SSH_PASSWORD_FILE
 config=""
 deploy_binary=true
@@ -32,16 +37,32 @@ matter_service=""
 ziggurat=""
 maintenance_helper=""
 webui_dir="$project_dir/webui/dist"
+default_webui_dir=$webui_dir
 maintenance_deploy=false
 rollback_dir=""
 service_selection=""
 rollback_notice="No rollback artifacts were requested."
 flash_reserve_kib=${DEPLOY_FLASH_RESERVE_KIB:-512}
 
+# Compare canonical paths so relative spellings and symlinks to the default
+# artifact do not produce misleading warnings. Warn before any validation/SSH.
+warn_artifact_override() {
+    if ! python3 - "$2" "$3" <<'PYCOMPARE'
+from pathlib import Path
+import sys
+sys.exit(0 if Path(sys.argv[1]).resolve() == Path(sys.argv[2]).resolve() else 1)
+PYCOMPARE
+    then
+        echo "WARNING: $1 selects a non-default artifact: $2" >&2
+        echo "         Configured build output: $3. Ensure the override is current and intentional." >&2
+    fi
+}
+
 usage() {
-    echo "usage: $0 --password-file PATH --maintenance-deploy --binary PATH --ziggurat PATH --matter-service PATH --maintenance-helper PATH [--webui-dir DIR] [--rollback-dir DIR] [--host HOST] [--target /tuya/native]" >&2
+    echo "usage: $0 --password-file PATH --maintenance-deploy [artifact path overrides] [--webui-dir DIR] [--rollback-dir DIR] [--host HOST] [--target /tuya/native]" >&2
     echo "       $0 --password-file PATH --services matter[,native,ziggurat,supervisor,ftp] --target /tuya/native [--matter-service PATH] [--binary PATH] [--ziggurat PATH] [--ftp-collector PATH] [--rollback-dir DIR]" >&2
-    echo "       $0 --password-file PATH [--both --supervisor --binary PATH --target /tuya/native] [existing deployment options]" >&2
+    echo "       $0 --password-file PATH [--both --supervisor --matter --target /tuya/native] [existing deployment options]" >&2
+    echo "Artifact paths default to the shared build settings; --binary, --matter-service, --ziggurat, --maintenance-helper, --ftp-collector and --webui-dir override them (with a warning when different)." >&2
     exit 2
 }
 
@@ -56,12 +77,13 @@ while [ "$#" -gt 0 ]; do
         --host) host=${2-}; shift 2 ;;
         --user) user=${2-}; shift 2 ;;
         --target) target=${2-}; shift 2 ;;
-        --binary) binary=${2-}; binary_explicit=true; shift 2 ;;
-        --matter-service) matter_service=${2-}; shift 2 ;;
-        --ftp-collector) ftp_collector=${2-}; shift 2 ;;
-        --ziggurat) ziggurat=${2-}; shift 2 ;;
-        --maintenance-helper) maintenance_helper=${2-}; shift 2 ;;
-        --webui-dir) webui_dir=${2-}; shift 2 ;;
+        --binary) binary=${2-}; warn_artifact_override --binary "$binary" "$default_binary"; shift 2 ;;
+        --matter) matter_service=$default_matter_service; shift ;;
+        --matter-service) matter_service=${2-}; warn_artifact_override --matter-service "$matter_service" "$default_matter_service"; shift 2 ;;
+        --ftp-collector) ftp_collector=${2-}; warn_artifact_override --ftp-collector "$ftp_collector" "$default_ftp_collector"; shift 2 ;;
+        --ziggurat) ziggurat=${2-}; warn_artifact_override --ziggurat "$ziggurat" "$default_ziggurat"; shift 2 ;;
+        --maintenance-helper) maintenance_helper=${2-}; warn_artifact_override --maintenance-helper "$maintenance_helper" "$default_maintenance_helper"; shift 2 ;;
+        --webui-dir) webui_dir=${2-}; warn_artifact_override --webui-dir "$webui_dir" "$default_webui_dir"; shift 2 ;;
         --maintenance-deploy) maintenance_deploy=true; shift ;;
         --services) service_selection=${2-}; [ -n "$service_selection" ] || usage; shift 2 ;;
         --matter-only) service_selection=matter; shift ;;
@@ -78,6 +100,19 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+# Populate paths only for requested services; ordinary native/Web UI staging
+# must not implicitly upload additional services.
+if [ "$maintenance_deploy" = true ] && [ -z "$service_selection" ]; then
+    : "${matter_service:=$default_matter_service}"
+    : "${ziggurat:=$default_ziggurat}"
+    : "${maintenance_helper:=$default_maintenance_helper}"
+fi
+case ",$service_selection," in *,matter,*) : "${matter_service:=$default_matter_service}" ;; esac
+case ",$service_selection," in *,ziggurat,*) : "${ziggurat:=$default_ziggurat}" ;; esac
+if [ "$activate_paired" = true ] || [ "$activate_paired_only" = true ]; then
+    : "${matter_service:=$default_matter_service}"
+fi
+
 if [ -n "$service_selection" ]; then
     maintenance_deploy=true
     deploy_binary=false
@@ -90,7 +125,7 @@ if [ -n "$service_selection" ]; then
         selection_seen="$selection_seen$selected,"
         case "$selected" in
             matter) [ -n "$matter_service" ] && [ -x "$matter_service" ] || usage ;;
-            native) [ "$binary_explicit" = true ] && [ -x "$binary" ] || usage ;;
+            native) [ -x "$binary" ] || usage ;;
             ziggurat) [ -n "$ziggurat" ] && [ -x "$ziggurat" ] || usage ;;
             supervisor) ;;
             ftp) [ -x "$ftp_collector" ] || usage ;;
@@ -109,8 +144,7 @@ else
 fi
 [ "$maintenance_deploy" = false ] || [ -n "$service_selection" ] || {
     [ -n "$binary" ] && [ -n "$ziggurat" ] && [ -n "$matter_service" ] &&
-        [ -n "$maintenance_helper" ] && [ "$target" = /tuya/native ] &&
-        [ "$binary_explicit" = true ] || usage
+        [ -n "$maintenance_helper" ] && [ "$target" = /tuya/native ] || usage
 }
 [ "$maintenance_deploy" = false ] || {
     [ -z "$config" ] && [ -z "$certificate" ] &&
@@ -122,10 +156,7 @@ fi
     echo "--ziggurat and --maintenance-helper require --maintenance-deploy" >&2; exit 2;
 }; }
 [ "$deploy_binary" = true ] || [ "$deploy_webui" = true ] || [ -n "$service_selection" ] || [ "$activate_paired_only" = true ] || usage
-[ -z "$matter_service" ] || [ -n "$service_selection" ] || [ "$binary_explicit" = true ] || {
-    echo "--matter-service requires --binary from a ZIGGURAT=1 MATTER=1 build" >&2; exit 2;
-}
-[ "$deploy_supervisor" = false ] || { [ "$deploy_binary" = true ] && [ "$binary_explicit" = true ] && [ "$target" = /tuya/native ] && [ "$activate_paired_only" = false ]; } || { echo "--supervisor requires --binary and binary deployment to /tuya/native" >&2; exit 2; }
+[ "$deploy_supervisor" = false ] || { [ "$deploy_binary" = true ] && [ "$target" = /tuya/native ] && [ "$activate_paired_only" = false ]; } || { echo "--supervisor requires binary deployment to /tuya/native" >&2; exit 2; }
 [ -n "$service_selection" ] || { [ -z "$matter_service" ] && [ "$deploy_supervisor" = false ]; } || {
     manifest="$binary.matter-manifest"
     [ -f "$manifest" ] || { echo "Matter build manifest missing: $manifest" >&2; exit 2; }
@@ -166,7 +197,7 @@ case "$target" in *[!A-Za-z0-9_./-]*) echo "target contains unsupported characte
 [ "$activate_paired" = false ] || [ "$restart" = false ] || { echo "--activate-paired cannot be combined with --restart" >&2; exit 2; }
 [ "$activate_paired" = false ] || [ "$target" = /tuya/native ] || { echo "--activate-paired requires --target /tuya/native" >&2; exit 2; }
 [ "$activate_paired" = false ] || [ -n "$matter_service" ] || { echo "--activate-paired requires --matter-service PATH" >&2; exit 2; }
-[ "$activate_paired_only" = false ] || { [ "$target" = /tuya/native ] && [ "$activate_paired" = false ] && [ "$activate" = false ] && [ "$restart" = false ] && [ -z "$config" ] && [ -n "$matter_service" ] && [ "$binary_explicit" = true ] && [ -z "$certificate" ] && [ -z "$private_key" ] && [ -z "$ca_bundle" ]; } || { echo "--activate-paired-only requires --target /tuya/native, --binary, and --matter-service; it cannot be combined with uploads or restart" >&2; exit 2; }
+[ "$activate_paired_only" = false ] || { [ "$target" = /tuya/native ] && [ "$activate_paired" = false ] && [ "$activate" = false ] && [ "$restart" = false ] && [ -z "$config" ] && [ -n "$matter_service" ] && [ -z "$certificate" ] && [ -z "$private_key" ] && [ -z "$ca_bundle" ]; } || { echo "--activate-paired-only requires --target /tuya/native; it cannot be combined with uploads or restart" >&2; exit 2; }
 [ "$restart" = false ] || [ "$target" = /tuya/native ] || { echo "--restart requires --target /tuya/native" >&2; exit 2; }
 [ "$deploy_binary" = true ] || { [ -z "$config" ] && [ "$activate" = false ] && [ "$activate_paired" = false ] && [ "$restart" = false ]; } || { echo "--config, launcher activation, and --restart require binary deployment" >&2; exit 2; }
 

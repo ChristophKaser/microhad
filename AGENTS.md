@@ -66,7 +66,11 @@ bash micro-thread-matter-daemon/scripts/build.sh mips service
 ```
 
 For MicroHAD updates, use `./deploy.sh` after building the required
-artifacts. Ordinary deployment stages files; launcher activation and service
+artifacts. Deployment uses the paths from the shared build settings; omit
+artifact path arguments in normal invocations. A non-default explicit artifact
+path prints a warning. Use `./deploy.sh --services native`,
+`./deploy.sh --services matter`, or `./deploy.sh --maintenance-deploy` as needed.
+Ordinary deployment stages files; launcher activation and service
 restart are separate operations. Matter updates use the documented maintenance deployment flow in
 [microhad/AGENTS.md](microhad/AGENTS.md): `--services matter` uploads only a
 changed Matter service; complete releases use `--maintenance-deploy`. Rollback

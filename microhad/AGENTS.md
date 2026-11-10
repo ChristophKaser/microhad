@@ -17,8 +17,10 @@ make host test
 make mips
 ```
 
-Artifact paths below use the crosstool-NG compiler. Explicit `--binary` and
-service-path arguments override automatic artifact resolution.
+Deployment resolves artifact paths from the shared build settings, including
+`LINK_MODE` and the selected target. Omit artifact paths in normal invocations.
+Explicit artifact paths remain supported; a path different from the configured
+build output prints a warning. Check that warning before using an override.
 
 Builds default to Ziggurat and Matter.
 Initialize TLS with `git submodule update --init --recursive microhad/dependencies/mbedtls`
@@ -74,11 +76,10 @@ make -C microhad mips
 bash micro-thread-matter-daemon/scripts/build.sh mips service
 
 # Stage the Matter package without changing the active launcher or processes
-./deploy.sh --target /tuya/native --binary-only \
-  --binary microhad/build/crosstool-ng/mips-ziggurat-matter/microhad \
-  --matter-service build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips
+./deploy.sh --target /tuya/native --binary-only --matter
 ```
 
+`--matter` includes the configured Matter service in the staged package.
 Staging does not activate Matter or restart a process. To install the
 Matter-aware paired launcher together with a full package upload, add
 `--activate-paired`; the original `/tuya/tuya_start.sh` is kept at
@@ -109,8 +110,7 @@ state, Web UI and existing backups are preserved.
 
 ```sh
 bash micro-thread-matter-daemon/scripts/build.sh mips service
-./deploy.sh --services matter --target /tuya/native \
-  --matter-service build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips
+./deploy.sh --services matter --target /tuya/native
 ```
 
 Rollback artifact generation is disabled by default for both selective and
@@ -142,11 +142,7 @@ make -C microhad webui
 ZIGGURAT_MULTIPAN=1 bash ziggurat/scripts/build.sh
 bash firmware/scripts/build-maintenance.sh
 bash micro-thread-matter-daemon/scripts/build.sh mips service
-./deploy.sh --maintenance-deploy --target /tuya/native \
-  --binary microhad/build/crosstool-ng/mips-ziggurat-matter/microhad \
-  --ziggurat build/crosstool-ng/ziggurat-hdlc/lexra-crosstool-ng-uclibc/release/ziggurat \
-  --matter-service build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips \
-  --maintenance-helper build/crosstool-ng/gateway-maintenance
+./deploy.sh --maintenance-deploy --target /tuya/native
 ```
 
 For an update to an already paired installation, `--restart` signals only the
@@ -272,9 +268,7 @@ stage another binary copy, activate the paired launcher while checking the
 same local artifacts against the staged device files:
 
 ```sh
-./deploy.sh --target /tuya/native --activate-paired-only \
-  --binary microhad/build/crosstool-ng/mips-ziggurat-matter/microhad \
-  --matter-service build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips
+./deploy.sh --target /tuya/native --activate-paired-only
 ```
 
 `--activate-paired-only` uploads only the launcher after verifying the staged
