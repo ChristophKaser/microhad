@@ -20,6 +20,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+// Discovery, CASE and ICD requests share this deadline. A sleepy peer may
+// take 15 seconds just to return Sigma2; ten seconds cancels valid handshakes.
+const ICD_SETUP_TIMEOUT: Duration = Duration::from_secs(60);
+
 pub const MAX_ENDPOINTS: usize = 32;
 pub const MAX_CLUSTERS: usize = 64;
 pub const MAX_OPERATION_JOBS: usize = 8;
@@ -1606,7 +1610,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                             self.icd_work = Some((
                                 node,
                                 endpoint,
-                                now + Duration::from_secs(10),
+                                now + ICD_SETUP_TIMEOUT,
                                 Box::pin(async move {
                                     let result = async {
                                         if wake.refresh_required {
@@ -1646,7 +1650,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     let registry = self.icd_registry.take().unwrap();
                     let entropy = self.icd_entropy.take().unwrap();
                     log::info!("Matter ICD recovery probe: node={:016x} endpoint={}", node, endpoint);
-                    self.icd_work = Some((node, endpoint, now + Duration::from_secs(10), Box::pin(async move {
+                    self.icd_work = Some((node, endpoint, now + ICD_SETUP_TIMEOUT, Box::pin(async move {
                         let result = crate::icd::subscription_active_until(matter, crypto, fabric, node, endpoint).await.map(Some);
                         (registry, entropy, result)
                     })));
@@ -1688,7 +1692,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 self.icd_work = Some((
                     node,
                     endpoint,
-                    now + Duration::from_secs(10),
+                    now + ICD_SETUP_TIMEOUT,
                     Box::pin(async move {
                         let result = async {
                             let features = Exchange::initiate(matter, crypto, fabric, node)
@@ -2705,11 +2709,11 @@ mod tests {
         manager.poll_icd(now, &mut context, false);
         assert!(manager.icd_work.is_none(), "commissioning must not start a background recovery probe");
         manager.poll_icd(now, &mut context, true);
-        if manager.icd_work.is_some() { manager.poll_icd(now + Duration::from_secs(10), &mut context, true); }
+        if manager.icd_work.is_some() { manager.poll_icd(now + ICD_SETUP_TIMEOUT, &mut context, true); }
         assert!(manager.icd_retry_after.iter().any(|(key, until)| *key==(2,0) && *until>=now+Duration::from_secs(60)));
         assert_eq!(manager.icd_recovery_candidate(now + Duration::from_secs(11)), None);
         assert!(!manager.node_awake(2, now), "failed probes cannot fabricate liveness");
-        let started = now + Duration::from_secs(12);
+        let started = now + ICD_SETUP_TIMEOUT + Duration::from_secs(2);
         let until = started + Duration::from_secs(30);
         let registry = manager.icd_registry.take().unwrap();let entropy=manager.icd_entropy.take().unwrap();
         assert_eq!(registry.registration(fabric,2).unwrap().starting_counter,123);
@@ -2868,6 +2872,20 @@ mod tests {
         assert_eq!(restarted.subscriptions[0].id, Some(78), "retain IDs for authenticated resumed reports");
         assert!(restarted.subscriptions[0].next_retry <= Instant::now(),
             "a cached subscription without session keys must not wait another report interval");
+        let registry = restarted.icd_registry.take().unwrap();
+        let entropy = restarted.icd_entropy.take().unwrap();
+        let probe_start = Instant::now();
+        restarted.icd_work = Some((2, 0, probe_start + ICD_SETUP_TIMEOUT,
+            Box::pin(std::future::pending())));
+        restarted.poll_icd(probe_start + Duration::from_secs(15), &mut context, false);
+        assert!(restarted.icd_work.is_some(), "a sleepy CASE reply can arrive after fifteen seconds");
+        // A delayed but successful probe must still be accepted after that
+        // poll interval, rather than closing the session and starting again.
+        let until = probe_start + Duration::from_secs(45);
+        restarted.icd_work = Some((2, 0, probe_start + ICD_SETUP_TIMEOUT,
+            Box::pin(std::future::ready((registry, entropy, Ok(Some(until)))))));
+        restarted.poll_icd(probe_start + Duration::from_secs(16), &mut context, false);
+        assert!(restarted.awake_until.iter().any(|entry| *entry == (2, until)));
         drop(restarted);
         std::fs::remove_dir_all(directory).unwrap();
     }

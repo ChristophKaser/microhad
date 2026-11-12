@@ -44,6 +44,10 @@ recovery because their secure session keys are not cached. This includes SIT
 and unregistered peers, which cannot use the registered Check-In recovery path.
 Cached IDs remain usable for freshly authenticated resumed reports until the
 replacement subscription starts.
+ICD setup/recovery has a 60-second deadline covering discovery, CASE and ICD
+requests. The former 10-second deadline could cancel a valid handshake before
+a sleeping sensor's approximately 15-second-delayed Sigma2 reply arrived,
+causing repeated handshakes and further temporary session occupation.
 
 Build with `bash micro-thread-matter-daemon/scripts/build.sh host service` or
 `bash micro-thread-matter-daemon/scripts/build.sh mips service`. The stripped target
