@@ -39,6 +39,11 @@ subscriptions. Verified metadata and historical values remain available;
 sleeping devices still require their existing ICD wake/StayActive mechanism.
 The replacement subscription's priming report restores current values and
 online status. Unknown-session packets remain unauthenticated and are dropped.
+After a service restart, cached subscriptions are also queued for immediate
+recovery because their secure session keys are not cached. This includes SIT
+and unregistered peers, which cannot use the registered Check-In recovery path.
+Cached IDs remain usable for freshly authenticated resumed reports until the
+replacement subscription starts.
 
 Build with `bash micro-thread-matter-daemon/scripts/build.sh host service` or
 `bash micro-thread-matter-daemon/scripts/build.sh mips service`. The stripped target

@@ -404,7 +404,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             let keys=subscription_keys(&self.snapshots,self.subscription_limit);
             self.subscriptions=saved.subscriptions.into_iter().filter(|s|keys.contains(&s.key)&&s.max_interval>0)
                 .map(|s|SubscriptionState {key:s.key,id:s.id,max_interval:s.max_interval,
-                    next_retry:now+Duration::from_secs(s.retry_in.min(86400).saturating_sub(elapsed)),
+                    // Session keys are not part of the RAM inventory cache.
+                    // Recover SIT/unregistered peers too, instead of waiting
+                    // for the old report deadline without a usable session.
+                    // Retain IDs until replacement so freshly authenticated
+                    // resumed reports can still deliver their first event.
+                    next_retry:now,
                     last_received:s.received_age.and_then(|age|now.checked_sub(Duration::from_secs(age.saturating_add(elapsed)))),
                     failures:0,unit:cached_unit(s.unit.as_deref()),last_report:None}).collect();
             self.sync_subscriptions(now);self.sync_report_subscriptions();self.changed();
@@ -2803,7 +2808,7 @@ mod tests {
         let mut memory = Box::new(std::mem::MaybeUninit::uninit());
         let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
         let fabric = NonZeroU8::new(1).unwrap();
-        let mut manager = Manager::new(matter, &crypto, fabric, catalog).unwrap();
+        let mut manager = Manager::new(matter, &crypto, fabric, catalog.clone()).unwrap();
         let now = Instant::now();
         manager.snapshots.push(Snapshot { node: 2,
             endpoints: vec![Endpoint { id: 1, servers: vec![69], clients: vec![], device_types: vec![21] }],
@@ -2852,7 +2857,18 @@ mod tests {
         assert_eq!(manager.subscriptions[0].id, Some(78));
         assert!(manager.snapshots[0].online);
         assert!(matches!(manager.reports.back().unwrap().value, crate::operations::Value::Bool(false)));
+        let cache = crate::runtime_cache::RuntimeCache::open_at(&directory.join("ram")).unwrap();
+        manager.enable_runtime_cache(cache.clone()).unwrap();
+        manager.flush_runtime_cache(true);
         drop(manager);
+        matter.with_state(|state| state.sessions.remove_where(|_| true));
+        let mut restarted = Manager::new(matter, &crypto, fabric, catalog).unwrap();
+        restarted.enable_runtime_cache(cache).unwrap();
+        assert!(restarted.registered_nodes.is_empty(), "this peer has no persisted Check-In registration");
+        assert_eq!(restarted.subscriptions[0].id, Some(78), "retain IDs for authenticated resumed reports");
+        assert!(restarted.subscriptions[0].next_retry <= Instant::now(),
+            "a cached subscription without session keys must not wait another report interval");
+        drop(restarted);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
