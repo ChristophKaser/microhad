@@ -48,6 +48,7 @@ python3 micro-thread-matter-daemon/scripts/test-openthread-compatibility.py
 python3 micro-thread-matter-daemon/scripts/test-matter-service.py
 python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py
 python3 micro-thread-matter-daemon/scripts/test-rs-matter-controller.py
+bash micro-thread-matter-daemon/scripts/test-matter-sessions.sh
 python3 microhad/scripts/test_matter_native_report_integration.py
 ```
 

@@ -242,6 +242,9 @@ pub struct Manager<'a, C: Crypto> {
     cache_next: Instant,
     cached_bootstrap: bool,
     cached_sessions:Vec<u64>,
+    // Peers whose live CASE session we have actually observed. Synthetic
+    // reports and a restored inventory alone do not establish a session.
+    observed_sessions: Vec<(u64, u16)>,
     contacts: Vec<(u64, Instant)>,
     snapshots: Vec<Snapshot>,
     work: Option<(u64, Instant, Work<'a>)>,
@@ -346,6 +349,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             icd_retry_after: Vec::new(),
             awake_until: Vec::new(),
             runtime_cache: None, cache_dirty: std::cell::Cell::new(false), cache_next: Instant::now(), cached_bootstrap:false, cached_sessions:Vec::new(),
+            observed_sessions: Vec::new(),
             contacts: Vec::new(),
             snapshots: Vec::new(),
             work: None,
@@ -559,6 +563,51 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             if self.signals.take_activity(self.compressed_fabric,node) && self.icd_recovery_needed(node,now) {
                 self.icd_retry_after.retain(|(key,_)|key.0!=node);
             }
+        }
+    }
+
+    fn refresh_session_health(&mut self, now: Instant) {
+        use rs_matter::transport::session::SessionMode;
+        let live = self.matter.with_state(|state| {
+            let mut live = Vec::new();
+            for session in state.sessions.iter_mut() {
+                if session.get_local_fabric_idx() != self.fabric.get() { continue; }
+                let node = session.get_peer_node_id();
+                let valid = !session.is_reserved() && !session.is_expired()
+                    && matches!(session.get_session_mode(), SessionMode::Case { .. });
+                let subscribed = valid && self.subscriptions.iter().any(|entry| {
+                    Some(entry.key.node) == node && entry.id.is_some()
+                });
+                session.set_subscription_active(subscribed);
+                if valid {
+                    if let Some(node) = node {
+                        live.push((node, session.get_local_sess_id()));
+                    }
+                }
+            }
+            live
+        });
+        let lost: Vec<_> = self.observed_sessions.iter().copied()
+            .filter(|session| !live.contains(session)).collect();
+        self.observed_sessions = live;
+        for (node, _) in lost {
+            let mut recovery = false;
+            for entry in self.subscriptions.iter_mut().filter(|entry| entry.key.node == node) {
+                if entry.id.take().is_some() {
+                    entry.next_retry = now;
+                    recovery = true;
+                }
+            }
+            if !recovery { continue; }
+            // A sleepy peer may not have received CloseSession. Queue recovery
+            // immediately, but obtain its StayActive promise before CASE work.
+            self.icd_retry_after.retain(|(key, _)| key.0 != node);
+            if let Some(snapshot) = self.snapshots.iter_mut().find(|entry| entry.node == node) {
+                snapshot.online = false;
+            }
+            log::warn!("Matter session lost: node={:016x}; subscription recovery queued", node);
+            self.sync_report_subscriptions();
+            self.changed();
         }
     }
     fn icd_recovery_candidate(&self, now: Instant) -> Option<(u64, u16)> {
@@ -1012,6 +1061,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         now: Instant,
         context: &mut Context<'_>,
     ) {
+        self.refresh_session_health(now);
         if !ready {
             if let Some(active) = self.active.take() {
                 self.record_state(
@@ -2735,6 +2785,73 @@ mod tests {
             "a failed StayActive must retain the registration for the next authenticated Check-In");
         manager.poll(true, false, asleep, &mut context);
         assert!(manager.subscription_work.is_none());
+        drop(manager);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn lost_case_session_queues_recovery_without_waiting_for_report_timeout() {
+        use crate::{entropy::OsEntropy, store::PrivateStore};
+        use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET},
+            transport::session::{ReservedSession, SessionMode}, utils::init::InitMaybeUninit};
+        let directory = std::env::temp_dir().join(format!("matter-session-loss-{}", std::process::id()));
+        let catalog = Catalog::open(PrivateStore::open(&directory).unwrap(), 1, 2).unwrap();
+        let reservation = catalog.reserve(2).unwrap();
+        reservation.fabric_installed().unwrap(); reservation.thread_provisioned().unwrap(); reservation.complete().unwrap();
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
+        let fabric = NonZeroU8::new(1).unwrap();
+        let mut manager = Manager::new(matter, &crypto, fabric, catalog).unwrap();
+        let now = Instant::now();
+        manager.snapshots.push(Snapshot { node: 2,
+            endpoints: vec![Endpoint { id: 1, servers: vec![69], clients: vec![], device_types: vec![21] }],
+            manufacturer: String::new(), model: String::new(), rssi_dbm: None,
+            firmware: FirmwareIdentity::default(), online: true, next: None, failures: 0 });
+        manager.sync_subscriptions(now);
+        manager.subscriptions[0].id = Some(77);
+        manager.subscriptions[0].next_retry = now + Duration::from_secs(1800);
+        manager.subscriptions[0].last_received = Some(now);
+        manager.registered_nodes.push(2);
+        manager.icd_retry_after.push(((2, 0), now + Duration::from_secs(300)));
+        // A replacement session does not prove that the publisher moved its
+        // existing subscription to it. Losing the old one must still recover.
+        for sid in [7, 8] {
+            let mut session = ReservedSession::reserve_now(matter, &crypto).unwrap();
+            session.update(1, 2, 10, sid, rs_matter::transport::network::Address::default(),
+                SessionMode::Case { fab_idx: fabric, cat_ids: Default::default() },
+                None, None, None, None).unwrap();
+            session.complete();
+        }
+        manager.refresh_session_health(now);
+        matter.with_state(|state| state.sessions.remove_where(|s| s.get_local_sess_id() == 7));
+        manager.refresh_session_health(now);
+        assert_eq!(manager.subscriptions[0].id, None);
+        assert_eq!(manager.subscriptions[0].next_retry, now);
+        assert_eq!(manager.subscriptions[0].last_received, Some(now), "preserve historical timestamps");
+        assert!(!manager.snapshots[0].online);
+        assert!(manager.snapshots[0].next.is_none(), "retain verified endpoint metadata");
+        assert!(manager.icd_retry_after.is_empty());
+        assert!(!manager.node_awake(2, now), "session loss cannot invent a StayActive promise");
+        let revision = manager.revision;
+        manager.refresh_session_health(now + Duration::from_secs(1));
+        assert_eq!(manager.revision, revision, "queue recovery once per lost session");
+        // Completing the replacement subscription must restore reachability
+        // and deliver the fresh contact value under the new subscription ID.
+        let key = manager.subscriptions[0].key;
+        manager.subscription_work = Some((key, now + Duration::from_secs(30), Box::pin(std::future::ready(Ok(Some(
+            crate::subscriptions::DeviceSubscription {
+                established: rs_matter::im::client::SubscribeEstablished { subscription_id: 78, max_int: 1800 },
+                unit: None, path_units: vec![], clock_events: vec![],
+                priming_values: vec![crate::operations::ResultValue { node: crate::control::Id(2),
+                    endpoint: 1, cluster: 69, attribute: 0, value: crate::operations::Value::Bool(false) }],
+            }))))));
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        assert!(manager.poll_background(now, &mut context));
+        assert_eq!(manager.subscriptions[0].id, Some(78));
+        assert!(manager.snapshots[0].online);
+        assert!(matches!(manager.reports.back().unwrap().value, crate::operations::Value::Bool(false)));
         drop(manager);
         std::fs::remove_dir_all(directory).unwrap();
     }

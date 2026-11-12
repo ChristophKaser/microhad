@@ -468,7 +468,10 @@ def main():
                 version, state_len, error_len, progress, fw, vendor, product = struct.unpack_from('<BBHQIHH', reply)
                 assert (version, progress, fw, vendor, product) == (1, 0, 0, 0, 0)
                 assert reply[20:20 + state_len] == b'empty'
-                assert len(reply) == 20 + state_len + error_len
+                # Browser streaming adds the pending range to every status.
+                range_offset = 20 + state_len + error_len
+                assert len(reply) == range_offset + struct.calcsize('<QH')
+                assert struct.unpack_from('<QH', reply, range_offset) == (0, 0)
             assert radio.channel_writes and all(channel == 15 for channel in radio.channel_writes)
             created = status(ipc_path, 2, 318)
             assert created["configured"] and created["dataset_channel"] == 15

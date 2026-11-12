@@ -14,6 +14,32 @@ with synthetic CASE accessory traffic.
 The Manager's telemetry queue holds at most 512 values, suppresses identical
 consecutive values per subscription, and evicts the oldest value at capacity.
 
+The production controller reserves 64 Matter session slots, shared by secure
+device sessions and temporary handshakes. Each slot includes five exchange
+slots; both the host and MIPS layouts are 456 bytes per session and 29,200
+bytes for the table (28.5 KiB). The former 16-slot table occupied 7,312 bytes;
+the increase costs 21,888 bytes (21.4 KiB).
+Startup logs report the compiled target's actual session and table sizes.
+Increasing capacity does not replace eviction or recovery: quiet, subscribed
+sleeping sensors must survive repeated connection attempts to other devices.
+
+Eviction excludes reserved sessions and sessions with active exchanges. Among
+eligible sessions it prefers expired sessions, then non-CASE handshakes, then
+redundant unsubscribed CASE sessions, then unsubscribed sessions, and finally
+subscribed sessions. Fabric-share and least-recent-use rules apply within the
+remaining CASE tiers. Subscription protection is a preference, so a full table
+cannot permanently prevent a new connection. Pressure warnings record table
+occupancy, plaintext/reserved/expired counts and the evicted peer without keys.
+
+The Manager watches live CASE session identities. If an observed session to a
+subscribed peer disappears or expires, it retires the peer's subscription IDs,
+marks its inventory offline and queues recovery immediately. A second CASE
+session to the same peer does not prove that its publisher moved the old
+subscriptions. Verified metadata and historical values remain available;
+sleeping devices still require their existing ICD wake/StayActive mechanism.
+The replacement subscription's priming report restores current values and
+online status. Unknown-session packets remain unauthenticated and are dropped.
+
 Build with `bash micro-thread-matter-daemon/scripts/build.sh host service` or
 `bash micro-thread-matter-daemon/scripts/build.sh mips service`. The stripped target
 artifact is `build/crosstool-ng/micro-thread-matter-daemon/mthread-matter-mips`. No build deploys or starts it.

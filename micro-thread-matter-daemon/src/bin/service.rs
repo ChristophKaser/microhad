@@ -439,6 +439,10 @@ fn run(
     let identity = Identity::open(&store, &crypto, administrator_vendor)?;
     let kv = matter.kv(store.clone());
     matter.startup(&kv)?;
+    log::info!("Matter session table: capacity={} bytes_per_session={} table_bytes={}",
+        rs_matter::transport::session::MAX_SESSIONS,
+        std::mem::size_of::<rs_matter::transport::session::Session>(),
+        std::mem::size_of::<rs_matter::transport::session::Sessions>());
     let controller_fabric = identity.install(matter, &crypto, &store)?;
     let relay = BleRelay::new();
     let mut controller = Controller::new(
