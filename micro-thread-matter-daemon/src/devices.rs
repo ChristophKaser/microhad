@@ -1,4 +1,5 @@
 //! Bounded operational endpoint discovery. No optimistic device capabilities.
+use rs_matter::sc::ExchangeInitiator as _;
 use crate::catalog::{Catalog, Phase};
 use core::num::NonZeroU8;
 use rs_matter::{
@@ -6,7 +7,7 @@ use rs_matter::{
     dm::clusters::{basic_info::BasicInformationClient, desc::DescriptorClient, icd_mgmt::IcdManagementClient,
     },
     error::{Error, ErrorCode},
-    im::{client::ImClient, AttrPath},
+    im::{ImClient, AttrPath},
     tlv::TLVElement,
     transport::exchange::Exchange,
     Matter,
@@ -2353,7 +2354,7 @@ mod tests {
         manager.subscription_members = keys[..5].to_vec();
         manager.subscription_work = Some((keys[0], now + Duration::from_secs(30), Box::pin(std::future::ready(Ok(Some(
             crate::subscriptions::DeviceSubscription {
-                established: rs_matter::im::client::SubscribeEstablished { subscription_id: 77, max_int: 900 },
+                established: rs_matter::im::SubscribeEstablished { subscription_id: 77, max_int: 900 },
                 unit: None, path_units: vec![(1,1026,"celsius"),(3,1037,"ppm"),(4,1066,"ug/m3")],
                 priming_values: values.clone(), clock_events: vec![],
             }))))));
@@ -2827,7 +2828,7 @@ mod tests {
         // A replacement session does not prove that the publisher moved its
         // existing subscription to it. Losing the old one must still recover.
         for sid in [7, 8] {
-            let mut session = ReservedSession::reserve_now(matter, &crypto).unwrap();
+            let mut session = ReservedSession::reserve_now(matter.transport(), &crypto).unwrap();
             session.update(1, 2, 10, sid, rs_matter::transport::network::Address::default(),
                 SessionMode::Case { fab_idx: fabric, cat_ids: Default::default() },
                 None, None, None, None).unwrap();
@@ -2851,7 +2852,7 @@ mod tests {
         let key = manager.subscriptions[0].key;
         manager.subscription_work = Some((key, now + Duration::from_secs(30), Box::pin(std::future::ready(Ok(Some(
             crate::subscriptions::DeviceSubscription {
-                established: rs_matter::im::client::SubscribeEstablished { subscription_id: 78, max_int: 1800 },
+                established: rs_matter::im::SubscribeEstablished { subscription_id: 78, max_int: 1800 },
                 unit: None, path_units: vec![], clock_events: vec![],
                 priming_values: vec![crate::operations::ResultValue { node: crate::control::Id(2),
                     endpoint: 1, cluster: 69, attribute: 0, value: crate::operations::Value::Bool(false) }],
@@ -3330,7 +3331,7 @@ mod tests {
         manager.time_preferences.entries[0].next = daily;
         manager.subscription_work = Some((key, now + Duration::from_secs(30), Box::pin(std::future::ready(Ok(Some(
             crate::subscriptions::DeviceSubscription { path_units: Vec::new(), clock_events: Vec::new(),
-                established: rs_matter::im::client::SubscribeEstablished { subscription_id: 101, max_int: 300 },
+                established: rs_matter::im::SubscribeEstablished { subscription_id: 101, max_int: 300 },
                 unit: None, priming_values: Vec::new(),
             }
         ))))));
@@ -3439,7 +3440,7 @@ mod tests {
                 counted.set(counted.get() + 1);
                 if !available.get() { return Poll::Pending; }
                 Poll::Ready(Ok(Some(crate::subscriptions::DeviceSubscription { path_units: Vec::new(), clock_events: Vec::new(),
-                    established: rs_matter::im::client::SubscribeEstablished { subscription_id: 77, max_int: 60,
+                    established: rs_matter::im::SubscribeEstablished { subscription_id: 77, max_int: 60,
                         },
                         unit: None,
                         priming_values: vec![],

@@ -1,4 +1,5 @@
 //! Capability-gated operational OnOff/Level/sensor transactions. No automatic mutation replay.
+use rs_matter::sc::ExchangeInitiator as _;
 use crate::{
     control::{BindingMember, BindingTarget, CommandRequest, DeviceRequest, Id, Request},
     devices::Snapshot,
@@ -20,7 +21,7 @@ use rs_matter::{
         time_synchronization::{GranularityEnum, TimeSourceEnum, TimeSynchronizationClient},
     },
     error::{Error, ErrorCode},
-    im::{client::ImClient, AttrPath},
+    im::{ImClient, AttrPath},
     transport::exchange::Exchange,
     Matter,
 };

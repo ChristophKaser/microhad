@@ -1,92 +1,175 @@
-From 1c0de174bfbc6760dccee9f3956498cbd331f79b Mon Sep 17 00:00:00 2001
+From dad969c3b9752015b4b48539e0ee52ce57a6af3b Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Thu, 12 Nov 2026 09:37:50 +0100
 Subject: [PATCH] Protect subscribed Matter sessions during eviction
 
 ---
- rs-matter/src/transport.rs         | 12 +++++
- rs-matter/src/transport/session.rs | 72 ++++++++++++++++++++++++++++++
- 2 files changed, 84 insertions(+)
+ rs-matter-node/src/lib.rs           | 45 ++++++++++++++++++-----
+ rs-matter-transport/src/exchange.rs | 13 ++++---
+ rs-matter-transport/src/session.rs  | 55 +++++++++++++++++++++++++++++
+ rs-matter/src/lib.rs                |  2 +-
+ 4 files changed, 101 insertions(+), 14 deletions(-)
 
-diff --git a/rs-matter/src/transport.rs b/rs-matter/src/transport.rs
-index 18d45bd6..7ec5d9eb 100644
---- a/rs-matter/src/transport.rs
-+++ b/rs-matter/src/transport.rs
-@@ -2312,6 +2312,11 @@ impl<'a, C: Crypto> TransportRunner<'a, C> {
-         encode: bool,
-     ) -> Result<bool, Error> {
-         self.matter.with_state(|state| {
-+            warn!("Session table pressure: used={} capacity={} plaintext={} reserved={} expired={}",
-+                state.sessions.iter().count(), crate::transport::session::MAX_SESSIONS,
-+                state.sessions.iter().filter(|s| matches!(s.get_session_mode(), crate::transport::session::SessionMode::PlainText)).count(),
-+                state.sessions.iter().filter(|s| s.is_reserved()).count(),
-+                state.sessions.iter().filter(|s| s.is_expired()).count());
-             let id = state
-                 .sessions
-                 .get_session_for_eviction()
-@@ -2342,6 +2347,13 @@ impl<'a, C: Crypto> TransportRunner<'a, C> {
-         let mut session = unwrap!(sessions.remove(id));
-         self.transport().notify_session_removed();
+diff --git a/rs-matter-node/src/lib.rs b/rs-matter-node/src/lib.rs
+index 94ba235c..def05df1 100644
+--- a/rs-matter-node/src/lib.rs
++++ b/rs-matter-node/src/lib.rs
+@@ -129,9 +129,8 @@ pub enum BootReason {
+ pub const MAX_ICD_CHECK_IN_BYTES: usize = 128;
+ const MAX_PENDING_ICD_CHECK_INS: usize = 8;
  
-+        warn!(
-+            "Session eviction: peer={} node={:?} mode={:?} remaining={} capacity={} bytes_per_session={}",
-+            session.get_peer_addr(), session.get_peer_node_id(), session.get_session_mode(),
-+            sessions.iter().count(), crate::transport::session::MAX_SESSIONS,
-+            core::mem::size_of::<crate::transport::session::Session>()
-+        );
+-/// Authenticated peer identity and encrypted Check-In payload copied from the
+-/// Secure Channel responder. The application-level MIC is verified later by
+-/// the ICD client manager.
++/// Captured encrypted Check-In and its peer identity, when authenticated.
++/// Sessionless messages use zero identity until the ICD client verifies the MIC.
+ #[derive(Clone)]
+ pub struct IcdCheckIn {
+     pub fabric: u8,
+@@ -142,8 +141,15 @@ pub struct IcdCheckIn {
+ 
+ impl IcdCheckIn {
+     pub fn from_received(fabric: u8, node: u64, payload: &[u8]) -> Result<Self, Error> {
+-        if payload.len() > MAX_ICD_CHECK_IN_BYTES { return Err(ErrorCode::InvalidData.into()); }
+-        let mut msg = Self { fabric, node, payload: [0; MAX_ICD_CHECK_IN_BYTES], len: payload.len() };
++        if payload.len() > MAX_ICD_CHECK_IN_BYTES {
++            return Err(ErrorCode::InvalidData.into());
++        }
++        let mut msg = Self {
++            fabric,
++            node,
++            payload: [0; MAX_ICD_CHECK_IN_BYTES],
++            len: payload.len(),
++        };
+         msg.payload[..payload.len()].copy_from_slice(payload);
+         Ok(msg)
+     }
+@@ -191,8 +197,8 @@ pub struct Matter<'a> {
+ }
+ 
+ impl<'a> Matter<'a> {
+-    /// Remove the oldest authenticated, encrypted ICD Check-In received by the
+-    /// normal Secure Channel responder.
++    /// Remove the oldest captured ICD Check-In. Sessionless identity is
++    /// untrusted until the application verifies the MIC.
+     pub fn pop_icd_check_in(&self) -> Option<IcdCheckIn> {
+         self.icd_check_ins.lock(|queue| queue.borrow_mut().pop_front())
+     }
+@@ -1257,8 +1263,9 @@ impl GroupMembership for Matter<'_> {
+ impl crate::sc::AsyncScHandler for Matter<'_> {
+     async fn check_in(
+         &self,
+-        exchange: crate::transport::exchange::Exchange<'_>,
++        mut exchange: crate::transport::exchange::Exchange<'_>,
+     ) -> Result<(), Error> {
++        exchange.recv_fetch().await?;
+         let (fabric, node) = exchange
+             .peer_identity()?
+             .unwrap_or((0, 0));
+@@ -1499,6 +1506,28 @@ pub mod test {
+     use crate::BootReason;
+     use crate::Matter;
+ 
++    #[test]
++    fn icd_check_in_handoff_is_bounded_and_keeps_newest_messages() {
++        let matter = test_matter();
++        for node in 0..=super::MAX_PENDING_ICD_CHECK_INS as u64 {
++            let mut payload = [0; super::MAX_ICD_CHECK_IN_BYTES];
++            payload[0] = node as u8;
++            matter.queue_icd_check_in(super::IcdCheckIn {
++                fabric: 1,
++                node,
++                payload,
++                len: 1,
++            });
++        }
++        for expected_node in 1..=super::MAX_PENDING_ICD_CHECK_INS as u64 {
++            let check_in = matter.pop_icd_check_in().unwrap();
++            assert_eq!(check_in.fabric, 1);
++            assert_eq!(check_in.node, expected_node);
++            assert_eq!(check_in.payload(), &[expected_node as u8]);
++        }
++        assert!(matter.pop_icd_check_in().is_none());
++    }
 +
-         debug!(
-             "Evicting session {} [SID:{:x},RSID:{:x}]",
-             session.id,
-diff --git a/rs-matter/src/transport/session.rs b/rs-matter/src/transport/session.rs
-index ec1f2972..7a24c619 100644
---- a/rs-matter/src/transport/session.rs
-+++ b/rs-matter/src/transport/session.rs
-@@ -149,6 +149,8 @@ impl From<&PeerMrpParams> for SessionParameters {
+     pub fn test_matter() -> Matter<'static> {
+         Matter::new(
+             &rs_matter_node_core::test_device::TEST_DEV_DET,
+diff --git a/rs-matter-transport/src/exchange.rs b/rs-matter-transport/src/exchange.rs
+index 8933c408..e338c45a 100644
+--- a/rs-matter-transport/src/exchange.rs
++++ b/rs-matter-transport/src/exchange.rs
+@@ -1241,13 +1241,12 @@ impl<'a> Exchange<'a> {
+     /// the supplied protocol and opcode. Other pending exchanges stay available
+     /// to the normal responder set.
+     pub async fn accept_matching(
+-        matter: &'a Matter<'a>,
++        transport: &'a Transport,
+         proto_id: u16,
+         proto_opcode: u8,
+     ) -> Result<Self, Error> {
+-        matter
+-            .transport()
+-            .accept_if(matter, |_, _, packet| {
++        transport
++            .accept_if(|_, _, packet| {
+                 packet.header.proto.proto_id == proto_id
+                     && packet.header.proto.proto_opcode == proto_opcode
+             })
+@@ -1571,7 +1570,11 @@ impl<'a> Exchange<'a> {
+     pub fn peer_identity(&self) -> Result<Option<(u8, u64)>, Error> {
+         self.id.with_sessions(self.transport, |sessions| {
+             let session = self.id().session(sessions);
+-            Ok(session.get_peer_node_id().map(|node| (session.get_local_fabric_idx(), node)))
++            Ok(if matches!(session.get_session_mode(), SessionMode::Case { .. }) {
++                session.get_peer_node_id().map(|node| (session.get_local_fabric_idx(), node))
++            } else {
++                None
++            })
+         })
+     }
+ 
+diff --git a/rs-matter-transport/src/session.rs b/rs-matter-transport/src/session.rs
+index 097413b5..48b548c0 100644
+--- a/rs-matter-transport/src/session.rs
++++ b/rs-matter-transport/src/session.rs
+@@ -147,6 +147,7 @@ impl SessionState {
  }
  
  pub struct Session {
-+    /// Application hint: this CASE session carries a live subscription.
 +    subscription_active: bool,
      // Internal ID which is guaranteeed to be unique accross all sessions and not change when sessions are added/removed
-     pub(crate) id: u32,
+     pub id: u32,
      peer_addr: Address,
-@@ -218,6 +220,7 @@ impl Session {
+@@ -214,6 +215,7 @@ impl Session {
      ) -> Self {
          Self {
              id,
 +            subscription_active: false,
-             reserved,
+             state: SessionState::new(reserved),
              peer_addr,
              local_nodeid: 0,
-@@ -254,6 +257,7 @@ impl Session {
+@@ -249,6 +251,7 @@ impl Session {
      ) -> impl Init<Self> {
          init!(Self {
              id,
 +            subscription_active: false,
-             reserved,
+             state: SessionState::new(reserved),
              peer_addr,
              local_nodeid: 0,
-@@ -322,6 +326,13 @@ impl Session {
-         self.peer_nodeid
+@@ -312,6 +315,8 @@ impl Session {
+         }
      }
  
-+    /// Prefer disposable sessions over this session under table pressure.
-+    /// This is a preference, not a reservation: active exchanges remain the
-+    /// only hard exclusion, so subscriptions cannot prevent all progress.
-+    pub fn set_subscription_active(&mut self, active: bool) {
-+        self.subscription_active = active;
-+    }
++    pub fn set_subscription_active(&mut self, active: bool) { self.subscription_active = active; }
 +
-     pub fn get_local_fabric_idx(&self) -> u8 {
-         self.mode.fab_idx()
+     pub fn get_peer_node_id(&self) -> Option<u64> {
+         self.peer_nodeid
      }
-@@ -2039,12 +2050,27 @@ impl Sessions {
+@@ -2034,12 +2039,23 @@ impl Sessions {
      pub fn get_session_for_eviction(&mut self) -> Option<&mut Session> {
          let index = self
-             .expired()
-+            // A recent abandoned handshake must not displace a sleeping
-+            // subscriber simply because the subscriber has been quiet longer.
+             .expired_or_defunct()
 +            .or_else(|| self.lru(|sess| !matches!(sess.mode, SessionMode::Case { .. })))
 +            .or_else(|| self.lru(|sess| !sess.subscription_active && self.has_alternative_case(sess)))
 +            .or_else(|| self.lru(|sess| !sess.subscription_active && !self.is_within_fabric_share(sess)))
@@ -99,17 +182,15 @@ index ec1f2972..7a24c619 100644
  
 +    fn has_alternative_case(&self, sess: &Session) -> bool {
 +        let SessionMode::Case { fab_idx, .. } = sess.mode else { return false; };
-+        self.sessions.iter().any(|other| {
-+            other.id != sess.id && !other.reserved && !other.expired
-+                && other.peer_nodeid == sess.peer_nodeid
-+                && matches!(other.mode, SessionMode::Case { fab_idx: idx, .. } if idx == fab_idx)
-+        })
++        self.sessions.iter().any(|other| other.id != sess.id && !other.is_reserved() && !other.is_expired()
++            && other.peer_nodeid == sess.peer_nodeid
++            && matches!(other.mode, SessionMode::Case { fab_idx: idx, .. } if idx == fab_idx))
 +    }
 +
      /// Like [`Self::get_session_for_eviction`], but never picks a live CASE
      /// session, for callers that evict without a `CloseSession` to the peer.
      #[cfg(feature = "groups")]
-@@ -2971,6 +2997,52 @@ mod tests {
+@@ -2879,6 +2895,45 @@ mod tests {
          assert_eq!(unwrap!(sm.get_session_for_eviction()).id, old);
      }
  
@@ -128,7 +209,7 @@ index ec1f2972..7a24c619 100644
 +        advance_clock_past(10);
 +        assert_eq!(unwrap!(sm.get_session_for_eviction()).id, handshake);
 +        // Active exchanges and reserved handshakes remain protected.
-+        unwrap!(sm.get(handshake)).reserved = true;
++        unwrap!(sm.get(handshake)).state = SessionState::Reserved;
 +        assert_eq!(unwrap!(sm.get_session_for_eviction()).id, first);
 +    }
 +
@@ -152,16 +233,22 @@ index ec1f2972..7a24c619 100644
 +            "subscriptions are a preference and cannot exhaust all eviction candidates");
 +    }
 +
-+    #[test]
-+    fn session_table_layout() {
-+        std::println!("Session={} Sessions={} capacity={} exchanges={}",
-+            core::mem::size_of::<Session>(), core::mem::size_of::<Sessions>(),
-+            MAX_SESSIONS, MAX_EXCHANGES);
-+    }
-+
      /// A CASE session within its fabric's share is evicted only when nothing
      /// else can be: a newer session that belongs to no fabric goes first.
      #[test]
+diff --git a/rs-matter/src/lib.rs b/rs-matter/src/lib.rs
+index 52fbe741..a00c08df 100644
+--- a/rs-matter/src/lib.rs
++++ b/rs-matter/src/lib.rs
+@@ -49,7 +49,7 @@ pub use rs_matter_node::groupcast;
+ #[cfg(feature = "pics")]
+ pub use rs_matter_node::pics;
+ pub use rs_matter_node::transport;
+-pub use rs_matter_node::{acl, BootReason, Matter, MatterState, Transaction};
++pub use rs_matter_node::{acl, BootReason, Matter, MatterState, Transaction, IcdCheckIn, MAX_ICD_CHECK_IN_BYTES};
+ 
+ pub use rs_matter_bdx as bdx;
+ pub use rs_matter_im as im;
 -- 
 2.43.0
 

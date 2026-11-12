@@ -101,6 +101,12 @@ License: MIT OR Apache-2.0
   LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5
   LICENSE-MIT: text 25f77efa393854f7c15eaf6a2589a2071db2d7337642742763adb12bdecf0445
 
+aes 0.9.4
+Authors: RustCrypto Developers
+License: MIT OR Apache-2.0
+  LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5
+  LICENSE-MIT: text 25f77efa393854f7c15eaf6a2589a2071db2d7337642742763adb12bdecf0445
+
 anstream 1.0.0
 Authors: Individual contributors
 License: MIT OR Apache-2.0
@@ -246,6 +252,12 @@ License: Apache-2.0 OR MIT
   LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5
   LICENSE-MIT: text 73b9dc2e79c7308998dd30296e073aefaefb944a68fb89aa412c23c0edcabcaa
 
+const-oid 0.10.3
+Authors: RustCrypto Developers
+License: Apache-2.0 OR MIT
+  LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5
+  LICENSE-MIT: text 73b9dc2e79c7308998dd30296e073aefaefb944a68fb89aa412c23c0edcabcaa
+
 cpubits 0.1.1
 Authors: RustCrypto Developers
 License: MIT OR Apache-2.0
@@ -269,7 +281,7 @@ License: MIT OR Apache-2.0
   LICENSE-APACHE: text a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2
   LICENSE-MIT: text fee6bdac4b917351332567b9fd5013c2ef3c847dd113fd6216cf28e96637a157
 
-crypto-bigint 0.7.5
+crypto-bigint 0.7.11
 Authors: RustCrypto Developers
 License: Apache-2.0 OR MIT
   LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5
@@ -293,18 +305,24 @@ License: Apache-2.0 OR MIT
   LICENSE-APACHE: text cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
   LICENSE-MIT: text 91585c36e4fb9ab4ca0d3dfac5d66d3c0c62cc51f640a0e1196542daf2267eae
 
+ctutils 0.4.8
+Authors: RustCrypto Developers
+License: Apache-2.0 OR MIT
+  LICENSE-APACHE: text cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+  LICENSE-MIT: text 91585c36e4fb9ab4ca0d3dfac5d66d3c0c62cc51f640a0e1196542daf2267eae
+
 data-encoding 2.11.1
 Authors: Julien Cretin, Google Inc
 License: MIT
   LICENSE: text b68ad1a3367b825447089e1f8d6829b97f47a89eb78d2f4ebaef4672f5606186
 
-der 0.8.2
+der 0.8.3
 Authors: RustCrypto Developers
 License: Apache-2.0 OR MIT
   LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5
   LICENSE-MIT: text 73b9dc2e79c7308998dd30296e073aefaefb944a68fb89aa412c23c0edcabcaa
 
-deranged 0.5.8
+deranged 0.5.9
 Authors: Jacob Pratt <jacob@jhpratt.dev>
 License: MIT OR Apache-2.0
   LICENSE-Apache: text edd65bdd88957a205c47d53fa499eed8865a70320f0f03f6391668cb304ea376
@@ -327,13 +345,13 @@ License: Apache-2.0 OR MIT
   LICENSE-APACHE: text 78779d420019e6b4630376af8e86b6b335ee8a2f89ede6e0411e0469a326aaa4
   LICENSE-MIT: text 9aa4f92bfcde293ebeca9e2379fa18d1d61f000977da144c7b74c2986c9b6466
 
-either 1.18.0
+either 1.19.0
 Authors: Either authors (rayon-rs/either)
 License: MIT OR Apache-2.0
   LICENSE-APACHE: text a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2
   LICENSE-MIT: text 7576269ea71f767b99297934c0b2367532690f8c4badc695edf8e04ab6a1e545
 
-elliptic-curve 0.14.1
+elliptic-curve 0.14.3
 Authors: RustCrypto Developers
 License: Apache-2.0 OR MIT
   LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5
@@ -542,6 +560,12 @@ License: MIT OR Apache-2.0
   LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5
   LICENSE-MIT: text a07fcacc3c60de4dc0fab10ac9d6aaba7379974e28451c99da7f7df09c25b28c
 
+inout 0.2.6
+Authors: RustCrypto Developers
+License: MIT OR Apache-2.0
+  LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5
+  LICENSE-MIT: text a07fcacc3c60de4dc0fab10ac9d6aaba7379974e28451c99da7f7df09c25b28c
+
 is_terminal_polyfill 1.70.2
 Authors: Individual contributors
 License: MIT OR Apache-2.0
@@ -554,13 +578,19 @@ License: MIT OR Apache-2.0
   LICENSE-APACHE: text 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a
   LICENSE-MIT: text 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3
 
-jiff 0.2.37
+itoa 1.0.19
+Authors: David Tolnay <dtolnay@gmail.com>
+License: MIT OR Apache-2.0
+  LICENSE-APACHE: text 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a
+  LICENSE-MIT: text 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3
+
+jiff 0.2.43
 Authors: Andrew Gallant <jamslam@gmail.com>
 License: Unlicense OR MIT
   COPYING: text 01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f
   LICENSE-MIT: text 0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f
 
-jiff-core 0.1.1
+jiff-core 0.1.5
 Authors: Andrew Gallant <jamslam@gmail.com>
 License: Unlicense OR MIT
   COPYING: text 01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f
@@ -596,6 +626,12 @@ License: MIT OR Apache-2.0
   LICENSE-MIT: text c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5
 
 log 0.4.34
+Authors: The Rust Project Developers
+License: MIT OR Apache-2.0
+  LICENSE-APACHE: text a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2
+  LICENSE-MIT: text 6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb
+
+log 0.4.35
 Authors: The Rust Project Developers
 License: MIT OR Apache-2.0
   LICENSE-APACHE: text a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2
@@ -784,7 +820,7 @@ License: Apache-2.0 OR MIT
   LICENSE-APACHE: text 0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594
   LICENSE-MIT: text 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3
 
-powerfmt 0.2.0
+powerfmt 0.2.1
 Authors: Jacob Pratt <jacob@jhpratt.dev>
 License: MIT OR Apache-2.0
   LICENSE-Apache: text 155420c6403d4e0fca34105e3c03fdd6939b64c393c7ec6f95f5b72c5474eab0
@@ -898,7 +934,7 @@ License: MIT OR Apache-2.0
   LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5
   LICENSE-MIT: text 831e0f43ad0bf014c1c4fec5767aae470434c1d66d6e671be2d823e729063e25
 
-sha2 0.11.0
+sha2 0.11.1
 Authors: RustCrypto Developers
 License: MIT OR Apache-2.0
   LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5
@@ -932,7 +968,7 @@ License: MIT OR Apache-2.0
   LICENSE-APACHE: text a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2
   LICENSE-MIT: text 378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397
 
-spki 0.8.0
+spki 0.8.1
 Authors: RustCrypto Developers
 License: Apache-2.0 OR MIT
   LICENSE-APACHE: text a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5

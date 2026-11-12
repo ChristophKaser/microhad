@@ -1,4 +1,5 @@
 //! Gateway commissioning policy and Thread provisioning over an authenticated PASE exchange.
+use rs_matter::sc::ExchangeInitiator as _;
 use rs_matter::crypto::Crypto;
 use rs_matter::dm::clusters::decl::network_commissioning::{
     NetworkCommissioningClient, NetworkCommissioningStatusEnum,

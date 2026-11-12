@@ -8,7 +8,7 @@ import shutil
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
-REVISION = 'ae2293b016f823411679a2e119ebce3ab9370a05'
+REVISION = 'b7ddead87ded213bd870dc39a89891ff5f820503'
 SOURCE = ROOT / 'micro-thread-matter-daemon/dependencies/rs-matter'
 WORKTREE = ROOT / 'build/micro-thread-matter-daemon/commissioning-source'
 PATCH = ROOT / 'micro-thread-matter-daemon/patches/rs-matter-commissioning-probe.patch'
@@ -57,7 +57,8 @@ def main():
     for name, selection in suites:
         log_path = ROOT / ('build/micro-thread-matter-daemon/controller-' + name + '.log')
         with log_path.open('w') as log:
-            result = subprocess.run(cargo + selection + ['--', '--test-threads=1'], env=env,
+            suite_cargo = cargo if name != 'attestation_components' else ['cargo', '+' + toolchain['RUST_TOOLCHAIN'], 'test', '--locked', '--release', '--manifest-path', str(WORKTREE / 'Cargo.toml'), '-p', 'rs-matter-cert']
+            result = subprocess.run(suite_cargo + selection + ['--', '--test-threads=1'], env=env,
                                     stdout=log, stderr=subprocess.STDOUT, timeout=600)
         output = log_path.read_text()
         summary = re.search(r'test result: (\w+)\. (\d+) passed; (\d+) failed;', output)

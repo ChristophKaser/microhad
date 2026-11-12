@@ -1,6 +1,7 @@
 //! Matter electrical measurements. Wire addresses stay intact, including energy subfields.
+use rs_matter::sc::ExchangeInitiator as _;
 use crate::{control::Id, operations::{ResultValue, Value}};
-use rs_matter::{error::{Error,ErrorCode}, im::{ReportDataResp,AttrPath,client::ImClient}, tlv::{TLVElement,TLVArray}, crypto::Crypto, transport::exchange::Exchange, Matter};
+use rs_matter::{error::{Error,ErrorCode}, im::{ReportDataResp,AttrPath,ImClient}, tlv::{TLVElement,TLVArray}, crypto::Crypto, transport::exchange::Exchange, Matter};
 use core::num::NonZeroU8;
 use serde::Serialize;
 #[derive(Clone,Debug,PartialEq,Serialize)]

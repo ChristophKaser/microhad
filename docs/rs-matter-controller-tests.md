@@ -19,12 +19,12 @@ python3 micro-thread-matter-daemon/scripts/test-rs-matter-controller.py
 ```
 
 The runner pins rs-matter commit
-`ae2293b016f823411679a2e119ebce3ab9370a05`, Rust `nightly-2026-10-02`, and the
+`b7ddead87ded213bd870dc39a89891ff5f820503`, Rust `nightly-2026-10-02`, and the
 tracked workspace dependency lock `micro-thread-matter-daemon/controller-tests.lock`.
 It creates a separate ignored `build/micro-thread-matter-daemon/commissioning-source` worktree,
 applies the commissioning-probe and commissioning-region mailbox patches, verifies the exact
 tracked diff, rejects unexpected files, and uses `cargo test --locked` with
-`--no-default-features --features 'os rustcrypto'`. It runs suites sequentially,
+`--no-default-features --features 'os rustcrypto'` for the controller suites. Attestation component tests run in the upstream `rs-matter-cert` crate. It runs suites sequentially,
 requires a nonzero number of passing tests, and writes a filtered JSON report.
 Compiler/test logs stay in ignored `build/micro-thread-matter-daemon/`; the tracked shareable
 record is [rs-matter-controller-validation.json](rs-matter-controller-validation.json).

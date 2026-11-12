@@ -1,19 +1,19 @@
-From fed502a2126071dc3a38dbe5ac40bba229dc67c6 Mon Sep 17 00:00:00 2001
+From f7950f0d092a43d1d41fc2bc286a91a72c992000 Mon Sep 17 00:00:00 2001
 From: Gateway development <dev@localhost>
 Date: Tue, 10 Nov 2026 09:29:54 +0100
 Subject: [PATCH] Send Matter OTA EOF with the final payload block
 
 ---
- rs-matter/src/bdx/write.rs            | 11 ++++
- rs-matter/src/dm/clusters/ota_prov.rs |  4 ++
+ rs-matter-bdx/src/write.rs            | 11 ++++
+ rs-matter-dm/src/clusters/ota_prov.rs |  4 ++
  rs-matter/tests/bdx.rs                | 94 +++++++++++++++++++++++++++
  3 files changed, 109 insertions(+)
 
-diff --git a/rs-matter/src/bdx/write.rs b/rs-matter/src/bdx/write.rs
-index 0086134..c0d3b6c 100644
---- a/rs-matter/src/bdx/write.rs
-+++ b/rs-matter/src/bdx/write.rs
-@@ -120,6 +120,17 @@ impl<'a, 'b> BdxWriter<'a, 'b> {
+diff --git a/rs-matter-bdx/src/write.rs b/rs-matter-bdx/src/write.rs
+index 74d19645..aef5a716 100644
+--- a/rs-matter-bdx/src/write.rs
++++ b/rs-matter-bdx/src/write.rs
+@@ -122,6 +122,17 @@ impl<'a, 'b> BdxWriter<'a, 'b> {
          self.send_block(false).await
      }
  
@@ -31,11 +31,11 @@ index 0086134..c0d3b6c 100644
      /// Flush the final (possibly empty) block and complete the transfer.
      pub async fn finish(mut self) -> Result<(), Error> {
          self.send_block(true).await?;
-diff --git a/rs-matter/src/dm/clusters/ota_prov.rs b/rs-matter/src/dm/clusters/ota_prov.rs
-index 8d79b8e..6a3745d 100644
---- a/rs-matter/src/dm/clusters/ota_prov.rs
-+++ b/rs-matter/src/dm/clusters/ota_prov.rs
-@@ -601,6 +601,10 @@ where
+diff --git a/rs-matter-dm/src/clusters/ota_prov.rs b/rs-matter-dm/src/clusters/ota_prov.rs
+index 9588f9c4..ce5bf60a 100644
+--- a/rs-matter-dm/src/clusters/ota_prov.rs
++++ b/rs-matter-dm/src/clusters/ota_prov.rs
+@@ -623,6 +623,10 @@ where
                  break;
              }
  
@@ -47,10 +47,10 @@ index 8d79b8e..6a3745d 100644
  
              offset += n as u64;
 diff --git a/rs-matter/tests/bdx.rs b/rs-matter/tests/bdx.rs
-index 3cdac8d..1428ceb 100644
+index 3c423cb2..7ee718bc 100644
 --- a/rs-matter/tests/bdx.rs
 +++ b/rs-matter/tests/bdx.rs
-@@ -544,3 +544,97 @@ fn test_bdx_read_aborted_mid_stream() {
+@@ -542,3 +542,97 @@ fn test_bdx_read_aborted_mid_stream() {
          .unwrap();
      });
  }

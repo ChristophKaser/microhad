@@ -290,8 +290,9 @@ async fn run_with_refresh_and_signals(
     signals: SignalBook,
 ) -> Result<(), Error> {
     let mut cache = Cache::default();
+    let responder = matter.transport().mdns_responder();
     loop {
-        let service = matter.transport().wait_mdns_resolve_request().await;
+        let service = responder.wait_resolve_request().await;
         let Some(key) = Key::from_service(&service) else {
             continue;
         };

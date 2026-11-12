@@ -1,13 +1,11 @@
 //! Bounded Interaction Model subscription establishment for operational endpoints.
+use rs_matter::sc::ExchangeInitiator as _;
 use core::num::NonZeroU8;
 use rs_matter::{
     crypto::Crypto,
     dm::clusters::icd_mgmt::IcdManagementClient,
     error::{Error, ErrorCode},
-    im::{
-        client::{ImClient, SubscribeEstablished, SubscribeOutcome},
-        AttrPath, EventFilter, EventPath,
-    },
+    im::{AttrPath, EventFilter, EventPath, ImClient, SubscribeEstablished, SubscribeOutcome},
     tlv::{FromTLV, TLVArray},
     transport::exchange::Exchange,
     Matter,
@@ -195,7 +193,7 @@ impl<'a> ReportReceiver<'a> {
             let output = progress.clone();
             let active = active.clone();
             ReportTask { progress, deadline: None, work: Box::pin(async move {
-                let exchange = Exchange::accept_matching(matter,
+                let exchange = Exchange::accept_matching(matter.transport(),
                     rs_matter::im::PROTO_ID_INTERACTION_MODEL,
                     rs_matter::im::OpCode::ReportData as u8).await?;
                 output.borrow_mut().accepted = true;
@@ -751,7 +749,7 @@ pub async fn receive_report(
 ) -> Result<ReceivedReport, Error> {
     receive_report_exchange(
         Exchange::accept_matching(
-            matter,
+            matter.transport(),
             rs_matter::im::PROTO_ID_INTERACTION_MODEL,
             rs_matter::im::OpCode::ReportData as u8,
         )
@@ -766,7 +764,7 @@ pub async fn receive_incoming(
     active: ReportSubscriptions,
 ) -> Result<IncomingMessage, Error> {
     let exchange = Exchange::accept_matching(
-        matter,
+        matter.transport(),
         rs_matter::im::PROTO_ID_INTERACTION_MODEL,
         rs_matter::im::OpCode::ReportData as u8,
     )

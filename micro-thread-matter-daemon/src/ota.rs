@@ -1,5 +1,6 @@
 //! Manually authorized, temporary OTA image provider. The private control socket
 //! never accepts arbitrary paths outside MicroHAD's temporary upload namespace.
+use rs_matter::sc::ExchangeInitiator as _;
 use crate::catalog::{Catalog, Phase};
 use core::num::NonZeroU8;
 use rs_matter::{
@@ -584,16 +585,14 @@ pub async fn run<C: Crypto>(
 ) -> Result<(), Error> {
     use rs_matter::{
         bdx::{Bdx, PROTO_ID_BDX},
-        dm::networks::eth::EthNetwork,
         dm::{Dataver, Endpoint, Node},
-        im::{IMBuffer, InteractionModel, InteractionModelState},
+        im::{InteractionModel, InteractionModelState}, dm::IMBuffer,
         persist::DummyKvBlobStore,
-        respond::ExchangeHandler,
         utils::storage::pooled::PooledBuffers,
     };
     let buffers = PooledBuffers::<IMBuffer, 2>::new();
     let bdx_buffers = PooledBuffers::<BdxBuffer, 1>::new();
-    let state = InteractionModelState::<_, 1, 128>::new(EthNetwork::new_default());
+    let state = InteractionModelState::<1, 128>::new();
     let cluster = OtaProviderHandler::<&Provider>::CLUSTER;
     let clusters = [cluster];
     let endpoints = [Endpoint::new(0, &[], &clusters)];
@@ -607,7 +606,7 @@ pub async fn run<C: Crypto>(
         &buffers,
         (
             node,
-            OtaProviderHandler::new(Dataver::new(0), provider).adapt(),
+            OtaProviderHandler::new(Dataver::new(0), matter, provider).adapt(),
         ),
         &kv,
         &state,
@@ -615,23 +614,23 @@ pub async fn run<C: Crypto>(
     let bdx = Bdx::new(OtaBdxHandler::new(&bdx_buffers, provider));
     loop {
         let exchange = Exchange::accept_matching(
-            matter,
+            matter.transport(),
             rs_matter::im::PROTO_ID_INTERACTION_MODEL,
             rs_matter::im::OpCode::InvokeRequest as u8,
         );
         let bdx_exchange = Exchange::accept_matching(
-            matter,
+            matter.transport(),
             PROTO_ID_BDX,
             rs_matter::bdx::OpCode::ReceiveInit as u8,
         );
         use embassy_futures::select::{select4, Either4};
         let sc_exchange = Exchange::accept_matching(
-            matter,
+            matter.transport(),
             rs_matter::sc::PROTO_ID_SECURE_CHANNEL,
             rs_matter::sc::OpCode::CASESigma1 as u8,
         );
         let read_exchange = Exchange::accept_matching(
-            matter,
+            matter.transport(),
             rs_matter::im::PROTO_ID_INTERACTION_MODEL,
             rs_matter::im::OpCode::ReadRequest as u8,
         );
@@ -641,7 +640,7 @@ pub async fn run<C: Crypto>(
                 Either4::Second(e) => (e?, true),
                 Either4::Fourth(e) => (e?, false),
                 Either4::Third(e) => {
-                    let _ = rs_matter::sc::SecureChannel::new(crypto, &())
+                    let _ = rs_matter::sc::SecureChannel::new(matter, crypto, &())
                         .handle(e?)
                         .await;
                     continue;

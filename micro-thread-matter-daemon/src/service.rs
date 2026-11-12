@@ -18,8 +18,8 @@ pub const MAX_CLIENTS: usize = 4;
 const MAX_RESPONSES: usize = 32;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
 
-/// Accept only established-session ICD Check-Ins. Sessionless Check-Ins are
-/// captured by the transport because they have no authenticated peer identity.
+/// Accept ICD Check-Ins on established or sessionless exchanges. Sessionless
+/// senders remain unidentified until their payload MIC is validated.
 /// Matching at the transport layer leaves unsolicited Interaction Model
 /// reports available to the device subscription manager.
 pub struct IcdCheckInResponder<'a> {
@@ -36,7 +36,7 @@ impl IcdCheckInResponder<'_> {
     pub async fn run(&self) -> Result<(), Error> {
         loop {
             let exchange = Exchange::accept_matching(
-                self.matter,
+                self.matter.transport(),
                 PROTO_ID_SECURE_CHANNEL,
                 OpCode::CheckIn as u8,
             )

@@ -1,18 +1,18 @@
-From 5e59eb8ad739e6b8ad500a7c3aaab00328ce9212 Mon Sep 17 00:00:00 2001
+From 14c08073065d29b5541562b0414bfb83842f614e Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Wed, 7 Oct 2026 16:04:51 +0200
 Subject: [PATCH] rs-matter: expose subscription attribute notifications
 
 ---
- rs-matter/src/im.rs | 11 +++++++++++
- 1 file changed, 11 insertions(+)
+ rs-matter-im/src/lib.rs | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
 
-diff --git a/rs-matter/src/im.rs b/rs-matter/src/im.rs
-index 4756ce0e..405c4f4c 100644
---- a/rs-matter/src/im.rs
-+++ b/rs-matter/src/im.rs
-@@ -476,6 +476,17 @@ where
-     N: Networks,
+diff --git a/rs-matter-im/src/lib.rs b/rs-matter-im/src/lib.rs
+index 77b30dee..2833a97e 100644
+--- a/rs-matter-im/src/lib.rs
++++ b/rs-matter-im/src/lib.rs
+@@ -284,8 +284,20 @@ where
+     K: KvBlobStoreAccess,
      R: ReportDataHandler,
  {
 +    /// Notify active subscriptions that an externally updated attribute changed.
@@ -26,9 +26,12 @@ index 4756ce0e..405c4f4c 100644
 +            .notify_attr_changed(endpoint_id, cluster_id, attr_id);
 +    }
 +
-     /// Create the data model with an explicit network controller `net_ctl` and a
-     /// [`ReportDataHandler`] `report_handler` — the controller / subscriber role.
+     /// Create the data model with a [`ReportDataHandler`] `report_handler` —
+     /// the controller / subscriber role.
++
      ///
+     /// This is [`InteractionModel::new`] plus a report consumer:
+     /// after this node establishes subscriptions (via the IM client), the
 -- 
 2.43.0
 

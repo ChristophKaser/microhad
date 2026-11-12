@@ -1,117 +1,51 @@
-From 8e954adc49ad2460c157bc6540ac09105a9111e6 Mon Sep 17 00:00:00 2001
+From 441352f776e471d507ba3fc34b40a1426dd5b118 Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Wed, 7 Oct 2026 16:04:52 +0200
 Subject: [PATCH] rs-matter: support sessionless ICD check-ins
 
 ---
- rs-matter/src/lib.rs       | 42 ++++++++++++++++++++++++--------------
- rs-matter/src/transport.rs | 12 +++++++++++
- 2 files changed, 39 insertions(+), 15 deletions(-)
+ rs-matter-node/src/lib.rs | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
 
-diff --git a/rs-matter/src/lib.rs b/rs-matter/src/lib.rs
-index 60ec6618..1b09db8d 100644
---- a/rs-matter/src/lib.rs
-+++ b/rs-matter/src/lib.rs
-@@ -143,9 +143,8 @@ pub const MATTER_PORT: u16 = 5540;
- pub const MAX_ICD_CHECK_IN_BYTES: usize = 128;
- const MAX_PENDING_ICD_CHECK_INS: usize = 8;
- 
--/// Authenticated peer identity and encrypted Check-In payload copied from the
--/// Secure Channel responder. The application-level MIC is verified later by
--/// the ICD client manager.
-+/// Peer identity and encrypted Check-In payload. Sessionless Check-Ins carry
-+/// no stable peer identity; the ICD client manager identifies those by key MIC.
- #[derive(Clone)]
- pub struct IcdCheckIn {
-     pub fabric: u8,
-@@ -155,6 +154,22 @@ pub struct IcdCheckIn {
+diff --git a/rs-matter-node/src/lib.rs b/rs-matter-node/src/lib.rs
+index f4e5ae89..94ba235c 100644
+--- a/rs-matter-node/src/lib.rs
++++ b/rs-matter-node/src/lib.rs
+@@ -141,6 +141,13 @@ pub struct IcdCheckIn {
  }
  
  impl IcdCheckIn {
-+    /// Build a bounded captured message. Sessionless callers use fabric/node 0
-+    /// until the application MIC identifies the registered client.
 +    pub fn from_received(fabric: u8, node: u64, payload: &[u8]) -> Result<Self, Error> {
-+        if payload.len() > MAX_ICD_CHECK_IN_BYTES {
-+            return Err(ErrorCode::InvalidData.into());
-+        }
-+        let mut message = Self {
-+            fabric,
-+            node,
-+            payload: [0; MAX_ICD_CHECK_IN_BYTES],
-+            len: payload.len(),
-+        };
-+        message.payload[..payload.len()].copy_from_slice(payload);
-+        Ok(message)
++        if payload.len() > MAX_ICD_CHECK_IN_BYTES { return Err(ErrorCode::InvalidData.into()); }
++        let mut msg = Self { fabric, node, payload: [0; MAX_ICD_CHECK_IN_BYTES], len: payload.len() };
++        msg.payload[..payload.len()].copy_from_slice(payload);
++        Ok(msg)
 +    }
 +
      pub fn payload(&self) -> &[u8] {
          &self.payload[..self.len]
      }
-@@ -208,8 +223,8 @@ pub struct Matter<'a> {
- }
- 
- impl<'a> Matter<'a> {
--    /// Remove the oldest authenticated, encrypted ICD Check-In received by the
--    /// normal Secure Channel responder.
-+    /// Remove the oldest bounded ICD Check-In captured by the transport or
-+    /// Secure Channel responder. Sessionless identity is untrusted until MIC validation.
-     pub fn pop_icd_check_in(&self) -> Option<IcdCheckIn> {
+@@ -190,6 +197,11 @@ impl<'a> Matter<'a> {
          self.icd_check_ins.lock(|queue| queue.borrow_mut().pop_front())
      }
-@@ -224,6 +239,12 @@ impl<'a> Matter<'a> {
-         });
-     }
  
-+    /// Queue a sessionless Check-In with no trusted fabric or node identity.
 +    pub fn queue_sessionless_icd_check_in(&self, payload: &[u8]) -> Result<(), Error> {
 +        self.queue_icd_check_in(IcdCheckIn::from_received(0, 0, payload)?);
 +        Ok(())
 +    }
 +
-     /// Create a new Matter object.
-     ///
-     /// # Parameters
-@@ -1218,16 +1239,7 @@ impl crate::sc::AsyncScHandler for Matter<'_> {
+     fn queue_icd_check_in(&self, check_in: IcdCheckIn) {
+         self.icd_check_ins.lock(|queue| {
+             let mut queue = queue.borrow_mut();
+@@ -1249,7 +1261,7 @@ impl crate::sc::AsyncScHandler for Matter<'_> {
+     ) -> Result<(), Error> {
+         let (fabric, node) = exchange
              .peer_identity()?
-             .ok_or(ErrorCode::InvalidData)?;
+-            .ok_or(ErrorCode::InvalidData)?;
++            .unwrap_or((0, 0));
          let payload = exchange.rx()?.payload();
--        if payload.len() > MAX_ICD_CHECK_IN_BYTES {
--            return Err(ErrorCode::InvalidData.into());
--        }
--        let mut check_in = IcdCheckIn {
--            fabric,
--            node,
--            payload: [0; MAX_ICD_CHECK_IN_BYTES],
--            len: payload.len(),
--        };
--        check_in.payload[..payload.len()].copy_from_slice(payload);
-+        let check_in = IcdCheckIn::from_received(fabric, node, payload)?;
-         self.queue_icd_check_in(check_in);
-         Ok(())
-     }
-diff --git a/rs-matter/src/transport.rs b/rs-matter/src/transport.rs
-index 74c7202f..18d45bd6 100644
---- a/rs-matter/src/transport.rs
-+++ b/rs-matter/src/transport.rs
-@@ -2119,6 +2119,18 @@ impl<'a, C: Crypto> TransportRunner<'a, C> {
-                     // Session created successfully: decode, indicate packet payload slice and process further
-                     return session.post_recv(&packet.peer, &packet.header);
-                 }
-+
-+                let meta = MessageMeta::from(&packet.header.proto);
-+                if meta.proto_id == PROTO_ID_SECURE_CHANNEL
-+                    && meta.proto_opcode == OpCode::CheckIn as u8
-+                {
-+                    self.matter.queue_sessionless_icd_check_in(
-+                        &packet.buf[packet.payload_start..],
-+                    )?;
-+                    // Sessionless Check-In expects no response and has no Matter exchange.
-+                    return Err(ErrorCode::NoExchange.into());
-+                }
-+
-             } else {
-                 #[cfg(feature = "groups")]
-                 if packet.header.plain.is_group_session() {
+         if payload.len() > MAX_ICD_CHECK_IN_BYTES {
+             return Err(ErrorCode::InvalidData.into());
 -- 
 2.43.0
 

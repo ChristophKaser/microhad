@@ -1,4 +1,5 @@
 //! Durable ICD Check-In client state and authenticated wake processing.
+use rs_matter::sc::ExchangeInitiator as _;
 use crate::store::PrivateStore;
 use rs_matter::{
     crypto::{CanonAeadKeyRef, Crypto},

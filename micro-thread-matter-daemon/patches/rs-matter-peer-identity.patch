@@ -1,36 +1,31 @@
-From 20a435ec7ee571c9052aaaa2547da230080cb447 Mon Sep 17 00:00:00 2001
+From 3b0e59ce7b73324f0c8f990c5f9c23ad00cef08e Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Wed, 7 Oct 2026 16:04:51 +0200
 Subject: [PATCH] rs-matter: expose authenticated exchange peer identity
 
 ---
- rs-matter/src/transport/exchange.rs | 13 +++++++++++++
- 1 file changed, 13 insertions(+)
+ rs-matter-transport/src/exchange.rs | 8 ++++++++
+ 1 file changed, 8 insertions(+)
 
-diff --git a/rs-matter/src/transport/exchange.rs b/rs-matter/src/transport/exchange.rs
-index 563cfe39..02a912df 100644
---- a/rs-matter/src/transport/exchange.rs
-+++ b/rs-matter/src/transport/exchange.rs
-@@ -1627,6 +1627,19 @@ impl<'a> Exchange<'a> {
+diff --git a/rs-matter-transport/src/exchange.rs b/rs-matter-transport/src/exchange.rs
+index f106d88a..770c3b70 100644
+--- a/rs-matter-transport/src/exchange.rs
++++ b/rs-matter-transport/src/exchange.rs
+@@ -1550,6 +1550,14 @@ impl<'a> Exchange<'a> {
+             ))
          })
      }
- 
-+    /// Return the authenticated peer's fabric index and node ID for this
-+    /// exchange. Group and unauthenticated sessions have no peer node identity.
-+    /// This is useful when dispatching server-initiated exchanges such as active
-+    /// Interaction Model subscription reports.
++    /// Return the authenticated peer identity for this exchange.
 +    pub fn peer_identity(&self) -> Result<Option<(u8, u64)>, Error> {
-+        self.with_state(|state| {
-+            let session = self.id().session(&mut state.sessions);
-+            Ok(session
-+                .get_peer_node_id()
-+                .map(|node| (session.get_local_fabric_idx(), node)))
++        self.id.with_sessions(self.transport, |sessions| {
++            let session = self.id().session(sessions);
++            Ok(session.get_peer_node_id().map(|node| (session.get_local_fabric_idx(), node)))
 +        })
 +    }
 +
-     pub(crate) fn with_state<F, T>(&self, f: F) -> Result<T, Error>
-     where
-         F: FnOnce(&mut MatterState) -> Result<T, Error>,
+ }
+ 
+ impl Drop for Exchange<'_> {
 -- 
 2.43.0
 

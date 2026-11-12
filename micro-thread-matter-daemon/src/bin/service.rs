@@ -20,7 +20,7 @@ use rs_matter::crypto::{
 use rs_matter::dm::clusters::{basic_info::BasicInfoConfig, dev_att::DeviceAttestation};
 use rs_matter::sc::pase::{Spake2pVerifierPassword, Spake2pVerifierPasswordRef};
 use rs_matter::transport::network::{Address, ChainedNetwork, NoNetwork};
-use rs_matter::utils::{init::InitMaybeUninit, sync::DynBase};
+use rs_matter::utils::init::InitMaybeUninit;
 use rs_matter::{BasicCommData, Matter, MATTER_PORT};
 use static_cell::StaticCell;
 use std::future::Future;
@@ -38,7 +38,6 @@ static DETAILS: BasicInfoConfig = BasicInfoConfig {
 // A commissioner is not an accessory and has no manufacturer attestation
 // credentials or open commissioning window. No device responder is installed.
 struct ControllerAttestation;
-impl DynBase for ControllerAttestation {}
 impl DeviceAttestation for ControllerAttestation {
     fn cert_declaration(&self) -> &[u8] {
         &[]
@@ -113,12 +112,12 @@ fn validate_state_directory(
     let crypto = default_crypto(entropy, CryptoSensitiveRef::new(&singleton));
     let matter = MATTER.uninit().init_with(Matter::init(
         &DETAILS,
-        BasicCommData {
+        rs_matter::DevCommData::Passcode(BasicCommData {
             password: Spake2pVerifierPassword::new_from_ref(Spake2pVerifierPasswordRef::new(
                 &[0; 4],
             )),
             discriminator: 0,
-        },
+        }),
         &ATTESTATION,
         MATTER_PORT,
     ));
@@ -427,12 +426,12 @@ fn run(
     let crypto = default_crypto(entropy, CryptoSensitiveRef::new(&singleton));
     let matter = MATTER.uninit().init_with(Matter::init(
         &DETAILS,
-        BasicCommData {
+        rs_matter::DevCommData::Passcode(BasicCommData {
             password: Spake2pVerifierPassword::new_from_ref(Spake2pVerifierPasswordRef::new(
                 &[0; 4],
             )),
             discriminator: 0,
-        },
+        }),
         &ATTESTATION,
         MATTER_PORT,
     ));

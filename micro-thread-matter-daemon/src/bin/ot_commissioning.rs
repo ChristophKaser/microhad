@@ -19,6 +19,7 @@
 
 //! Synthetic accessory commissioning over the factory userspace OpenThread transport.
 //! Adapted from the pinned upstream commissioning fixture; never production state.
+use rs_matter::sc::ExchangeInitiator as _;
 use core::cell::{Cell, RefCell};
 use core::pin::pin;
 use embassy_futures::select::{select, select3, select4, Either};
@@ -41,7 +42,6 @@ use rs_matter::dm::clusters::desc::{self, ClusterHandler as _};
 use rs_matter::dm::clusters::icd_mgmt::{
     ClusterHandler as _, IcdManagementClient as _, IcdModeConfig, LitIcd, LitIcdMgmtHandler,
 };
-use rs_matter::dm::clusters::net_comm::DummyNetworks;
 use rs_matter::dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET};
 use rs_matter::dm::devices::DEV_TYPE_ON_OFF_LIGHT;
 use rs_matter::dm::{endpoints, Async, DataModel, Dataver, Endpoint, Handler, Node, Reply};
@@ -60,7 +60,7 @@ use rs_matter::transport::network::{
     SocketAddrV6,
 };
 use rs_matter::utils::init::InitMaybeUninit;
-use rs_matter::utils::select::Coalesce;
+use rs_matter::utils::futures::Coalesce;
 use rs_matter::{clusters, devices, root_endpoint, Matter, MATTER_PORT};
 use static_cell::StaticCell;
 
@@ -127,7 +127,7 @@ fn native_test_response(
 }
 
 const TEST_PASSCODE: u32 = 20202021;
-type DeviceDmState = InteractionModelState<DummyNetworks, DEFAULT_MAX_SUBSCRIPTIONS, 0>;
+type DeviceDmState = InteractionModelState<DEFAULT_MAX_SUBSCRIPTIONS, 0>;
 static DEVICE_MATTER: StaticCell<Matter> = StaticCell::new();
 static DEVICE_BUFFERS: StaticCell<MatterBuffers> = StaticCell::new();
 static DEVICE_STATE: StaticCell<DeviceDmState> = StaticCell::new();
@@ -528,6 +528,7 @@ impl<H: rs_matter::dm::AsyncHandler> rs_matter::dm::AsyncHandler for Commissioni
 }
 
 fn data_model<'a>(
+    matter: &'a Matter<'a>,
     mut rand: impl Rng + Copy,
     on_off: &'a on_off::OnOffHandler<'a, TestOnOffDeviceLogic, on_off::NoLevelControl>,
     level: &'a level_control::LevelControlHandler<'a, TestLevelControl, level_control::NoOnOff>,
@@ -548,7 +549,7 @@ fn data_model<'a>(
         if icd { NODE_ICD } else if std::env::args().any(|arg|arg=="--thermostat") { NODE_THERMOSTAT } else { NODE },
         CommissioningOrder {
             inner: endpoints::EthSysHandlerBuilder::new()
-                .build(rand)
+                .build(matter, rand)
                 .chain(
                     |e, c| e == 1 && c == desc::DescHandler::CLUSTER.id,
                     Async(desc::DescHandler::new(Dataver::new_rand(&mut rand)).adapt()),
@@ -592,7 +593,7 @@ fn data_model<'a>(
                 .chain(|e, c| e == 0 && c == 49, Async(thread_network))
                 .chain(
                     |e, c| e == 0 && c == LitIcdMgmtHandler::CLUSTER.id,
-                    Async(LitIcdMgmtHandler::new(Dataver::new_rand(&mut rand), lit).adapt()),
+                    Async(LitIcdMgmtHandler::new(Dataver::new_rand(&mut rand), matter, lit).adapt()),
                 ),
             enforce: enforce_region_order,
             armed: Cell::new(false),
@@ -734,7 +735,7 @@ async fn run(
     let mut rand = device_crypto.rand()?;
 
     let device_buffers = DEVICE_BUFFERS.uninit().init_with(MatterBuffers::init());
-    let device_state = DEVICE_STATE.init(InteractionModelState::new(DummyNetworks));
+    let device_state = DEVICE_STATE.init(InteractionModelState::new());
 
     let identify_handler = identify::IdentifyHandler::new(Dataver::new_rand(&mut rand));
     let on_off_handler = on_off::OnOffHandler::new_standalone(
@@ -794,6 +795,7 @@ async fn run(
         &device_crypto,
         device_buffers,
         data_model(
+            device_matter,
             rand,
             &on_off_handler,
             &level_control_handler,
@@ -1214,7 +1216,9 @@ async fn run(
                     );
                     return Err(rs_matter::error::ErrorCode::InvalidData.into());
                 }
-                let icd_deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+                // The manager requests a 30-second active window before the ICD returns to idle.
+
+                let icd_deadline = std::time::Instant::now() + std::time::Duration::from_secs(55);
                 let mut next_registry_check = std::time::Instant::now();
                 let mut next_icd_diagnostic =
                     std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -1259,7 +1263,7 @@ async fn run(
                 })
                 .await;
                 if !check_in_accepted {
-                    eprintln!("ICD fixture did not accept a Check-In within 25 seconds");
+                    eprintln!("ICD fixture did not accept a Check-In within 55 seconds");
                     return Err(rs_matter::error::ErrorCode::RxTimeout.into());
                 }
                 eprintln!("ICD fixture authenticated Check-In accepted; dispatching a CASE read");
@@ -2176,8 +2180,9 @@ async fn run_commissioner<C: Crypto>(
 // Fixture-only rendezvous; external multicast discovery is a separate gate.
 // Node zero selects this run's single synthetic accessory for the owned-task test.
 async fn resolve_fixture(matter: &Matter<'_>, node: u64, sock: SocketAddrV6) -> ! {
+    let responder = matter.transport().mdns_responder();
     loop {
-        let service = matter.transport().wait_mdns_resolve_request().await;
+        let service = responder.wait_resolve_request().await;
         if !matches!(service, MatterRemoteService::Operational { node_id, .. } if node == 0 || node_id == node)
         {
             continue;
@@ -2296,7 +2301,7 @@ async fn commission_owned<C: Crypto>(
     // accessory no longer knows. Attach must discard it before authenticating.
     {
         use rs_matter::transport::session::{ReservedSession, SessionMode};
-        let mut stale = ReservedSession::reserve_now(matter, crypto)?;
+        let mut stale = ReservedSession::reserve_now(matter.transport(), crypto)?;
         stale.update(0, 0, 123, 456, Address::Btp(BtAddr([0xbb; 6])),
             SessionMode::Pase { fab_idx: 0 }, None, None, None, None,
         )?;

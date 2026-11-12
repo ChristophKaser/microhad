@@ -49,7 +49,7 @@ def files(root: Path) -> dict[str, tuple[bytes, int] | str]:
 
 def mailbox_subject(path: Path) -> str:
     message = Parser().parsestr(path.read_text())
-    subject = message.get("Subject", "")
+    subject = " ".join(message.get("Subject", "").split())
     if subject.startswith("[PATCH]"):
         subject = subject[len("[PATCH]"):].strip()
     elif subject.startswith("[PATCH ") and "]" in subject:

@@ -1,9 +1,17 @@
+From 5fb79609de541bc1d1015463e8931616bbcf17f5 Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
+Date: Thu, 12 Nov 2026 21:02:22 +0100
 Subject: [PATCH] rs-matter: capture directional session keys with raw packets
 
---- a/rs-matter/src/transport/session.rs
-+++ b/rs-matter/src/transport/session.rs
-@@ -1134,6 +1134,20 @@
+---
+ rs-matter-transport/src/session.rs | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/rs-matter-transport/src/session.rs b/rs-matter-transport/src/session.rs
+index ac27abce..097413b5 100644
+--- a/rs-matter-transport/src/session.rs
++++ b/rs-matter-transport/src/session.rs
+@@ -1163,6 +1163,20 @@ impl<'a> ReservedSession<'a> {
              session.shared_secret.load(shared_secret);
          }
  
@@ -24,3 +32,6 @@ Subject: [PATCH] rs-matter: capture directional session keys with raw packets
          Ok(())
      }
  
+-- 
+2.43.0
+

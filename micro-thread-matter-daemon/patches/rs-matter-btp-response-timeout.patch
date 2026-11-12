@@ -1,16 +1,17 @@
-From 0475941c1b408719493c5d51fb34886306638c77 Mon Sep 17 00:00:00 2001
+From 6970be925ca71b1dd37e52505157045220eb9bf3 Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Sat, 24 Oct 2026 11:08:51 +0200
-Subject: [PATCH] rs-matter: allow Thread attachment before a BLE command response
+Subject: [PATCH] rs-matter: allow Thread attachment before a BLE command
+ response
 
 ---
- rs-matter/src/transport/session.rs | 5 +++--
+ rs-matter-transport/src/session.rs | 5 +++--
  1 file changed, 3 insertions(+), 2 deletions(-)
 
-diff --git a/rs-matter/src/transport/session.rs b/rs-matter/src/transport/session.rs
-index 124efcc1..2b767223 100644
---- a/rs-matter/src/transport/session.rs
-+++ b/rs-matter/src/transport/session.rs
+diff --git a/rs-matter-transport/src/session.rs b/rs-matter-transport/src/session.rs
+index c12d00a0..ac27abce 100644
+--- a/rs-matter-transport/src/session.rs
++++ b/rs-matter-transport/src/session.rs
 @@ -71,7 +71,8 @@ const TCP_RX_TIMEOUT_MS: u64 = 30_000;
  /// this is a flat upper bound on how long the peer may take to answer: a
  /// commissionee answers `ConnectNetwork` only once it has tried to join, and the
@@ -19,9 +20,9 @@ index 124efcc1..2b767223 100644
 +// Allow Thread parent discovery independently of BTP transport acknowledgements.
 +const BTP_RX_TIMEOUT_MS: u64 = 60_000;
  
- pub const MAX_CAT_IDS_PER_NOC: usize = 3;
- pub type NocCatIds = [u32; MAX_CAT_IDS_PER_NOC];
-@@ -2455,7 +2456,7 @@ mod tests {
+ pub const ATT_CHALLENGE_LEN: usize = 16;
+ 
+@@ -2453,7 +2454,7 @@ mod tests {
          );
          assert_eq!(
              session(Address::Btp(BtAddr([0; 6]))).rx_timeout_ms(300),

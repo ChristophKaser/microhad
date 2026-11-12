@@ -1,5 +1,5 @@
 {
-  "source_revision": "1570356ecb938a9d19be032b93ca3bb487069e75",
+  "source_revision": "b7ddead87ded213bd870dc39a89891ff5f820503",
   "rust_toolchain": "nightly-2026-10-02",
   "platform": "development host",
   "device_attestation_verified": false,
@@ -19,7 +19,7 @@
       "exit_code": 0,
       "passed": 5,
       "failed": 0,
-      "elapsed_seconds": 1.16
+      "elapsed_seconds": 1.36
     },
     {
       "name": "pase",
@@ -31,9 +31,9 @@
     {
       "name": "case",
       "exit_code": 0,
-      "passed": 2,
+      "passed": 4,
       "failed": 0,
-      "elapsed_seconds": 0.98
+      "elapsed_seconds": 2.11
     },
     {
       "name": "attestation_components",
@@ -43,8 +43,5 @@
       "elapsed_seconds": 0.0
     }
   ],
-  "network_failure_responses_tested": true,
-  "date": "2026-10-03",
-  "total_passed": 40,
-  "gateway_library_mips_build_passed": true
+  "network_failure_responses_tested": true
 }

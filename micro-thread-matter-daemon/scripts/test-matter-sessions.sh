@@ -5,10 +5,11 @@ cd -P -- "$(dirname -- "$0")/../.."
 bash micro-thread-matter-daemon/scripts/fetch-rs-matter.sh
 source scripts/rust-env.sh
 export CARGO_TARGET_DIR="$PWD/build/micro-thread-matter-daemon/controller-target"
+cp micro-thread-matter-daemon/service-tests.lock build/micro-thread-matter-daemon/service-source/Cargo.lock
 library=(cargo +"$RUST_TOOLCHAIN" test --locked --release
     --manifest-path build/micro-thread-matter-daemon/service-source/Cargo.toml
     -p rs-matter --no-default-features --features 'os rustcrypto log max-sessions-64')
-"${library[@]}" --lib transport::session::tests -- --nocapture
+cargo +"$RUST_TOOLCHAIN" test --locked --release --manifest-path build/micro-thread-matter-daemon/service-source/Cargo.toml -p rs-matter-transport --lib session::tests -- --nocapture
 "${library[@]}" --test sessions --test case --test mrp
 export CARGO_TARGET_DIR="$PWD/build/micro-thread-matter-daemon/target"
 cargo +"$RUST_TOOLCHAIN" test --locked --release \

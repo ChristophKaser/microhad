@@ -1,4 +1,5 @@
 //! Production commissioning owner. The phone only carries opaque GATT data.
+use rs_matter::sc::ExchangeInitiator as _;
 use crate::{
     ble::BleRelay,
     catalog::Catalog,
@@ -471,7 +472,7 @@ mod tests {
     }
     fn seed_pase<C: Crypto>(matter: &Matter<'_>, crypto: &C, address: BtAddr) -> u32 {
         use rs_matter::transport::session::{ReservedSession, SessionMode};
-        let mut reserved = ReservedSession::reserve_now(matter, crypto).unwrap();
+        let mut reserved = ReservedSession::reserve_now(matter.transport(), crypto).unwrap();
         reserved
             .update(
                 0,

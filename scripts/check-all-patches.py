@@ -48,7 +48,6 @@ ZIGGURAT_MULTI = [
     "ziggurat-logging-priority.patch",
 ]
 RS_MATTER_SERVICE = [
-    "rs-matter-spake2p.patch",
     "rs-matter-peer-identity.patch",
     "rs-matter-attribute-notify.patch",
     "rs-matter-icd-capture.patch",

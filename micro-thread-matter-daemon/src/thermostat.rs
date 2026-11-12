@@ -1,4 +1,5 @@
 //! Standard thermostat adapter. Field identifiers and scalar limits are shared with native code.
+use rs_matter::sc::ExchangeInitiator as _;
 use crate::{
     control::Id,
     operations::{ResultValue, Value},
@@ -7,7 +8,7 @@ use core::num::NonZeroU8;
 use rs_matter::{
     crypto::Crypto,
     error::{Error, ErrorCode},
-    im::{client::ImClient, AttrDataTag, AttrPath, CmdDataTag},
+    im::{ImClient, AttrDataTag, AttrPath, CmdDataTag},
     tlv::{TLVArray, TLVElement, TLVTag, TLVWrite},
     transport::exchange::Exchange,
     Matter,

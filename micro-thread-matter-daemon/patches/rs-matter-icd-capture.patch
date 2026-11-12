@@ -1,29 +1,42 @@
-From 1992136389a1a7579ce7ab697c76066cc30881be Mon Sep 17 00:00:00 2001
+From e2dce8241c301980975719f1ecc9b3d208276e4d Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Wed, 7 Oct 2026 16:04:51 +0200
 Subject: [PATCH] rs-matter: expose ICD check-in capture
 
 ---
- rs-matter/src/lib.rs                | 90 +++++++++++++++++++++++++++++
- rs-matter/src/respond.rs            | 10 +++-
- rs-matter/src/transport/exchange.rs | 17 ++++++
- 3 files changed, 114 insertions(+), 3 deletions(-)
+ rs-matter-node/Cargo.toml           |  1 +
+ rs-matter-node/src/lib.rs           | 68 +++++++++++++++++++++++++++++
+ rs-matter-respond/src/lib.rs        |  6 +--
+ rs-matter-transport/src/exchange.rs | 17 ++++++++
+ 4 files changed, 89 insertions(+), 3 deletions(-)
 
-diff --git a/rs-matter/src/lib.rs b/rs-matter/src/lib.rs
-index 4b14ee41..60ec6618 100644
---- a/rs-matter/src/lib.rs
-+++ b/rs-matter/src/lib.rs
-@@ -73,6 +73,7 @@ use crate::utils::init::{init, Init};
- use crate::utils::storage::pooled::Buffers;
- use crate::utils::storage::WriteBuf;
- use crate::utils::sync::blocking::Mutex;
-+use heapless::Deque;
+diff --git a/rs-matter-node/Cargo.toml b/rs-matter-node/Cargo.toml
+index 814a724c..0a71219b 100644
+--- a/rs-matter-node/Cargo.toml
++++ b/rs-matter-node/Cargo.toml
+@@ -28,6 +28,7 @@ defmt = ["dep:defmt", "rs-matter-utils/defmt", "rs-matter-tlv/defmt", "rs-matter
+ log = ["dep:log", "rs-matter-utils/log", "rs-matter-tlv/log", "rs-matter-crypto/log", "rs-matter-cert/log", "rs-matter-pairing/log", "rs-matter-im-core/log", "rs-matter-dm-core/log", "rs-matter-node-core/log", "rs-matter-transport/log", "rs-matter-sc/log"]
+ 
+ [dependencies]
++heapless = { workspace = true }
+ rs-matter-utils = { workspace = true }
+ rs-matter-tlv = { workspace = true }
+ rs-matter-crypto = { workspace = true }
+diff --git a/rs-matter-node/src/lib.rs b/rs-matter-node/src/lib.rs
+index 064ee963..f4e5ae89 100644
+--- a/rs-matter-node/src/lib.rs
++++ b/rs-matter-node/src/lib.rs
+@@ -37,6 +37,7 @@ use core::cell::UnsafeCell;
+ use core::num::NonZeroU8;
  
  use rand_core::Rng;
++use heapless::Deque;
  
-@@ -137,6 +138,28 @@ macro_rules! alloc {
- /// The Matter UDP port
- pub const MATTER_PORT: u16 = 5540;
+ use crate::attest::DeviceAttestation;
+ use crate::basic_info::{
+@@ -123,6 +124,28 @@ pub enum BootReason {
+     SoftwareReset = 6,
+ }
  
 +/// Maximum encrypted ICD Check-In payload retained before the controller loop
 +/// consumes it.
@@ -47,19 +60,18 @@ index 4b14ee41..60ec6618 100644
 +    }
 +}
 +
- /// Device basic commissioning data
- #[derive(Debug, Clone)]
- #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-@@ -162,6 +185,8 @@ pub struct Matter<'a> {
+ /// The primary Matter Object
+ // `repr(C)` pins the field order. The transport's fields are accessed one by
+ // one all over the hot paths, so it comes first: on targets like Thumb only the
+@@ -137,6 +160,7 @@ pub struct Matter<'a> {
      dev_att: &'a dyn DeviceAttestation,
      /// The internal state of the Matter Object, protected by a mutex for concurrent access from different threads and async tasks.
-     state: Mutex<RefCell<MatterState>>,
-+    /// Bounded handoff of encrypted Check-In payloads to the controller.
+     state: LockedBySessions<NodeState>,
 +    icd_check_ins: Mutex<RefCell<Deque<IcdCheckIn, MAX_PENDING_ICD_CHECK_INS>>>,
      /// The basic information configuration for this Matter device
      dev_det: &'a BasicInfoConfig<'a>,
      /// The scratch buffer used by the key-value persistence machinery for
-@@ -183,6 +208,22 @@ pub struct Matter<'a> {
+@@ -160,6 +184,23 @@ pub struct Matter<'a> {
  }
  
  impl<'a> Matter<'a> {
@@ -79,37 +91,38 @@ index 4b14ee41..60ec6618 100644
 +        });
 +    }
 +
++
      /// Create a new Matter object.
      ///
      /// # Parameters
-@@ -201,6 +242,7 @@ impl<'a> Matter<'a> {
+@@ -178,6 +219,7 @@ impl<'a> Matter<'a> {
          port: u16,
      ) -> Self {
          Self {
 +            icd_check_ins: Mutex::new(RefCell::new(Deque::new())),
-             state: Mutex::new(RefCell::new(MatterState::new())),
-             transport: Transport::new(),
+             state: LockedBySessions::new(NodeState::new()),
+             transport: Transport::new(dev_det.sai),
              dev_det,
-@@ -235,6 +277,7 @@ impl<'a> Matter<'a> {
+@@ -213,6 +255,7 @@ impl<'a> Matter<'a> {
          {
              init!(
                  Self {
 +                    icd_check_ins <- Mutex::init(RefCell::init(Deque::new())),
-                     state <- Mutex::init(RefCell::init(MatterState::init())),
-                     transport <- Transport::init(),
+                     state <- LockedBySessions::init(NodeState::init()),
+                     transport <- Transport::init(dev_det.sai),
                      dev_det,
-@@ -251,6 +294,7 @@ impl<'a> Matter<'a> {
+@@ -230,6 +273,7 @@ impl<'a> Matter<'a> {
          {
              init!(
                  Self {
 +                    icd_check_ins <- Mutex::init(RefCell::init(Deque::new())),
-                     state <- Mutex::init(RefCell::init(MatterState::init())),
-                     transport <- Transport::init(),
+                     state <- LockedBySessions::init(NodeState::init()),
+                     transport <- Transport::init(dev_det.sai),
                      dev_det,
-@@ -1165,6 +1209,30 @@ impl<'a> Matter<'a> {
- /// The internal state of the Matter Object
- ///
- /// Public for unit tests.
+@@ -1198,6 +1242,30 @@ impl GroupMembership for Matter<'_> {
+     }
+ }
+ 
 +impl crate::sc::AsyncScHandler for Matter<'_> {
 +    async fn check_in(
 +        &self,
@@ -134,79 +147,46 @@ index 4b14ee41..60ec6618 100644
 +    }
 +}
 +
- pub struct MatterState {
-     /// All fabrics
-     pub fabrics: Fabrics,
-@@ -1262,6 +1330,28 @@ pub mod test {
-     use crate::utils::storage::WriteBuf;
-     use crate::Matter;
- 
-+    #[test]
-+    fn icd_check_in_handoff_is_bounded_and_keeps_newest_messages() {
-+        let matter = test_matter();
-+        for node in 0..=super::MAX_PENDING_ICD_CHECK_INS as u64 {
-+            let mut payload = [0; super::MAX_ICD_CHECK_IN_BYTES];
-+            payload[0] = node as u8;
-+            matter.queue_icd_check_in(super::IcdCheckIn {
-+                fabric: 1,
-+                node,
-+                payload,
-+                len: 1,
-+            });
-+        }
-+        for expected_node in 1..=super::MAX_PENDING_ICD_CHECK_INS as u64 {
-+            let check_in = matter.pop_icd_check_in().unwrap();
-+            assert_eq!(check_in.fabric, 1);
-+            assert_eq!(check_in.node, expected_node);
-+            assert_eq!(check_in.payload(), &[expected_node as u8]);
-+        }
-+        assert!(matter.pop_icd_check_in().is_none());
-+    }
-+
-     pub fn test_matter() -> Matter<'static> {
-         Matter::new(
-             &crate::dm::devices::test::TEST_DEV_DET,
-diff --git a/rs-matter/src/respond.rs b/rs-matter/src/respond.rs
-index 2351d9ba..0b5d2651 100644
---- a/rs-matter/src/respond.rs
-+++ b/rs-matter/src/respond.rs
-@@ -282,7 +282,7 @@ pub type DefaultExchangeHandler<
+ impl ScHost for Matter<'_> {
+     fn with_sc_state<F, R>(&self, f: F) -> R
+     where
+diff --git a/rs-matter-respond/src/lib.rs b/rs-matter-respond/src/lib.rs
+index 58831e47..eb76d4ea 100644
+--- a/rs-matter-respond/src/lib.rs
++++ b/rs-matter-respond/src/lib.rs
+@@ -337,7 +337,7 @@ pub type DefaultExchangeHandler<
      const NE: usize = DEFAULT_MAX_EVENTS_BUF_SIZE,
  > = ChainedExchangeHandler<
-     &'d InteractionModel<'a, C, B, T, K, N, NC, R, NS, NE>,
--    SecureChannel<'d, &'d C>,
-+    SecureChannel<'d, &'d C, &'d Matter<'a>>,
+     &'d InteractionModel<'a, C, B, T, K, R, NS, NE>,
+-    SecureChannel<'a, Matter<'a>, &'d C, &'d InteractionModel<'a, C, B, T, K, R, NS, NE>>,
++    SecureChannel<'a, Matter<'a>, &'d C, &'d InteractionModel<'a, C, B, T, K, R, NS, NE>, &'a Matter<'a>>,
  >;
  
- impl<'d, 'a, C, B, T, K, N, NC, R, const NS: usize, const NE: usize>
-@@ -308,7 +308,11 @@ where
+ impl<'d, 'a, C, B, T, K, R, const NS: usize, const NE: usize>
+@@ -360,7 +360,7 @@ where
              ChainedExchangeHandler::new(
                  PROTO_ID_INTERACTION_MODEL,
                  data_model,
--                SecureChannel::new(data_model.crypto(), data_model),
-+                SecureChannel::new_with_handler(
-+                    data_model.crypto(),
-+                    data_model,
-+                    data_model.matter(),
-+                ),
+-                SecureChannel::new(data_model.matter(), data_model.crypto(), data_model),
++                SecureChannel::new_with_handler(data_model.matter(), data_model.crypto(), data_model, data_model.matter()),
              ),
              data_model.matter(),
              0,
-@@ -398,7 +402,7 @@ where
+@@ -447,7 +447,7 @@ where
          'a,
          ChainedExchangeHandler<
-             &'d InteractionModel<'a, C, B, T, K, N, NC, R, NS, NE>,
--            SecureChannel<'d, &'d C>,
-+            SecureChannel<'d, &'d C, &'d Matter<'a>>,
+             &'d InteractionModel<'a, C, B, T, K, R, NS, NE>,
+-            SecureChannel<'a, Matter<'a>, &'d C, &'d InteractionModel<'a, C, B, T, K, R, NS, NE>>,
++            SecureChannel<'a, Matter<'a>, &'d C, &'d InteractionModel<'a, C, B, T, K, R, NS, NE>, &'a Matter<'a>>,
          >,
      > {
          &self.responder
-diff --git a/rs-matter/src/transport/exchange.rs b/rs-matter/src/transport/exchange.rs
-index 02a912df..42fca9bf 100644
---- a/rs-matter/src/transport/exchange.rs
-+++ b/rs-matter/src/transport/exchange.rs
-@@ -1305,6 +1305,23 @@ impl<'a> Exchange<'a> {
-         Self::accept_after(matter, 0).await
+diff --git a/rs-matter-transport/src/exchange.rs b/rs-matter-transport/src/exchange.rs
+index 770c3b70..8933c408 100644
+--- a/rs-matter-transport/src/exchange.rs
++++ b/rs-matter-transport/src/exchange.rs
+@@ -1237,6 +1237,23 @@ impl<'a> Exchange<'a> {
+         Self::accept_after(transport, 0).await
      }
  
 +    /// Accept only an exchange whose encrypted Matter protocol header matches

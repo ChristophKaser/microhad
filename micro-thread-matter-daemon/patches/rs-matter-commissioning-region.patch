@@ -1,28 +1,26 @@
-From 9f14e649064a3c6bd5404d1be76da30dcac7ee71 Mon Sep 17 00:00:00 2001
+From afc50612dbe7dc847f6681a0e5186668b63ed907 Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Thu, 8 Oct 2026 09:19:28 +0200
 Subject: [PATCH] rs-matter: configure regulatory region before credentials
 
 ---
- rs-matter/src/onboard.rs | 34 +++++++++++++++++++++++++++++++++-
- 1 file changed, 33 insertions(+), 1 deletion(-)
+ rs-matter-onboard/src/lib.rs | 32 +++++++++++++++++++++++++++++++-
+ 1 file changed, 31 insertions(+), 1 deletion(-)
 
-diff --git a/rs-matter/src/onboard.rs b/rs-matter/src/onboard.rs
-index f1a5a79b..3e39406c 100644
---- a/rs-matter/src/onboard.rs
-+++ b/rs-matter/src/onboard.rs
-@@ -62,7 +62,9 @@ use core::num::NonZeroU8;
- 
- use crate::cert::gen::Validity;
- use crate::crypto::{Crypto, Rng, AEAD_CANON_KEY_LEN};
--use crate::dm::clusters::gen_comm::{CommissioningErrorEnum, GeneralCommissioningClient};
-+use crate::dm::clusters::gen_comm::{
+diff --git a/rs-matter-onboard/src/lib.rs b/rs-matter-onboard/src/lib.rs
+index f13d491d..ac247ba7 100644
+--- a/rs-matter-onboard/src/lib.rs
++++ b/rs-matter-onboard/src/lib.rs
+@@ -79,7 +79,7 @@ use crate::transport::exchange::Exchange;
+ use crate::transport::network::Address;
+ use crate::transport::TransportPreference;
+ use rs_matter_dm_clusters::general_commissioning::{
+-    CommissioningErrorEnum, GeneralCommissioningClient,
 +    CommissioningErrorEnum, GeneralCommissioningClient, RegulatoryLocationTypeEnum,
-+};
- use crate::dm::clusters::noc::{NodeOperationalCertStatusEnum, OperationalCredentialsClient};
- use crate::dm::endpoints::ROOT_ENDPOINT_ID;
- use crate::dm::NodeId;
-@@ -84,6 +86,13 @@ pub mod noc;
+ };
+ use rs_matter_dm_clusters::operational_credentials::{
+     NodeOperationalCertStatusEnum, OperationalCredentialsClient,
+@@ -111,6 +111,13 @@ pub mod noc;
  const NOCSR_TAG_CSR: u8 = 1;
  const NOCSR_TAG_NONCE: u8 = 2;
  
@@ -36,7 +34,7 @@ index f1a5a79b..3e39406c 100644
  /// Knobs for [`Commissioner::commission`].
  ///
  /// Per-device material (NodeID, validity) is passed as separate
-@@ -96,6 +105,8 @@ pub struct CommissionOptions {
+@@ -123,6 +130,8 @@ pub struct CommissionOptions {
      /// flow must complete before this expires, otherwise the device
      /// rolls back any partial state.
      pub fail_safe_secs: u16,
@@ -45,7 +43,7 @@ index f1a5a79b..3e39406c 100644
      /// Skip Device Attestation verification.
      ///
      /// Real DCL fetch + cert-chain validation is deferred to a follow-up.
-@@ -110,6 +121,7 @@ impl CommissionOptions {
+@@ -137,6 +146,7 @@ impl CommissionOptions {
      pub const fn new() -> Self {
          Self {
              fail_safe_secs: 60,
@@ -53,7 +51,7 @@ index f1a5a79b..3e39406c 100644
              allow_test_attestation: false,
          }
      }
-@@ -396,6 +408,26 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
+@@ -424,6 +434,26 @@ impl<'a, 'b, C: Crypto> Commissioner<'a, 'b, C> {
          // `initiate_pase` unless there is one already; the rest reuse it.
          self.arm_fail_safe(peer_addr, passcode, opts.fail_safe_secs)
              .await?;
