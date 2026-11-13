@@ -679,7 +679,7 @@ Authors: Zac Berkowitz <zac.berkowitz@gmail.com>
 License: MIT
   LICENSE: text 8f2bbb94aa3bbabc6c8c6680447fbdc99b636497e078845a168d5097a88bd454
 
-nanopb 0.4.9.1
+nanopb 0.4.9.2
 Authors: Petteri Aimonen and nanopb contributors
 License: Zlib
   LICENSE.txt: text e2f2fc8fe3faa7dcb09dbe995db48c6ec5c1f72705db915101e4a83fed44f66d

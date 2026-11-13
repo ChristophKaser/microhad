@@ -109,7 +109,7 @@ class Notices(unittest.TestCase):
                  patch.object(notices, 'authors', return_value=['Alice']):
                 records = notices.collect_gateway()
             self.assertEqual([r['name'] for r in records], [
-                'acetimec (restricted TZDB 2025b)', 'nanopb 0.4.9.1', 'runtime 1.0.0'])
+                'acetimec (restricted TZDB 2025b)', 'nanopb 0.4.9.2', 'runtime 1.0.0'])
             self.assertEqual(records[-1]['texts'], [('LICENSE', 'Copyright Alice')])
             self.assertEqual(records[0]['revision'], 'pinned-acetime')
 

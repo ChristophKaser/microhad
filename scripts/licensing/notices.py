@@ -150,7 +150,7 @@ def authors(package, name):
 
 def collect_gateway():
     selected_packages = production_packages()
-    records = [{'name': 'nanopb 0.4.9.1', 'revision': 'cad3c18ef15a663e30e3e43e3a752b66378adec1', 'license': 'Zlib', 'authors': ['Petteri Aimonen and nanopb contributors'], 'texts': texts(ROOT / 'third-party/nanopb')}]
+    records = [{'name': 'nanopb 0.4.9.2', 'revision': '160d4f09e5fabb2b66aa2dea32d4f38ace2c4b3f', 'license': 'Zlib', 'authors': ['Petteri Aimonen and nanopb contributors'], 'texts': texts(ROOT / 'third-party/nanopb')}]
     acetime = ROOT / 'third-party/acetimec'
     pin = json.loads((acetime / 'UPSTREAM.json').read_text())
     records.append({'name': 'acetimec (restricted TZDB ' + pin['tzdb'] + ')',

@@ -53,7 +53,7 @@ Deploy native and Matter services together when adding this event.
 ## Bindings and builds
 
 The native implementation uses generated owned C++03 message structs with
-direct, numeric-tag nanopb 0.4.9.1 codecs. Optional fields have explicit presence;
+direct, numeric-tag nanopb 0.4.9.2 codecs. Optional fields have explicit presence;
 decoding checks duplicates with those presence flags. There is no generic
 value tree or JSON detour in IPC. Nanopb primitives are compiled as C99 with the
 legacy static-assert option.

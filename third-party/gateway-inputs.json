@@ -34,7 +34,7 @@
     "patches/getrandom-0.4.3.patch": "12ad4c2e1f639ade672d1588503d295a4fc0add097c8ba124b924eefef65bcab",
     "patches/nix-0.26.4.patch": "d6a9b186442ab23daeb203d255ffb7db0be68aab09168ad4f332f449b6d69e57",
     "patches/radium-0.7.0.patch": "ef497a3f87cd43ed9a0863b21fbfcb0052a3b5a224d5eef467323cc786301acc",
-    "scripts/licensing/notices.py": "05258078a5851568f8b555a63dfb0ae83ddb8bc8f5e636bb5908c94cb0192549",
+    "scripts/licensing/notices.py": "5cf6ff7c37926511680398acc9885610356036bdd70a65a45711464653bd6814",
     "scripts/rust-env.sh": "9e0ab301248766f8420fa4faa60e6374b45f99623c95123a0a5235a6f148e326",
     "third-party/acetimec/LICENSE": "ab35429789e9b7a670a967bdf5896ea87fa9d7f2932ce1a7d555d62da127e140",
     "third-party/acetimec/LICENSE.iana": "0613408568889f5739e5ae252b722a2659c02002839ad970a63dc5e9174b27cf",
@@ -45,14 +45,14 @@
     "third-party/acetimec/zone_table.h": "27859c6aec7b378f6fd33e18baba775b39e88d6313b6f3b49638e187279c960d",
     "third-party/acetimec/zones.c": "d939f9c41aabd6fc84cb70a2ff714490978ef65ab8221da266dfa0c45bc469d5",
     "third-party/authors.json": "62ca4111839fe4391824950beda8f2d84cde2efa678b38bc23a2c7a4ee692207",
-    "third-party/nanopb": "cad3c18ef15a663e30e3e43e3a752b66378adec1",
+    "third-party/nanopb": "160d4f09e5fabb2b66aa2dea32d4f38ace2c4b3f",
     "third-party/nanopb/LICENSE.txt": "e2f2fc8fe3faa7dcb09dbe995db48c6ec5c1f72705db915101e4a83fed44f66d",
-    "third-party/nanopb/pb.h": "a2ecdca9fdaeef5f4972ed983540c0d6fb0a5c402a2e0b0349d7e1bc5e188d29",
+    "third-party/nanopb/pb.h": "e0db84a27e0d41a2d2d347b8c879e30ceb856d36dc192cce0f1124f833c67bc2",
     "third-party/nanopb/pb_common.c": "8d2ec28baaaf2b7a5e90e4cb2fa9700d21cef7f826f051a637c30b7a1e6a0516",
     "third-party/nanopb/pb_common.h": "6495a691aca68d6973f2274b5dd54b74fbb57f6b019c45fff255a857fe1abcfd",
-    "third-party/nanopb/pb_decode.c": "6c2fc2f357bffdb774c1d329b533e981498d58405c0b1ef066f5a87fd46b5a17",
-    "third-party/nanopb/pb_decode.h": "1747746e5961de5789bcf0795588da0790cd18b2e4e706ad9c7099a0fa1cc83f",
-    "third-party/nanopb/pb_encode.c": "d8dff2a1acc58683095a41b0dc3103ba46248e4a8d8c4e20f5810be04127b650",
+    "third-party/nanopb/pb_decode.c": "f5b425beaa207251e531c8ce2c86c9b6867e2920ed59cc1b125332af0c147632",
+    "third-party/nanopb/pb_decode.h": "fcac5f7680fe6e870157e4bcf34d5162bdd4fff0d7db3cad1122f2ad24a6da87",
+    "third-party/nanopb/pb_encode.c": "debb0714dff8d1515b9724eae45531cad912f12028a0311fc3e2c694689e1fed",
     "third-party/nanopb/pb_encode.h": "9aa00fee4ff08adf0da16e33a55be08810ea657800a648dc78f82e89c60c10cf",
     "third-party/supplements.json": "674e14471d141d14472b36444cc1c6fb09dbf9b58066c71d0618e4992d150457",
     "ziggurat/dependencies/ziggurat": "08f89eafa0cb5606aa2d49e7f7c9b72da2695aaa",
@@ -83,6 +83,6 @@
     "ziggurat/scripts/build.sh": "b2afa3ad3e9e2170c8b1ba475561843573186c88b9c0af92b86c8594e7cdef3a",
     "ziggurat/stock-uclibc-compat/Cargo.toml": "10d8809501704a473e93541ee4cbaa922eafc1a79b4ee0f9f3445f5a7361fdc1"
   },
-  "records_sha256": "be508139eae7a3f186e918814d9465d0011525ec436bf2a40e2a25aeb5cc401a",
-  "sha256": "2f16e7a2d3ed954e76691ae8d94cb463bf56e750ed47b51202d637212dc811aa"
+  "records_sha256": "6822ef5d11b2cf534fbeb375a12b5482f3a8f103aae46bfa69933f536f4cd22f",
+  "sha256": "dbd9b627400d57391d7690b6eba3cbbdeba2526b958180742e00c71ad936086a"
 }
