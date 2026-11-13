@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory(prefix='radio-timing-') as directory:
     subprocess.run(['cc','-shared','-fPIC','-Wall','-Wextra','-Werror',
         str(ROOT/'micro-thread-matter-daemon/tests/helpers/syslog-capture.c'),'-o',str(shim)],check=True)
     env = dict(os.environ, LD_PRELOAD=str(shim), MATTER_SYSLOG_CAPTURE=str(capture))
-    subprocess.run(['python3',str(ROOT/'ziggurat/scripts/test-hdlc-multipan.py'),'--debug-packets'],
+    subprocess.run(['python3',str(ROOT/'ziggurat/scripts/test-hdlc-multipan.py'),'--cobs-unix','--debug-packets'],
                    env=env,cwd=ROOT,check=True,timeout=90)
     text = capture.read_text()
     for direction in ('RX','TX'):

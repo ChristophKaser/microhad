@@ -21,7 +21,7 @@ def patch_path(name: str) -> Path:
 ZIGGURAT = ROOT / "ziggurat/dependencies/ziggurat"
 RS_MATTER = ROOT / "micro-thread-matter-daemon/dependencies/rs-matter"
 
-ZIGGURAT_COMMON = ["ziggurat-stock-compat.patch", "ziggurat-syslog.patch", "ziggurat-syslog-fragments.patch", "ziggurat-async-syslog.patch", "ziggurat-key-rng-readiness.patch", "ziggurat-lean-gateway.patch", "ziggurat-fresh-join-notification.patch", "ziggurat-neighbor-recovery.patch", "ziggurat-route-diagnostics.patch", "ziggurat-router-child-expiry.patch", "ziggurat-logging-priority.patch"]
+ZIGGURAT_COMMON = ["ziggurat-stock-compat.patch", "ziggurat-syslog.patch", "ziggurat-syslog-fragments.patch", "ziggurat-async-syslog.patch", "ziggurat-key-rng-readiness.patch", "ziggurat-lean-gateway.patch", "ziggurat-fresh-join-notification.patch", "ziggurat-neighbor-recovery.patch", "ziggurat-route-diagnostics.patch", "ziggurat-router-child-expiry.patch", "ziggurat-logging-priority.patch", "ziggurat-upstream-head-tests.patch"]
 ZIGGURAT_MULTI_COMMON = [
     "ziggurat-multipan-stock-compat.patch",
     "ziggurat-multipan-syslog.patch",
@@ -46,6 +46,7 @@ ZIGGURAT_MULTI = [
     "ziggurat-route-diagnostics.patch",
     "ziggurat-router-child-expiry.patch",
     "ziggurat-logging-priority.patch",
+    "ziggurat-upstream-head-tests.patch",
 ]
 RS_MATTER_SERVICE = [
     "rs-matter-peer-identity.patch",

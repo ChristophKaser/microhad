@@ -4,7 +4,6 @@ import argparse
 import importlib.util
 import os
 from pathlib import Path
-import socket
 import subprocess
 import tempfile
 import time
@@ -44,14 +43,11 @@ def run(binary, syslog_shim, enabled, response):
     radio = Radio(response)
     with tempfile.TemporaryDirectory(prefix="radio-trace-") as directory:
         log_path = Path(directory) / "server.log"
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            api_port = probe.getsockname()[1]
         with log_path.open("w") as log:
             process = subprocess.Popen([
                 str(binary), "--device", f"tcp://{radio.address}:{radio.port}",
                 "--spinel-iid", "1", "--thread-socket", str(Path(directory) / "thread.sock"),
-                "--listen", f"127.0.0.1:{api_port}", "--log-level", "info",
+                "--api", "cobs-unix", "--listen", f"unix:{directory}/api.sock", "--log-level", "info",
             ], stdout=log, stderr=subprocess.STDOUT,
                 env={**os.environ, "LD_PRELOAD": str(syslog_shim), "RUST_LOG": "info", "MATTER_RADIO_TRACE": "on" if enabled else "off"})
             try:

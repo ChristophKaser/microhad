@@ -1,0 +1,147 @@
+From 82fc00e72f26fd646ddff2ccbdaa99fe92e1c3f3 Mon Sep 17 00:00:00 2001
+From: Patch Rebase <patch-rebase@localhost>
+Date: Fri, 13 Nov 2026 10:24:36 +0100
+Subject: [PATCH] Test recovery and adapt routing diagnostics to upstream
+
+---
+ .../src/zigbee_stack/joining.rs               |  4 +--
+ .../src/zigbee_stack/neighbor.rs              | 19 ++++++++++++++
+ crates/ziggurat-zigbee/src/nwk/routing.rs     |  1 +
+ .../ziggurat-zigbee/src/nwk/routing/tests.rs  | 26 +++++++++++++++----
+ 4 files changed, 43 insertions(+), 7 deletions(-)
+
+diff --git a/crates/ziggurat-driver/src/zigbee_stack/joining.rs b/crates/ziggurat-driver/src/zigbee_stack/joining.rs
+index c732024..ceab2dc 100644
+--- a/crates/ziggurat-driver/src/zigbee_stack/joining.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack/joining.rs
+@@ -1006,7 +1006,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+                     nwk: update.device_short_address,
+                     ieee: update.device_address,
+                     parent: router_nwk,
+-                    fresh_join: false,
++                    fresh_join: true,
+                     // Learned via the router's Update-Device, which carries no capability
+                     device_type: None,
+                     rx_on_when_idle: true,
+@@ -1031,7 +1031,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+                     nwk: update.device_short_address,
+                     ieee: update.device_address,
+                     parent: router_nwk,
+-                    fresh_join: true,
++                    fresh_join: false,
+                     // Learned via the router's Update-Device, which carries no capability
+                     device_type: None,
+                     rx_on_when_idle: true,
+diff --git a/crates/ziggurat-driver/src/zigbee_stack/neighbor.rs b/crates/ziggurat-driver/src/zigbee_stack/neighbor.rs
+index 7624777..7cd224c 100644
+--- a/crates/ziggurat-driver/src/zigbee_stack/neighbor.rs
++++ b/crates/ziggurat-driver/src/zigbee_stack/neighbor.rs
+@@ -24,6 +24,25 @@ pub(crate) struct LinkRecovery {
+     last_sent: Option<Instant>,
+ }
+ 
++#[cfg(test)]
++mod link_recovery_tests {
++    use super::*;
++
++    #[test]
++    fn replies_are_coalesced_and_rate_limited() {
++        let mut recovery = LinkRecovery::default();
++        let start = Instant::from_micros(0);
++        let period = Duration::from_secs(15);
++        assert!(recovery.schedule(start, Duration::from_secs(1), period));
++        assert!(!recovery.schedule(start, Duration::from_secs(2), period));
++        assert!(!recovery.take_due(start));
++        assert!(recovery.take_due(start + Duration::from_secs(1)));
++        assert!(recovery.schedule(start + Duration::from_secs(2), Duration::from_secs(1), period));
++        assert!(!recovery.take_due(start + Duration::from_secs(15)));
++        assert!(recovery.take_due(start + Duration::from_secs(16)));
++    }
++}
++
+ impl LinkRecovery {
+     fn schedule(&mut self, now: Instant, jitter: Duration, period: Duration) -> bool {
+         if self.due.is_some() { return false; }
+diff --git a/crates/ziggurat-zigbee/src/nwk/routing.rs b/crates/ziggurat-zigbee/src/nwk/routing.rs
+index adb62c7..23703da 100644
+--- a/crates/ziggurat-zigbee/src/nwk/routing.rs
++++ b/crates/ziggurat-zigbee/src/nwk/routing.rs
+@@ -459,6 +459,7 @@ impl Routing {
+         self.route_table.remove(&nwk);
+         self.route_record_table.remove(&nwk);
+         self.discoveries_left.remove(&nwk);
++        self.recovery_retried.remove(&nwk);
+ 
+         // Only our own discoveries toward it are dropped. Discoveries we relay stay
+         // until they expire: they are the only duplicate check for late copies of
+diff --git a/crates/ziggurat-zigbee/src/nwk/routing/tests.rs b/crates/ziggurat-zigbee/src/nwk/routing/tests.rs
+index 4e34080..3224380 100644
+--- a/crates/ziggurat-zigbee/src/nwk/routing/tests.rs
++++ b/crates/ziggurat-zigbee/src/nwk/routing/tests.rs
+@@ -431,7 +431,7 @@ fn test_frame_after_an_answered_discovery_starts_a_new_one() {
+ 
+     assert_eq!(tick(&mut routing, START, false), DiscoveryTick::default());
+ 
+-    routing.invalidate_via(NEIGHBOR);
++    routing.invalidate_via(NEIGHBOR, "test");
+     assert!(want(&mut routing, START, 1));
+ }
+ 
+@@ -442,7 +442,7 @@ fn test_relayed_discovery_does_not_revive_our_answered_one() {
+     let mut routing = Routing::default();
+     answered_discovery(&mut routing, 1);
+     assert_eq!(tick(&mut routing, START, false), DiscoveryTick::default());
+-    routing.invalidate_via(NEIGHBOR);
++    routing.invalidate_via(NEIGHBOR, "test");
+ 
+     let request = RouteRequest {
+         originator: ROUTER,
+@@ -471,7 +471,7 @@ fn test_reply_with_the_highest_path_cost_answers_the_discovery() {
+     assert_eq!(reply.disposition, RouteReplyDisposition::Established);
+     assert_eq!(tick(&mut routing, START, false), DiscoveryTick::default());
+ 
+-    routing.invalidate_via(NEIGHBOR);
++    routing.invalidate_via(NEIGHBOR, "test");
+     routing.note_relayed_discovery(DEVICE);
+ 
+     assert!(want(&mut routing, START, 1));
+@@ -483,14 +483,14 @@ fn test_reply_with_the_highest_path_cost_answers_the_discovery() {
+ fn test_answered_discovery_is_restarted_for_a_frame_its_route_did_not_release() {
+     let mut routing = Routing::default();
+     answered_discovery(&mut routing, 2);
+-    routing.invalidate_via(NEIGHBOR);
++    routing.invalidate_via(NEIGHBOR, "test");
+ 
+     assert_eq!(tick(&mut routing, START, true).restarted.len(), 1);
+ 
+     // With no restart left the frame fails instead
+     let mut routing = Routing::default();
+     answered_discovery(&mut routing, 1);
+-    routing.invalidate_via(NEIGHBOR);
++    routing.invalidate_via(NEIGHBOR, "test");
+ 
+     assert_eq!(tick(&mut routing, START, true).unreachable, vec![DEVICE]);
+ }
+@@ -775,3 +775,19 @@ fn test_own_discovery_matches_the_model_with_one_attempt() {
+ fn test_own_discovery_matches_the_model_with_two_attempts() {
+     check_every_short_sequence(2);
+ }
++#[test]
++fn link_recovery_retries_once_without_extending_discovery() {
++    let mut routing = Routing::default();
++    let start = Instant::from_micros(0);
++    let duration = Duration::from_secs(10);
++    let first = routing.want_route(OWN, DEVICE, start, duration, 1).unwrap();
++    let at = start + Duration::from_secs(2);
++    let retried = routing.recover_discoveries(OWN, at, |destination| destination == DEVICE);
++    assert_eq!(retried.len(), 1);
++    assert_ne!(retried[0].1, first);
++    assert_eq!(routing.next_discovery_lapse(OWN, at), Some(start + duration));
++    assert!(routing.recover_discoveries(OWN, at, |_| true).is_empty());
++    routing.forget(OWN, DEVICE);
++    routing.want_route(OWN, DEVICE, at, duration, 1).unwrap();
++    assert_eq!(routing.recover_discoveries(OWN, at, |_| true).len(), 1);
++}
+-- 
+2.43.0
+

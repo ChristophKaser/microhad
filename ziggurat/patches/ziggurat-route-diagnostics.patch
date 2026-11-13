@@ -1,17 +1,24 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 8b7e0ad1513517b8bf97f602498accb74ae0042d Mon Sep 17 00:00:00 2001
 From: Gateway maintainers <gateway@example.invalid>
 Date: Thu, 29 Oct 2026 18:00:00 +0100
-Subject: [PATCH] Correlate route invalidation with neighbor and delivery failures
+Subject: [PATCH] Correlate route invalidation with neighbor and delivery
+ failures
 
 Log affected destinations and invalidation causes at info level. Summarize
 neighbor outgoing-cost changes without duplicating periodic packet records.
-
 ---
+ .../src/zigbee_stack/neighbor.rs              | 20 ++++++++++++++++---
+ .../ziggurat-driver/src/zigbee_stack/nwk.rs   |  4 ++--
+ .../ziggurat-driver/src/zigbee_stack/route.rs |  4 ++--
+ crates/ziggurat-zigbee/src/nwk/neighbors.rs   |  9 ++++++---
+ crates/ziggurat-zigbee/src/nwk/routing.rs     |  4 ++--
+ 5 files changed, 29 insertions(+), 12 deletions(-)
+
 diff --git a/crates/ziggurat-driver/src/zigbee_stack/neighbor.rs b/crates/ziggurat-driver/src/zigbee_stack/neighbor.rs
-index 1c8f371..e6e06c2 100644
+index 84e8d44..7624777 100644
 --- a/crates/ziggurat-driver/src/zigbee_stack/neighbor.rs
 +++ b/crates/ziggurat-driver/src/zigbee_stack/neighbor.rs
-@@ -85,7 +85,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+@@ -81,7 +81,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
          let stale_neighbors = self.core().nib.neighbors.age(self.core_now(), max_age);
  
          for neighbor_nwk in stale_neighbors {
@@ -20,7 +27,7 @@ index 1c8f371..e6e06c2 100644
          }
      }
  
-@@ -123,7 +123,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+@@ -114,7 +114,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
          // Spec 3.6.4.4.2: when the outgoing cost collapses to zero the link is
          // considered broken, and routes through this neighbor with it
          if let Some(neighbor_nwk) = lost_link {
@@ -28,11 +35,19 @@ index 1c8f371..e6e06c2 100644
 +            self.invalidate_routes_via(neighbor_nwk, "link_status_lost");
          }
  
-         // Only a complete empty list requests bootstrap; an empty chunk does not.
-@@ -149,6 +149,14 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
-             .neighbors
-             .link(source)
-             .map_or(0, |link| link.outgoing_cost);
+         if link_status_cmd.is_first_frame && link_status_cmd.is_last_frame && link_status_cmd.link_statuses.is_empty() {
+@@ -123,7 +123,21 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+                 self.link_recovery_wake.notify_one();
+             }
+         }
+-        let current_cost = self.core().nib.neighbors.link(source).map_or(0, |link| link.outgoing_cost);
++
++        let current_cost = self
++            .core()
++            .nib
++            .neighbors
++            .link(source)
++            .map_or(0, |link| link.outgoing_cost);
 +        if previous_cost != current_cost {
 +            tracing::info!(
 +                "NEIGHBOR_LINK node={source:?} ieee={source_ieee:?} outgoing_before={previous_cost} outgoing_after={current_cost} reason=link_status entries={} first={} last={}",
@@ -42,13 +57,13 @@ index 1c8f371..e6e06c2 100644
 +            );
 +        }
          if previous_cost == 0 && current_cost > 0 {
-             tracing::debug!("Neighbor link recovered: {source:?}, outgoing_cost={current_cost}");
-             for (_, bucket) in self.state.pending_routes.lock().iter_mut() {
+             self.retry_discoveries_on_link_recovery();
+             if self.state.is_concentrator { self.mtorr_kick.notify_one(); }
 diff --git a/crates/ziggurat-driver/src/zigbee_stack/nwk.rs b/crates/ziggurat-driver/src/zigbee_stack/nwk.rs
-index 6840e9d..3ce42f9 100644
+index e3c54dd..7444c63 100644
 --- a/crates/ziggurat-driver/src/zigbee_stack/nwk.rs
 +++ b/crates/ziggurat-driver/src/zigbee_stack/nwk.rs
-@@ -1426,7 +1426,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+@@ -627,7 +627,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
          }
  
          let destination = nwk_frame.nwk_header.destination;
@@ -57,7 +72,7 @@ index 6840e9d..3ce42f9 100644
  
          if self.core().nib.routing.remove_route_record(destination) {
              tracing::info!("Removed source route to {destination:?} after delivery failure");
-@@ -1802,7 +1802,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+@@ -975,7 +975,7 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
      /// Zigbee spec 3.6.4.8.1: when relaying fails, the routes through the dead link are
      /// invalidated and the failure is reported back to the frame's originator.
      fn handle_relay_failure(&self, nwk_frame: &NwkFrame, next_hop: Nwk) {
@@ -67,10 +82,10 @@ index 6840e9d..3ce42f9 100644
          let source = nwk_frame.nwk_header.source;
  
 diff --git a/crates/ziggurat-driver/src/zigbee_stack/route.rs b/crates/ziggurat-driver/src/zigbee_stack/route.rs
-index dad404e..0952c8b 100644
+index 9a347cf..f5c3b8b 100644
 --- a/crates/ziggurat-driver/src/zigbee_stack/route.rs
 +++ b/crates/ziggurat-driver/src/zigbee_stack/route.rs
-@@ -389,8 +389,8 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
+@@ -381,8 +381,8 @@ impl<P: RadioPhy, R: Runtime> ZigbeeStack<P, R> {
          }
      }
  
@@ -82,10 +97,10 @@ index dad404e..0952c8b 100644
  
      /// Zigbee spec 3.6.4.8.1: another router could not deliver a frame we originated;
 diff --git a/crates/ziggurat-zigbee/src/nwk/neighbors.rs b/crates/ziggurat-zigbee/src/nwk/neighbors.rs
-index a327218..af1b208 100644
+index 270d504..b97277a 100644
 --- a/crates/ziggurat-zigbee/src/nwk/neighbors.rs
 +++ b/crates/ziggurat-zigbee/src/nwk/neighbors.rs
-@@ -555,13 +555,16 @@ impl Neighbors {
+@@ -598,13 +598,16 @@ impl Neighbors {
  
          for neighbor in self.table.values_mut() {
              if neighbor.outgoing_cost > 0 && neighbor.last_link_status_timestamp + max_age <= now {
@@ -106,10 +121,10 @@ index a327218..af1b208 100644
          }
  
 diff --git a/crates/ziggurat-zigbee/src/nwk/routing.rs b/crates/ziggurat-zigbee/src/nwk/routing.rs
-index fb1206b..0b41046 100644
+index 2049ef3..adb62c7 100644
 --- a/crates/ziggurat-zigbee/src/nwk/routing.rs
 +++ b/crates/ziggurat-zigbee/src/nwk/routing.rs
-@@ -267,11 +267,11 @@ impl Routing {
+@@ -428,11 +428,11 @@ impl Routing {
  
      /// Mark every active route through the given next hop as inactive, forcing a fresh
      /// discovery on next use.
@@ -123,3 +138,6 @@ index fb1206b..0b41046 100644
                      entry.destination
                  );
                  entry.status = Status::Inactive;
+-- 
+2.43.0
+
