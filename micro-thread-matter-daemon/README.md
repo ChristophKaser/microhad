@@ -2,7 +2,7 @@
 
 `mthread-matter` owns the gateway's Matter fabrics, commissioning, sessions,
 subscriptions and Thread state. It uses the pinned rs-matter dependency and an
-OpenThread C ABI adapter built from upstream OpenThread v2026.10.0.
+OpenThread C ABI adapter built from upstream OpenThread v2026.11.0.
 MicroHAD consumes its private IPC API and applies devices and reports to the common dashboard model.
 
 Configure compiler, gateway and SSH credentials in the private root
@@ -45,6 +45,8 @@ Host checks include:
 
 ```sh
 python3 micro-thread-matter-daemon/scripts/test-openthread-compatibility.py
+python3 micro-thread-matter-daemon/scripts/test-openthread-fragment-diagnostics.py
+python3 micro-thread-matter-daemon/scripts/test-prepare-openthread.py
 python3 micro-thread-matter-daemon/scripts/test-matter-service.py
 python3 micro-thread-matter-daemon/scripts/test-openthread-matter-transport.py
 python3 micro-thread-matter-daemon/scripts/test-rs-matter-controller.py
@@ -73,11 +75,12 @@ digest verification before the image is offered. Streaming supports downloads
 from offset zero; a new download can restart there, but arbitrary resume offsets
 are not supported. This option currently applies only to Matter devices.
 
-OpenThread is pinned to release `v2026.10.0`, commit
-`53e8322140dde7b26827332100504507cec9cc4e`. Its build initializes the nested
+OpenThread is pinned to release `v2026.11.0`, commit
+`c6872259f4194fb76c7d333bda209343e8c88e71`. Its build initializes the nested
 Mbed TLS dependency without requiring the Silicon Labs firmware installer.
-The release and the GSDK 4.5.1 radio source both declare Spinel RCP API
-version 11, minimum supported RCP API version 4, and protocol version 4.3.
+The release declares Spinel RCP API version 12, while the GSDK 4.5.1 radio
+source declares version 11. Both declare minimum supported RCP API version 4
+and protocol version 4.3.
 Runtime compatibility checks remain enabled. Host synthetic tests validate the
 shared-radio no-reset attachment. The deployed gateway uses the same radio path
 for Matter-over-Thread temperature and air-quality sensors.

@@ -1,21 +1,33 @@
+From b2cdaad6ec36a2cba64e7f16bd449d1a4545893a Mon Sep 17 00:00:00 2001
 From: Christoph Kaser <christoph@caser.de>
 Date: Thu, 15 Oct 2026 14:05:00 +0200
 Subject: [PATCH] openthread: identify first-fragment conversion failures
 
 Record conversion and reassembly stages and a bounded receive prefix on failure.
 Keep each event within OpenThread platform log limits. No protocol changes.
+---
+ src/core/thread/mesh_forwarder.cpp | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
 
+diff --git a/src/core/thread/mesh_forwarder.cpp b/src/core/thread/mesh_forwarder.cpp
+index eb097dbde..9106ece2f 100644
 --- a/src/core/thread/mesh_forwarder.cpp
 +++ b/src/core/thread/mesh_forwarder.cpp
-@@ -1099,6 +1099,7 @@
-     Error                  error = kErrorNone;
+@@ -1304,9 +1304,13 @@ void MeshForwarder::HandleFragment(RxInfo &aRxInfo)
      Lowpan::FragmentHeader fragmentHeader;
      Message               *message = nullptr;
-+    const char            *stage = "fragment_header";
+     ReassemblyMetadata     metadata;
++    const char            *stage = "source_address";
++    bool                   headerParsed = false;
  
+     VerifyOrExit(!aRxInfo.GetSrcAddr().IsNone(), error = kErrorDrop);
++    stage = "fragment_header";
      SuccessOrExit(error = fragmentHeader.ParseFrom(aRxInfo.mFrameData));
++    headerParsed = true;
  
-@@ -1141,15 +1142,19 @@
+ #if OPENTHREAD_CONFIG_MULTI_RADIO
+ 
+@@ -1347,15 +1351,19 @@ void MeshForwarder::HandleFragment(RxInfo &aRxInfo)
          UpdateEidRlocCacheAndStaleChild(aRxInfo);
  #endif
  
@@ -35,11 +47,19 @@ Keep each event within OpenThread platform log limits. No protocol changes.
          SuccessOrExit(error = Get<Ip6::Filter>().Apply(*message));
  
  #if OPENTHREAD_FTD
-@@ -1217,6 +1222,19 @@
+@@ -1374,6 +1382,7 @@ void MeshForwarder::HandleFragment(RxInfo &aRxInfo)
+         metadata.mDatagramSize = datagramSize;
+         metadata.mSource       = aRxInfo.GetSrcAddr();
+ 
++        stage = "reassembly_metadata";
+         SuccessOrExit(error = metadata.AppendTo(*message));
+ 
+         mReassemblyList.Enqueue(*message);
+@@ -1432,6 +1441,19 @@ exit:
      }
      else
      {
-+        if (fragmentHeader.GetDatagramOffset() == 0)
++        if (headerParsed && fragmentHeader.GetDatagramOffset() == 0)
 +        {
 +            String<65> header;
 +            String<17> prefix;
@@ -55,7 +75,7 @@ Keep each event within OpenThread platform log limits. No protocol changes.
          LogFragmentFrameDrop(error, aRxInfo, fragmentHeader);
          FreeMessage(message);
      }
-@@ -1291,18 +1309,26 @@
+@@ -1507,18 +1529,26 @@ Error MeshForwarder::FrameToMessage(RxInfo &aRxInfo, uint16_t aDatagramSize, Mes
      Error             error     = kErrorNone;
      FrameData         frameData = aRxInfo.mFrameData;
      Message::Priority priority;
@@ -82,3 +102,6 @@ Keep each event within OpenThread platform log limits. No protocol changes.
      return error;
  }
  
+-- 
+2.43.0
+

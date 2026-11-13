@@ -2180,7 +2180,7 @@
   },
   {
     "name": "openthread",
-    "revision": "53e8322140dde7b26827332100504507cec9cc4e",
+    "revision": "c6872259f4194fb76c7d333bda209343e8c88e71",
     "license": "BSD-3-Clause and component-specific licenses; locally patched",
     "authors": [
       "The OpenThread Authors"
@@ -3214,7 +3214,7 @@
   },
   {
     "name": "ziggurat",
-    "revision": "1e319a4c41c71c3070524ca0599d101d3062acdb",
+    "revision": "08f89eafa0cb5606aa2d49e7f7c9b72da2695aaa",
     "license": "Apache-2.0; locally patched",
     "authors": [
       "puddly",

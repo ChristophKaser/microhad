@@ -34,11 +34,15 @@ def check(label, properties, expected):
                 f'spinel+hdlc+unix://{path}?no-reset'],
                 cwd=directory, input='exit\n', text=True, capture_output=True, timeout=8)
             output = result.stdout + result.stderr
-            if result.returncode == 0 or expected not in output:
+            if expected is None:
+                if result.returncode != 0:
+                    raise AssertionError(f'{label}: expected successful attachment\n{output}')
+            elif result.returncode == 0 or expected not in output:
                 raise AssertionError(f'{label}: expected explicit incompatibility rejection\n{output}')
             if radio.counts['command_1']:
                 raise AssertionError(f'{label}: unexpected radio reset')
-            print(f'PASS {label}: explicit rejection without reset')
+            outcome = 'successful attachment' if expected is None else 'explicit rejection'
+            print(f'PASS {label}: {outcome} without reset')
     finally:
         if relay is not None:
             relay.terminate()
@@ -51,8 +55,9 @@ def check(label, properties, expected):
 
 
 def main():
+    check('gateway RCP API 11', {}, None)
     check('old RCP API', {0xb0: sim.sim.packed(3)}, 'older than min required by host')
-    check('newer required host API', {0xb1: sim.sim.packed(12)}, 'host is older')
+    check('newer required host API', {0xb1: sim.sim.packed(13)}, 'host is older')
     check('missing radio capabilities', {0x120b: sim.sim.packed(0)}, 'missing required capabilities')
 
 

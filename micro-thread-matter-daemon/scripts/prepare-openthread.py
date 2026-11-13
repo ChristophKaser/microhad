@@ -56,6 +56,30 @@ def migrate_legacy():
             cache.rename(destination)
 
 
+def preserve_previous_release():
+    """Keep a clean v2026.10.0 build worktree when moving to the new pin."""
+    previous = '53e8322140dde7b26827332100504507cec9cc4e'
+    is_current = subprocess.run(
+        ['git', '-C', str(WORKTREE), 'merge-base', '--is-ancestor', REVISION, 'HEAD'],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode == 0
+    if is_current:
+        return
+    is_previous = subprocess.run(
+        ['git', '-C', str(WORKTREE), 'merge-base', '--is-ancestor', previous, 'HEAD'],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode == 0
+    if not is_previous:
+        return
+    clean(WORKTREE)
+    backup = OUTPUT / 'source-mailbox-v2026.10.0-backup'
+    if backup.exists():
+        raise SystemExit(f'Previous OpenThread backup already exists; preserving {WORKTREE}')
+    WORKTREE.rename(backup)
+    git(SOURCE, 'worktree', 'repair', str(backup))
+    print(f'Preserved previous OpenThread worktree at {backup}')
+
+
 def main():
     if release_source.enabled():
         release_source.verify('build/openthread-unix/source-mailbox')
@@ -65,7 +89,7 @@ def main():
     if not (SOURCE / '.git').exists():
         git(ROOT, 'submodule', 'update', '--init', 'micro-thread-matter-daemon/dependencies/openthread')
     if git(SOURCE, 'rev-parse', 'HEAD') != REVISION:
-        raise SystemExit(f'Expected OpenThread v2026.10.0 revision {REVISION}')
+        raise SystemExit(f'Expected OpenThread v2026.11.0 revision {REVISION}')
     clean(SOURCE)
     git(SOURCE, 'submodule', 'update', '--init', '--recursive')
     clean(SOURCE)
@@ -74,6 +98,8 @@ def main():
     ).returncode == 0
     if legacy:
         migrate_legacy()
+    elif WORKTREE.exists():
+        preserve_previous_release()
     if not WORKTREE.exists():
         git(SOURCE, 'worktree', 'add', '--detach', str(WORKTREE), REVISION)
     subprocess.run(['python3', str(ROOT / 'scripts/apply-mailbox-series.py'),
@@ -81,7 +107,7 @@ def main():
     # Initialize the release-pinned Mbed TLS and its framework in the build worktree.
     git(WORKTREE, 'submodule', 'update', '--init', '--recursive')
     clean(WORKTREE)
-    print(f'Pinned upstream OpenThread v2026.10.0 ({REVISION})')
+    print(f'Pinned upstream OpenThread v2026.11.0 ({REVISION})')
 
 
 if __name__ == '__main__':
