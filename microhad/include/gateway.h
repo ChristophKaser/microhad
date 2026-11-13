@@ -512,6 +512,7 @@ private:
         unsigned long operationIndex;
         std::vector<EndpointDescriptor> discoveredEndpoints;
         bool refreshOnly;
+        bool periodicRefresh;
         bool configurationPending;
         bool forceConfiguration;
         bool configurationFailed;
@@ -530,6 +531,8 @@ private:
     std::vector<unsigned char> coordinatorIeeeAddress_;
     bool coordinatorIeeeAddressRequested_;
     std::map<unsigned short, long> nextSensorRefreshAt_;
+    std::map<unsigned short, std::map<uint64_t, long> > sensorValueObservedAt_;
+    std::map<unsigned short, std::map<uint64_t, long> > sensorRefreshAttemptAt_;
     std::map<unsigned short, bool> lightSetupPending_;
     std::map<unsigned short, std::string> remoteSceneHolds_;
     struct RemoteCommand {
@@ -672,6 +675,8 @@ private:
     void buildDescriptorOperations(unsigned short destination, const std::vector<unsigned char>& endpoints);
     void buildConfigurationOperations(unsigned short destination);
     void buildRefreshOperations(unsigned short destination);
+    void filterPeriodicSensorRefresh(unsigned short destination, long now);
+    void recordSensorValue(unsigned short destination, unsigned char endpoint, unsigned short cluster, unsigned short attribute, long now);
     bool parseSimpleDescriptor(const std::vector<unsigned char>& message, EndpointDescriptor* descriptor) const;
     bool endpointSupports(const EndpointDescriptor& endpoint, unsigned short cluster) const;
     bool sensorRefreshEligible(unsigned short nodeId) const;

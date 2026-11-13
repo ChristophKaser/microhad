@@ -93,7 +93,7 @@ Gateway::InterviewOperation::InterviewOperation() : type(InterviewActiveEndpoint
     transactionSequenceAssigned(false), messageTag(0), attempts(0), retryAt(0) {
 }
 
-Gateway::InterviewState::InterviewState() : operationIndex(0), refreshOnly(false), configurationPending(false),
+Gateway::InterviewState::InterviewState() : operationIndex(0), refreshOnly(false), periodicRefresh(false), configurationPending(false),
                                           forceConfiguration(false), configurationFailed(false),
                                           paused(false), persistentDirty(false) {
 }
@@ -510,6 +510,7 @@ bool Gateway::removeDeviceRecords(const std::vector<std::string>& addresses, std
             if (it->second != id) { ++it; continue; }
             unsigned short node = it->first;
             interviews_.erase(node); nextSensorRefreshAt_.erase(node); lastActiveEndpointRequestAt_.erase(node);
+            sensorValueObservedAt_.erase(node); sensorRefreshAttemptAt_.erase(node);
             lightSetupPending_.erase(node); remoteSceneHolds_.erase(node);
             if (interviewRequestInFlight_ && interviewNode_ == node) { interviewRequestInFlight_ = false; interviewDeadline_ = 0; }
             nodeAddresses_.erase(it++);
@@ -569,6 +570,7 @@ bool Gateway::deleteDevice(const std::string& address, bool local, std::string* 
     if (local) { completeDeviceDeletion(address); return true; }
     // Stop old discovery and configuration work before asking the node to leave.
     interviews_.erase(operation.node); nextSensorRefreshAt_.erase(operation.node);
+    sensorValueObservedAt_.erase(operation.node); sensorRefreshAttemptAt_.erase(operation.node);
     lastActiveEndpointRequestAt_.erase(operation.node); lightSetupPending_.erase(operation.node);
     if (interviewRequestInFlight_ && interviewNode_ == operation.node) { interviewRequestInFlight_ = false; interviewDeadline_ = 0; }
     sceneProvisioning_.erase(address);
@@ -1413,7 +1415,9 @@ void Gateway::pollZiggurat() {
                 for (std::map<std::string, DeviceDeletion>::iterator deletion = deviceDeletions_.begin(); deletion != deviceDeletions_.end(); ++deletion)
                     if (deletion->second.state == "pending" && deletion->second.node == node) { completeDeviceDeletion(deletion->first); break; }
             }
-            interviews_.erase(node); nextSensorRefreshAt_.erase(node); savePersistentState(); markViewDirty();
+            interviews_.erase(node); nextSensorRefreshAt_.erase(node);
+            sensorValueObservedAt_.erase(node); sensorRefreshAttemptAt_.erase(node);
+            savePersistentState(); markViewDirty();
         } else if (event.type==ZigguratClient::Event::ReceivedAps && b.size()>=17) {
             unsigned int length=b[15] | (static_cast<unsigned int>(b[16])<<8);
             if (length!=b.size()-17) { addLog("Malformed Ziggurat APS length"); continue; }
@@ -1602,8 +1606,14 @@ void Gateway::poll() {
             std::map<std::string, Device>::const_iterator device = devices_.find(node->second);
             if (!sensorRefreshEligible(node->first)) continue;
             if (nextSensorRefreshAt_[node->first] > now) continue;
+            std::map<unsigned short, InterviewState>::const_iterator existing = interviews_.find(node->first);
+            if (existing != interviews_.end() && !existing->second.periodicRefresh) {
+                nextSensorRefreshAt_[node->first] = sensorRefreshDeadline(now, device->second.sensorRefreshIntervalMinutes);
+                continue;
+            }
             startInterview(node->first, true);
             nextSensorRefreshAt_[node->first] = sensorRefreshDeadline(now, device->second.sensorRefreshIntervalMinutes);
+            filterPeriodicSensorRefresh(node->first, now);
             addLog("Queued periodic sensor discovery refresh");
             break; /* one sleepy-device request at a time */
         }
@@ -2057,7 +2067,15 @@ bool Gateway::setDeviceSettings(const std::string& ieeeAddress, const std::strin
     if (hasSensorRefreshInterval) {
         it->second.sensorRefreshIntervalMinutes = sensorRefreshIntervalMinutes;
         if (sensorRefreshIntervalMinutes == 0) nextSensorRefreshAt_.erase(it->second.zigbee.read().networkAddress);
-        else nextSensorRefreshAt_[it->second.zigbee.read().networkAddress] = sensorRefreshDeadline(time(0), sensorRefreshIntervalMinutes);
+        else {
+            unsigned short node = it->second.zigbee.read().networkAddress;
+            long now = time(0);
+            long next = sensorRefreshDeadline(now, sensorRefreshIntervalMinutes);
+            for (std::map<uint64_t, long>::const_iterator value = sensorValueObservedAt_[node].begin();
+                 value != sensorValueObservedAt_[node].end(); ++value)
+                next = std::min(next, sensorRefreshDeadline(value->second, sensorRefreshIntervalMinutes));
+            nextSensorRefreshAt_[node] = std::max(now, next);
+        }
     }
     saveState(it->second.ieeeAddress);
     savePersistentState();
@@ -5102,6 +5120,7 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64, bo
     if (nodeAddresses_.count(nodeId) && nodeAddresses_[nodeId] != address.str()) {
         devices_[nodeAddresses_[nodeId]].zigbee.ensure().networkAddress = 0xffff;
         interviews_.erase(nodeId);
+        sensorValueObservedAt_.erase(nodeId); sensorRefreshAttemptAt_.erase(nodeId);
         lastActiveEndpointRequestAt_.erase(nodeId);
         if (interviewRequestInFlight_ && interviewNode_ == nodeId) {
             interviewRequestInFlight_ = false;
@@ -5136,6 +5155,14 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64, bo
             interviewDeadline_ = 0;
         }
         nextSensorRefreshAt_.erase(current->first);
+        if (sensorValueObservedAt_.count(current->first)) {
+            sensorValueObservedAt_[nodeId].swap(sensorValueObservedAt_[current->first]);
+            sensorValueObservedAt_.erase(current->first);
+        }
+        if (sensorRefreshAttemptAt_.count(current->first)) {
+            sensorRefreshAttemptAt_[nodeId].swap(sensorRefreshAttemptAt_[current->first]);
+            sensorRefreshAttemptAt_.erase(current->first);
+        }
         lastActiveEndpointRequestAt_.erase(current->first);
         nodeAddresses_.erase(current);
         addLog("Migrated device state from stale network address");
@@ -5164,7 +5191,8 @@ void Gateway::registerNode(unsigned short nodeId, const unsigned char* eui64, bo
     }
     device.zigbee.ensure().networkAddress = nodeId;
     if (!sensorRefreshEligible(nodeId)) nextSensorRefreshAt_.erase(nodeId);
-    else nextSensorRefreshAt_[nodeId] = sensorRefreshDeadline(time(0), device.sensorRefreshIntervalMinutes);
+    else if (!nextSensorRefreshAt_.count(nodeId))
+        nextSensorRefreshAt_[nodeId] = sensorRefreshDeadline(time(0), device.sensorRefreshIntervalMinutes);
     if (device.ieeeAddress.empty()) {
         device.ieeeAddress = address.str();
         device.name = address.str();
@@ -5287,6 +5315,7 @@ void Gateway::startInterview(unsigned short destination, bool refreshOnly, bool 
         /* Missing or changed configuration takes precedence over a scheduled
            refresh. Preserve its outstanding transaction until reply. */
         if (!refreshOnly && existing->second.refreshOnly) existing->second.configurationPending = true;
+        existing->second.periodicRefresh = false;
         existing->second.forceConfiguration = existing->second.forceConfiguration || forceConfiguration;
         existing->second.paused = false;
         return;
@@ -5385,6 +5414,51 @@ void Gateway::buildRefreshOperations(unsigned short destination) {
         addLog("Refresh completed: no persisted measurement endpoints");
         interviews_.erase(destination);
     }
+}
+
+void Gateway::filterPeriodicSensorRefresh(unsigned short destination, long now) {
+    std::map<unsigned short, InterviewState>::iterator found = interviews_.find(destination);
+    if (found == interviews_.end() || !found->second.refreshOnly || found->second.configurationPending) return;
+    found->second.periodicRefresh = true;
+    const Device& device = devices_[found->second.ieeeAddress];
+    std::vector<InterviewOperation> due;
+    long next = LONG_MAX;
+    for (unsigned long i = found->second.operationIndex; i < found->second.operations.size(); ++i) {
+        const InterviewOperation& op = found->second.operations[i];
+        if (op.type != InterviewAttributeRead) { due.push_back(op); continue; }
+        uint64_t key = (static_cast<uint64_t>(op.endpoint) << 32) | (static_cast<uint64_t>(op.cluster) << 16) | op.attribute;
+        long observed = sensorValueObservedAt_[destination][key];
+        long attempted = sensorRefreshAttemptAt_[destination][key];
+        long base = std::max(observed, attempted);
+        long deadline = base ? sensorRefreshDeadline(base, device.sensorRefreshIntervalMinutes) : now;
+        if (deadline <= now) {
+            due.push_back(op);
+            sensorRefreshAttemptAt_[destination][key] = now;
+            deadline = sensorRefreshDeadline(now, device.sensorRefreshIntervalMinutes);
+        }
+        next = std::min(next, deadline);
+    }
+    if (next != LONG_MAX) nextSensorRefreshAt_[destination] = next;
+    found->second.operations.swap(due);
+    found->second.operationIndex = 0;
+    if (found->second.operations.empty()) interviews_.erase(found);
+}
+
+void Gateway::recordSensorValue(unsigned short destination, unsigned char endpoint, unsigned short cluster, unsigned short attribute, long now) {
+    uint64_t key = (static_cast<uint64_t>(endpoint) << 32) | (static_cast<uint64_t>(cluster) << 16) | attribute;
+    sensorValueObservedAt_[destination][key] = now;
+    std::map<unsigned short, long>::iterator next = nextSensorRefreshAt_.find(destination);
+    std::map<unsigned short, std::map<uint64_t, long> >::const_iterator attempts = sensorRefreshAttemptAt_.find(destination);
+    if (next == nextSensorRefreshAt_.end() || attempts == sensorRefreshAttemptAt_.end() || attempts->second.empty()) return;
+    std::map<unsigned short, std::string>::const_iterator node = nodeAddresses_.find(destination);
+    if (node == nodeAddresses_.end()) return;
+    const Device& device = devices_[node->second];
+    long earliest = LONG_MAX;
+    for (std::map<uint64_t, long>::const_iterator it = attempts->second.begin(); it != attempts->second.end(); ++it) {
+        long observed = sensorValueObservedAt_[destination][it->first];
+        earliest = std::min(earliest, sensorRefreshDeadline(std::max(observed, it->second), device.sensorRefreshIntervalMinutes));
+    }
+    if (earliest != LONG_MAX) next->second = earliest;
 }
 
 void Gateway::buildConfigurationOperations(unsigned short destination) {
@@ -5500,6 +5574,18 @@ void Gateway::sendNextInterviewOperation() {
         InterviewState& state = interview->second;
         if (state.paused || state.operationIndex >= state.operations.size()) continue;
         if (state.operations[state.operationIndex].retryAt > time(0)) continue;
+        const InterviewOperation& operation = state.operations[state.operationIndex];
+        if (state.periodicRefresh && operation.type == InterviewAttributeRead) {
+            uint64_t key = (static_cast<uint64_t>(operation.endpoint) << 32) |
+                (static_cast<uint64_t>(operation.cluster) << 16) | operation.attribute;
+            long attempted = sensorRefreshAttemptAt_[interview->first][key];
+            long observed = sensorValueObservedAt_[interview->first][key];
+            if (attempted && observed >= attempted &&
+                sensorRefreshDeadline(observed, devices_[state.ieeeAddress].sensorRefreshIntervalMinutes) > time(0)) {
+                completeInterviewOperation(interview->first);
+                return;
+            }
+        }
         sendInterviewOperation(interview->first, &state.operations[state.operationIndex]);
         return;
     }
@@ -6263,6 +6349,20 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
                 interview->second.persistentDirty = true;
         }
         if (applyZclReadAttributeResponse(&devices_[address->second], cluster, records, time(0), &observed)) {
+            unsigned long offset = 0;
+            while (offset + 3 <= records.size()) {
+                unsigned short attribute = static_cast<unsigned short>(records[offset]) |
+                    (static_cast<unsigned short>(records[offset + 1]) << 8);
+                if (records[offset + 2] != 0) { offset += 3; continue; }
+                if (offset + 4 > records.size()) break;
+                unsigned long length = zclValueLength(records[offset + 3], records, offset + 4);
+                if (!length || offset + 4 + length > records.size()) break;
+                std::vector<unsigned char> record(records.begin() + offset, records.begin() + offset + 4 + length);
+                Device validated = before;
+                if (applyZclReadAttributeResponse(&validated, cluster, record, time(0)))
+                    recordSensorValue(sender, sourceEndpoint, cluster, attribute, time(0));
+                offset += 4 + length;
+            }
             if (cluster == 0x0019) devices_[address->second].zigbee.ensure().otaEndpoint = sourceEndpoint;
             const Device& accepted=devices_[address->second];
             if(observed&ZclObservedTemperature)automationReport(accepted,"temperature_celsius");
@@ -6288,7 +6388,8 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
             unsigned long valueLength = zclValueLength(type, message, valueOffset);
             if (valueLength == 0 || valueOffset + valueLength > message.size()) break;
             std::vector<unsigned char> value(message.begin() + valueOffset, message.begin() + valueOffset + valueLength);
-            applyAttributeReport(address->second, cluster, attribute, value);
+            if (applyAttributeReport(address->second, cluster, attribute, value))
+                recordSensorValue(sender, sourceEndpoint, cluster, attribute, time(0));
             attributeOffset = valueOffset + valueLength;
         }
     } else if ((frameControl & 0x03) == 0 && command == 0x07) {

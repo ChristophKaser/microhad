@@ -1503,6 +1503,46 @@ public:
         std::vector<unsigned char> retry = decodedLastEzsp(gateway);
         assert(retry[3] == 0x22 && retry[5] == 0);
     }
+    static void periodicRefreshUsesPerAttributeAge() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        const unsigned short node = 0x4321;
+        Device device;
+        EndpointDescriptor endpoint;
+        device.ieeeAddress = "0x00124b00000000dd";
+        device.zigbee.ensure().networkAddress = node;
+        device.sensorRefreshIntervalMinutes = 60;
+        device.temperature.setPresent(true);
+        device.humidity.setPresent(true);
+        endpoint.endpoint = 1;
+        endpoint.inputClusters.push_back(0x0402);
+        endpoint.inputClusters.push_back(0x0405);
+        device.zigbee.ensure().endpoints.push_back(endpoint);
+        gateway.devices_[device.ieeeAddress] = device;
+        gateway.nodeAddresses_[node] = device.ieeeAddress;
+        const long now = time(0);
+        gateway.nextSensorRefreshAt_[node] = now;
+        gateway.recordSensorValue(node, 1, 0x0402, 0, now - 30);
+        gateway.recordSensorValue(node, 1, 0x0405, 0, now - 3601);
+        gateway.startInterview(node, true);
+        gateway.filterPeriodicSensorRefresh(node, now);
+        assert(gateway.interviews_[node].operations.size() == 1);
+        assert(gateway.interviews_[node].operations[0].cluster == 0x0405);
+        assert(gateway.nextSensorRefreshAt_[node] == now + 3570);
+        gateway.interviews_.erase(node);
+        gateway.recordSensorValue(node, 1, 0x0405, 0, now + 1);
+        assert(gateway.nextSensorRefreshAt_[node] == now + 3570);
+        gateway.startInterview(node, true);
+        gateway.filterPeriodicSensorRefresh(node, now + 2);
+        assert(gateway.interviews_.find(node) == gateway.interviews_.end());
+        EndpointDescriptor second;
+        second.endpoint = 2;
+        second.inputClusters.push_back(0x0402);
+        gateway.devices_[device.ieeeAddress].zigbee.ensure().endpoints.push_back(second);
+        gateway.startInterview(node, true);
+        gateway.filterPeriodicSensorRefresh(node, now + 2);
+        assert(gateway.interviews_[node].operations.size() == 1);
+        assert(gateway.interviews_[node].operations[0].endpoint == 2);
+    }
     static void refreshDiscoversMissingEndpoints() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         Device device;
@@ -4264,7 +4304,7 @@ void runUnitTests() {
     { DeviceCacheIsolation cache; GatewayTestPeer::pausedRefreshWaitsForScheduledWake(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::pausedTimersDoNotWinDeadline(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::closingPermitReplyTimeout(); }
-    { DeviceCacheIsolation cache; GatewayTestPeer::refreshDiscoversMissingEndpoints(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::refreshDiscoversMissingEndpoints(); GatewayTestPeer::periodicRefreshUsesPerAttributeAge(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::reviewAndTransportRegressions(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::ezspUpgradeCompatibility(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::networkJoinWindowDoesNotClearNetworkState(); }
