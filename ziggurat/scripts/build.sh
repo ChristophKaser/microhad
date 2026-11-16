@@ -79,15 +79,18 @@ fi
 cargo +$RUST_TOOLCHAIN build --locked --release \
     --no-default-features \
     --config 'profile.release.opt-level="s"' \
+    --config 'profile.release.strip=false' \
     --manifest-path ${build_worktree}/Cargo.toml -p ziggurat-server \
     --target "targets/$TARGET_SPEC_NAME.json" \
     -Z json-target-spec -Z build-std=std,panic_abort \
     "${crate_patches[@]}"
 if [[ $ZIGGURAT_MULTIPAN == 1 ]]; then
     target_binary="$experiment_root/$build_output/$TARGET_SPEC_NAME/release/ziggurat"
+    cp "$target_binary" "$target_binary.elf"
     "$LLVM_STRIP" --keep-section=.gnu.attributes \
         -o "$target_binary.stripped" "$target_binary"
     python3 scripts/verify-gateway-target.py --link-mode "$LINK_MODE" "$target_binary.stripped"
+    cp "$target_binary.stripped" "$target_binary"
 fi
 
 python3 scripts/verify-gateway-target.py --link-mode "$LINK_MODE" "$experiment_root/$build_output/$TARGET_SPEC_NAME/release/ziggurat"

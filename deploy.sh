@@ -644,6 +644,32 @@ maintenance_deploy_run() {
     return 0
 }
 
+archive_symbols() {
+    python3 "$repo_root/scripts/archive-deploy-symbols.py" "$1" "$2" "$repo_root/diagnostics/deployed-symbols"
+}
+
+# Archive before any deployment can quiesce services or replace executables.
+if [ -n "$service_selection" ]; then
+    archive_words=$(printf '%s' "$service_selection" | tr ',' ' ')
+    for archive_service in $archive_words; do
+        case "$archive_service" in
+            native) archive_symbols microhad "$binary" ;;
+            matter) archive_symbols mthread-matter "$matter_service" ;;
+            ziggurat) archive_symbols ziggurat "$ziggurat" ;;
+            ftp) archive_symbols ftp-log-collector "$ftp_collector" ;;
+            supervisor) : ;;
+        esac
+    done
+elif [ "$maintenance_deploy" = true ]; then
+    archive_symbols microhad "$binary"
+    archive_symbols ziggurat "$ziggurat"
+    archive_symbols mthread-matter "$matter_service"
+    archive_symbols gateway-maintenance "$maintenance_helper"
+else
+    if [ "$deploy_binary" = true ]; then archive_symbols microhad "$binary"; fi
+    if [ -n "$matter_service" ] && [ "$activate_paired_only" = false ]; then archive_symbols mthread-matter "$matter_service"; fi
+fi
+
 if [ -n "$service_selection" ]; then
     selected_services_deploy
     exit $?

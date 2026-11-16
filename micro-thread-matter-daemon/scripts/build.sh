@@ -36,6 +36,7 @@ if [[ "$mode" == mips && "$CRASH_SNAPSHOTS" == true ]]; then
 fi
 cargo +$RUST_TOOLCHAIN build "${args[@]}"
 if [ "$mode" = mips ]; then
+    cp "$CARGO_TARGET_DIR/$TARGET_SPEC_NAME/release/$binary" "$output_root/$output.elf"
     "$LLVM_STRIP" --keep-section=.gnu.attributes -o "$output_root/$output" \
         "$CARGO_TARGET_DIR/$TARGET_SPEC_NAME/release/$binary"
     artifact="$output_root/$output"

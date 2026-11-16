@@ -271,6 +271,16 @@ Translate addresses on the host with `addr2line -f -C -e MATCHING_UNSTRIPPED_BIN
 The unstripped binary must match the running revision. Counts estimate where
 sampled time was spent; they are not precise CPU percentages.
 
+`deploy.sh` archives each selected executable's matching unstripped ELF before
+upload or service shutdown. Look under
+`diagnostics/deployed-symbols/SERVICE/BINARY_SHA256/unstripped.elf`, using the
+SHA-256 of the installed executable. The archive is private and ignored by Git.
+Build helpers produce an adjacent `.elf` file; deployment rejects a missing
+symbol table or a mismatch in allocated sections. Keep this directory across
+builds and releases. It contains code symbols, not device configuration.
+When an explicit artifact path is supplied, its matching unstripped file must
+be at that path with `.elf` appended.
+
 ## TCP core capture
 
 See the [crash snapshot guide](crash-snapshots.md) for build, deployment, host
