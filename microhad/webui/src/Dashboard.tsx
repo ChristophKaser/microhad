@@ -7,7 +7,7 @@ import type { Device, HistoryMetric, SceneGroupSummary, Status } from './api'
 import type { ControllerStats } from './api'
 import type { ThreadStatus } from './matter'
 import { DeviceGroups } from './devices'
-import { historyRangeSeconds, historyWindow } from './historyLoader'
+import { historyRanges, historyRangeSeconds, historyWindow, type HistoryRange } from './historyLoader'
 import { listAutomations, type AutomationScript } from './automation'
 import { AutomationTrigger } from './AutomationTrigger'
 import { useHistory } from './useHistory'
@@ -21,7 +21,7 @@ export type DashboardWidget = {
   trigger_id?: string
   label?: string
   metric?: number
-  range?: 'day' | 'week' | 'all'
+  range?: HistoryRange
 }
 export type DashboardConfig = { widgets: DashboardWidget[]; gateway_widget_initialized?: boolean }
 export type SensorMetric = { id: number; name: string; unit: string; scale: number; color: string; available: (d: Device) => boolean }
@@ -50,7 +50,7 @@ export const sensorMetrics: SensorMetric[] = [
 ]
 ChartJS.register(LineController, LineElement, LinearScale, PointElement, Tooltip)
 
-function SensorChart({ device, metricId, range }: { device: Device | undefined; metricId: number; range: 'day' | 'week' | 'all' }) {
+function SensorChart({ device, metricId, range }: { device: Device | undefined; metricId: number; range: HistoryRange }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const metric = sensorMetrics.find(item => item.id === metricId)
   const historyId = device ? historyDeviceId(device) : ''
@@ -149,7 +149,7 @@ export function Dashboard({ config, editing, devices, groups, status, restarting
       if(widget.kind==='gateway')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<GatewayWidget status={status} deviceCount={devices.length} restarting={restarting} thread={thread} resources={resources}/></div>
       if(widget.kind==='open_contacts')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<DeviceListWidget title="Open contact sensors" empty="No open contact sensors." devices={devices.filter(d=>d.has_contact&&!d.has_water_leak&&!d.contact_trigger_mode&&d.contact_known&&d.contact_open)}/></div>
       if(widget.kind==='present_sensors')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<DeviceListWidget title="Present presence sensors" empty="No present presence sensors." devices={devices.filter(d=>d.has_occupancy&&(d.kind==='presence'||d.kind==='occupancy')&&d.occupied)}/></div>
-      if(widget.kind==='chart')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<SensorChart device={device} metricId={widget.metric ?? 1} range={widget.range ?? 'day'}/>{editing&&<div className="dashboard-chart-settings"><label>Range <select value={widget.range??'day'} onChange={e=>updateWidgets(config.widgets.map(item=>item.id===widget.id?{...item,range:e.target.value as DashboardWidget['range']}:item))}><option value="day">24 hours</option><option value="week">7 days</option><option value="all">All retained</option></select></label><label>Value <select value={widget.metric??1} onChange={e=>updateWidgets(config.widgets.map(item=>item.id===widget.id?{...item,metric:Number(e.target.value)}:item))}>{sensorMetrics.filter(m=>device&&m.available(device)).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label></div>}</div>
+      if(widget.kind==='chart')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<SensorChart device={device} metricId={widget.metric ?? 1} range={widget.range ?? 'day'}/>{editing&&<div className="dashboard-chart-settings"><label>Range <select value={widget.range??'day'} onChange={e=>updateWidgets(config.widgets.map(item=>item.id===widget.id?{...item,range:e.target.value as DashboardWidget['range']}:item))}>{historyRanges.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label>Value <select value={widget.metric??1} onChange={e=>updateWidgets(config.widgets.map(item=>item.id===widget.id?{...item,metric:Number(e.target.value)}:item))}>{sensorMetrics.filter(m=>device&&m.available(device)).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label></div>}</div>
       if(widget.kind==='group')return <div className="dashboard-widget-shell" key={widget.id}>{controls}<GroupWidget group={groups.find(g=>String(g.id)===widget.target)} devices={devices} action={action}/></div>
       if(!device)return <div className="dashboard-widget-shell" key={widget.id}>{controls}<article className="dashboard-widget"><h3>Unavailable device</h3><p className="muted small">This saved device is no longer connected.</p></article></div>
       if(!status)return <div className="dashboard-widget-shell" key={widget.id}>{controls}<article className="dashboard-widget">Loading device…</article></div>

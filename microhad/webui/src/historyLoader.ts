@@ -2,8 +2,9 @@ import type { HistoryPage, HistorySample } from './api'
 import { jsonRequest } from './api'
 import { historyUnit } from './history'
 
-export type HistoryRange = 'day' | 'week' | 'all'
-export const historyRangeSeconds = { day: 86400, week: 604800, all: Infinity }
+export type HistoryRange = 'twoHours' | 'day' | 'threeDays' | 'week' | 'all'
+export const historyRangeSeconds = { twoHours: 7200, day: 86400, threeDays: 259200, week: 604800, all: Infinity }
+export const historyRanges = [['twoHours', '2 hours'], ['day', '24 hours'], ['threeDays', '3 days'], ['week', '7 days'], ['all', 'All retained']] as const
 
 export function mergeHistorySamples(previous: HistorySample[], incoming: HistorySample[]): HistorySample[] {
   const byCursor = new Map(previous.map(sample => [sample[0], sample]))

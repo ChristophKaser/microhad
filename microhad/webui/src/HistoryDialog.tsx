@@ -4,7 +4,7 @@ import { Chart as ChartJS, LineController, LineElement, LinearScale, PointElemen
 import type { Device, HistoryMetric, HistorySample } from './api'
 import { historyDeviceId, historyDiscrete, historyLabel, historyName, historyTick, historyUnit, historyY } from './history'
 
-import { historyRangeSeconds, historyWindow } from './historyLoader'
+import { historyRanges, historyRangeSeconds, historyWindow } from './historyLoader'
 import type { HistoryRange } from './historyLoader'
 import { useHistory } from './useHistory'
 const metricColor: Record<number, string> = {
@@ -118,7 +118,7 @@ export function HistoryDialog({ device, onClose }: { device: Device; onClose: ()
       <div className="dialog wide history-dialog" role="dialog" aria-modal="true" aria-label={`History for ${device.name}`}>
         <div className="dialog-heading"><div><h2>{device.name} history</h2><p className="muted small">Stored in gateway RAM until overwritten or rebooted</p></div><button className="icon-button" onClick={onClose} aria-label="Close">✕</button></div>
         <div className="history-ranges" role="group" aria-label="History range">
-          {([['day', '24 hours'], ['week', '7 days'], ['all', 'All retained']] as const).map(([key, label]) =>
+          {historyRanges.map(([key, label]) =>
             <button key={key} className={`button ${range === key ? 'primary' : ''}`} onClick={() => setRange(key)}>{label}</button>)}
         </div>
         {loading && <p className="muted">{samples.length ? 'Loading older history…' : 'Loading history…'}</p>}
