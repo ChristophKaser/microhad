@@ -109,19 +109,34 @@ bool sameField(const DeviceSnapshot& a,const DeviceSnapshot& b,Field field) {
     case Kind:return a.metadata->kind==b.metadata->kind;
     case Source:return a.metadata->source==b.metadata->source;
     case AirQuality:return a.airQuality==b.airQuality;
-    case Electrical:return a.electrical==b.electrical;
-    case Thermostat:return a.thermostat==b.thermostat;
+    case Electrical:return a.electrical==b.electrical||(a.electrical&&b.electrical&&*a.electrical==*b.electrical);
+    case Thermostat:return a.thermostat==b.thermostat||(a.thermostat&&b.thermostat&&*a.thermostat==*b.thermostat);
     default:return a.values[field]==b.values[field];
     }
 }
 namespace {
-bool sameThermostatInput(const Device& a,const Device& b) {
+bool sameThermostatCapabilities(const Device& a,const Device& b) {
+    if(isTrvzb(a)!=isTrvzb(b))return false;
     const ThermostatState& x=a.thermostat.read();const ThermostatState& y=b.thermostat.read();
-    return a.source==b.source&&a.modelId==b.modelId&&a.softwareBuildId==b.softwareBuildId&&
-        x.values==y.values&&x.unsupported==y.unsupported&&x.attributes==y.attributes&&x.commands==y.commands&&
-        x.attributesKnown==y.attributesKnown&&x.commandsKnown==y.commandsKnown&&x.scheduleSupported==y.scheduleSupported&&
-        x.schedules==y.schedules&&x.scheduleDetails==y.scheduleDetails&&x.scheduleSources==y.scheduleSources&&x.pending==y.pending&&a.thermostatSourceId==b.thermostatSourceId&&
-        a.thermostatStaleMinutes==b.thermostatStaleMinutes&&x.sourceObservedAt==y.sourceObservedAt&&x.status==y.status&&x.error==y.error;
+    if(x.scheduleSupported!=y.scheduleSupported)return false;
+    unsigned long count;const ThermostatAttribute* fields=thermostatAttributes(&count);
+    for(unsigned long i=0;i<count;++i){
+        const ThermostatAttribute left=thermostatDefinition(a,fields[i]),right=thermostatDefinition(b,fields[i]);
+        if(left.minimum!=right.minimum||left.maximum!=right.maximum||left.step!=right.step||left.writable!=right.writable||
+           thermostatSupported(a,fields[i])!=thermostatSupported(b,fields[i]))return false;
+    }
+    for(int mode=0;mode<=9;++mode)if(thermostatModeSupported(a,mode)!=thermostatModeSupported(b,mode))return false;
+    return ::thermostatValue(a,ThermostatField::number_of_daily_transitions,::thermostatValue(a,ThermostatField::number_of_weekly_transitions,10))==
+           ::thermostatValue(b,ThermostatField::number_of_daily_transitions,::thermostatValue(b,ThermostatField::number_of_weekly_transitions,10));
+}
+bool sameElectricalInput(const ElectricalState& a,const ElectricalState& b) {
+    if(a.resetMetadata!=b.resetMetadata||a.values.size()!=b.values.size())return false;
+    std::map<std::string,ElectricalMeasurement>::const_iterator x=a.values.begin(),y=b.values.begin();
+    for(;x!=a.values.end();++x,++y){
+        const ElectricalMeasurement& l=x->second;const ElectricalMeasurement& r=y->second;
+        if(x->first!=y->first||l.known!=r.known||l.value!=r.value||l.unit!=r.unit||l.metadata!=r.metadata||l.observedAt!=r.observedAt||l.endpoint!=r.endpoint)return false;
+    }
+    return true;
 }
 Value electricalSnapshotValue(const ElectricalState& state) {
     Value result=Value::object();
@@ -144,8 +159,9 @@ Value electricalSnapshotValue(const ElectricalState& state) {
     }
     return result;
 }
-Value thermostatSnapshotValue(const Device& d) {
+Value thermostatSnapshotPart(const Device& d,unsigned part) {
     const ThermostatState& t=d.thermostat.read();Value out=Value::object();
+    if(part==0) {
     Value& values=out.fields["values"];values=Value::object();
     for(unsigned i=0;i<ThermostatField::Count;++i){
         const ThermostatField::Id id=static_cast<ThermostatField::Id>(i);
@@ -154,6 +170,7 @@ Value thermostatSnapshotValue(const Device& d) {
         if(!std::isfinite(value))return Value::object();
         values.fields[thermostatAttribute(id)->name]=Value(value);
     }
+    } else if(part==1) {
     Value& supported=out.fields["supported"];supported=Value::object();
     Value& fields=out.fields["fields"];fields=Value::object();
     unsigned long count=0;const ThermostatAttribute* attributes=thermostatAttributes(&count);
@@ -170,6 +187,7 @@ Value thermostatSnapshotValue(const Device& d) {
     out.fields["schedule_supported"]=Value(trv||t.scheduleSupported);
     out.fields["schedule_max_transitions"]=Value(static_cast<double>(trv?6:static_cast<int>(::thermostatValue(d,ThermostatField::number_of_daily_transitions,::thermostatValue(d,ThermostatField::number_of_weekly_transitions,10)))));
     out.fields["schedule_midnight_start"]=Value(trv);out.fields["external_input_supported"]=Value(trv);
+    } else if(part==2) {
     Value& details=out.fields["schedule_details"];details=Value::array();
     Value& schedules=out.fields["schedules"];schedules=Value::array();
     Value& sources=out.fields["schedule_sources"];sources=Value::array();
@@ -189,13 +207,42 @@ Value thermostatSnapshotValue(const Device& d) {
         schedules.items.push_back(text!=t.schedules.end()?Value(text->second):detail);
         text=t.scheduleSources.find(day);sources.items.push_back(text==t.scheduleSources.end()?Value():Value(text->second));
     }
+    } else {
     Value& pending=out.fields["pending"];pending=Value::array();
     for(unsigned i=0;i<ThermostatPendingCount;++i)if(t.pending.count(i))pending.items.push_back(Value(thermostatPendingName(i)));
     out.fields["source_id"]=Value(d.thermostatSourceId);out.fields["stale_minutes"]=Value(static_cast<double>(d.thermostatStaleMinutes));
     out.fields["source_observed_at"]=Value(static_cast<double>(t.sourceObservedAt));
     out.fields["status"]=Value(t.status);out.fields["error"]=Value(t.error);
+    }
     return out;
 }
+ValuePtr thermostatPart(const Device& d,unsigned part) {
+    AUTOMATION_PROFILE("snapshot.thermostat.part");
+    return ValuePtr(new Value(thermostatSnapshotPart(d,part)));
+}
+ThermostatSnapshotPtr captureThermostat(const Device& d,const SnapshotPtr& previous) {
+    const ThermostatSnapshot* old=previous&&previous->thermostat&&previous->record?previous->thermostat.get():0;
+    const Device* before=old?previous->record.get():0;
+    const ThermostatState& t=d.thermostat.read();
+    ThermostatSnapshot* next=new ThermostatSnapshot;
+    ThermostatSnapshotPtr result(next);
+    next->readings=old&&t.values==before->thermostat.read().values?old->readings:thermostatPart(d,0);
+    next->capabilities=old&&sameThermostatCapabilities(d,*before)?old->capabilities:thermostatPart(d,1);
+    next->schedules=old&&t.schedules==before->thermostat.read().schedules&&t.scheduleDetails==before->thermostat.read().scheduleDetails&&t.scheduleSources==before->thermostat.read().scheduleSources?old->schedules:thermostatPart(d,2);
+    next->status=old&&t.pending==before->thermostat.read().pending&&t.status==before->thermostat.read().status&&t.error==before->thermostat.read().error&&t.sourceObservedAt==before->thermostat.read().sourceObservedAt&&d.thermostatSourceId==before->thermostatSourceId&&d.thermostatStaleMinutes==before->thermostatStaleMinutes?old->status:thermostatPart(d,3);
+    if(old&&next->readings==old->readings&&next->capabilities==old->capabilities&&next->schedules==old->schedules&&next->status==old->status)return previous->thermostat;
+    return result;
+}
+}
+Value ThermostatSnapshot::materialize() const {
+    Value result=Value::object();const ValuePtr parts[]={readings,capabilities,schedules,status};
+    for(unsigned i=0;i<4;++i)if(parts[i])result.fields.insert(parts[i]->fields.begin(),parts[i]->fields.end());
+    return result;
+}
+bool ThermostatSnapshot::operator==(const ThermostatSnapshot& other) const {
+    const ValuePtr left[]={readings,capabilities,schedules,status},right[]={other.readings,other.capabilities,other.schedules,other.status};
+    for(unsigned i=0;i<4;++i)if(left[i]!=right[i]&&(!left[i]||!right[i]||*left[i]!=*right[i]))return false;
+    return true;
 }
 SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr& record) {
     DeviceSnapshot next;next.record=record;
@@ -215,24 +262,26 @@ SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr&
     F(Co2,d.co2.present()&&d.co2.read().known,d.co2.read().ppm);F(Pm25,d.pm25.present()&&d.pm25.read().known,d.pm25.read().microgramsM3);
     F(Brightness,d.brightness.present()&&(d.brightness.read().known||zigbee),d.brightness.read().percent);
     F(Battery,d.battery.present(),d.battery.read().percent);F(WifiSignal,d.wifiSignal.present(),d.wifiSignal.read().percent);F(LinkQuality,zigbee,d.zigbee.read().linkQuality);
-    if(d.electrical.present()) { next.present|=1ULL<<Electrical;next.electrical=electricalSnapshotValue(d.electrical.read()); }
+    if(d.electrical.present()) {
+        next.present|=1ULL<<Electrical;
+        next.electrical=previous&&previous->electrical&&previous->record&&previous->record->electrical.present()&&sameElectricalInput(d.electrical.read(),previous->record->electrical.read())?previous->electrical:ValuePtr(new Value(electricalSnapshotValue(d.electrical.read())));
+    }
+    if(d.electrical.present()) {
 #define ELECTRICAL(c,a,s,k,u,div,m) {std::map<std::string,ElectricalMeasurement>::const_iterator e=d.electrical.read().values.find(#k);if(e!=d.electrical.read().values.end()) {F(Electrical_##k,e->second.known,e->second.value);}}
 #include "../../config/electrical-measurements.def"
 #undef ELECTRICAL
+    }
+    if(d.electrical.present()&&!next.record)next.record=DevicePtr(new Device(d));
     const bool thermostat=isThermostat(d);
     if(thermostat)next.present|=1ULL<<Thermostat;
-    bool sameThermostat=false;
-    if(thermostat) { AUTOMATION_PROFILE("snapshot.thermostat.input"); sameThermostat=previous&&previous->has(Thermostat)&&previous->record&&sameThermostatInput(d,*previous->record); }
 #undef F
-    bool same=previous&&(!record||record==previous->record)&&next.metadata==previous->metadata&&next.present==previous->present;
-    for(unsigned i=0;same&&i<FieldCount;++i)if(i!=Thermostat)same=sameField(next,*previous,static_cast<Field>(i));
-    if(same&&(!thermostat||sameThermostat))return previous;
     if(thermostat){
-        if(sameThermostat) { AUTOMATION_PROFILE("snapshot.thermostat.copy"); next.thermostat=previous->thermostat; }
-        else { AUTOMATION_PROFILE("snapshot.thermostat.build"); next.thermostat=thermostatSnapshotValue(d); }
+        AUTOMATION_PROFILE("snapshot.thermostat.build");
+        next.thermostat=captureThermostat(d,previous);
         if(!next.record)next.record=DevicePtr(new Device(d));
     }
-    if(same)same=sameField(next,*previous,Thermostat);
+    bool same=previous&&(!record||record==previous->record)&&next.metadata==previous->metadata&&next.present==previous->present;
+    for(unsigned i=0;same&&i<FieldCount;++i)same=sameField(next,*previous,static_cast<Field>(i));
     if(same)return previous;
     { AUTOMATION_PROFILE("snapshot.allocate"); return SnapshotPtr(new DeviceSnapshot(next)); }
 }
@@ -242,8 +291,8 @@ Value fieldValue(const DeviceSnapshot& d,Field field) {
     case Id:return Value(d.metadata->id);case Name:return Value(d.metadata->name);
     case Kind:return Value(d.metadata->kind);case Source:return Value(d.metadata->source);
     case AirQuality:return Value(d.airQuality);
-    case Electrical:return d.electrical;
-    case Thermostat:return d.thermostat;
+    case Electrical:return d.electrical?*d.electrical:Value();
+    case Thermostat:return d.thermostat?d.thermostat->materialize():Value();
     default:return booleanField(field)?Value(d.values[field]!=0):Value(d.values[field]);
     }
 }
@@ -273,7 +322,7 @@ Value eventValue(const Event& e) {
     out.fields["at"]=Value(e.at);char chain[32];snprintf(chain,sizeof(chain),"%llu",static_cast<unsigned long long>(e.chain));
     out.fields["chain_id"]=Value(chain);out.fields["chain_depth"]=Value(static_cast<double>(e.depth));
     if(e.field!=FieldCount){out.fields["field"]=Value(fieldName(e.field));out.fields["value"]=fieldValue(*e.device,e.field);}
-    if(e.hasOld)out.fields["old"]=e.old;
+    if(e.hasOld)out.fields["old"]=e.previous?fieldValue(*e.previous,e.field):e.old;
     if(e.type=="device.removed")out.fields["reason"]=Value("removed");
     if(e.type=="remote.action"){
         out.fields["action"]=Value(e.action);out.fields["endpoint"]=Value(static_cast<double>(e.endpoint));

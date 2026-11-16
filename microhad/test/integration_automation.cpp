@@ -208,7 +208,7 @@ void automationControls(){
             "assert(not devices.thermostat('matter-trv','child_lock',1));";
         if(!worker.validate("draft.lua",valid,&error)){fprintf(stderr,"controls validation: %s\n",error.c_str());assert(false);}
         assert(GatewayIntegrationTestPeer::automationThermostatOperations(*gateway)==0);
-        assert(runner.acquireAutomationCatalog()->devices.find("matter-trv")->second->thermostat.fields.find("pending")->second.items.empty());
+        assert(runner.acquireAutomationCatalog()->devices.find("matter-trv")->second->thermostat->materialize().fields.find("pending")->second.items.empty());
         assert(!worker.validate("draft.lua","devices.thermostat('trv','system_mode',true)",&error));
         assert(!worker.validate("draft.lua","devices.thermostat('trv','system_mode',math.huge)",&error));
         assert(!worker.validate("draft.lua","devices.thermostat('trv','system_mode',0/0)",&error));
@@ -352,7 +352,7 @@ void runAutomationIntegrationTests(){
         for(unsigned i=0;i<200&&!failed;++i){
             Automation::CatalogPtr catalog=runner.acquireAutomationCatalog();
             std::map<std::string,Automation::SnapshotPtr>::const_iterator found=catalog->devices.find(trv.id);
-            failed=found!=catalog->devices.end()&&found->second->thermostat.fields.find("error")!=found->second->thermostat.fields.end()&&found->second->thermostat.fields.find("error")->second==Value("Matter worker unavailable");
+            failed=found!=catalog->devices.end()&&found->second->thermostat->materialize().fields["error"]==Value("Matter worker unavailable");
             if(!failed)usleep(10000);
         }
         assert(failed);assert(automations.remove("command.lua",&error));
@@ -371,7 +371,7 @@ void runAutomationIntegrationTests(){
             bool confirmed=false;
             for(unsigned i=0;i<300&&!confirmed;++i){
                 Automation::CatalogPtr catalog=runner.acquireAutomationCatalog();
-                Value t=catalog->devices.find(trv.id)->second->thermostat;
+                Value t=catalog->devices.find(trv.id)->second->thermostat->materialize();
                 confirmed=t.fields["values"].fields["system_mode"]==Value(4.)&&t.fields["pending"].items.empty()&&t.fields["error"]==Value("");
                 if(!confirmed)usleep(10000);
             }

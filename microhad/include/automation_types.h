@@ -50,13 +50,21 @@ struct DeviceMetadata {
     bool matches(const Device& device) const;
 };
 typedef std::tr1::shared_ptr<const DeviceMetadata> MetadataPtr;
+typedef std::tr1::shared_ptr<const Value> ValuePtr;
+struct ThermostatSnapshot {
+    ValuePtr readings,capabilities,schedules,status;
+    Value materialize() const;
+    bool operator==(const ThermostatSnapshot& other) const;
+};
+typedef std::tr1::shared_ptr<const ThermostatSnapshot> ThermostatSnapshotPtr;
 struct DeviceSnapshot {
     DevicePtr record;
     MetadataPtr metadata;
     uint64_t present;
     double values[FieldCount];
     std::string airQuality;
-    Value thermostat,electrical;
+    ThermostatSnapshotPtr thermostat;
+    ValuePtr electrical;
     DeviceSnapshot();
     bool has(Field field) const { return (present & (1ULL<<field))!=0; }
 };
@@ -92,7 +100,7 @@ typedef std::tr1::shared_ptr<const Catalog> CatalogPtr;
 
 struct Event {
     Value data;
-    SnapshotPtr device;
+    SnapshotPtr device,previous;
     std::string type,action;
     Field field;
     Value old;

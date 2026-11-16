@@ -56,12 +56,20 @@ public:
             std::ostringstream field;field<<"\"last_seen\":"<<observed;
             assert(gateway.statusJson().find(field.str())!=std::string::npos);
         }
+        gateway.takeAutomationChanges();
+        gateway.devices_[first.id].lastSeen=gateway.devices_[second.id].lastSeen=gateway.devices_[node].lastSeen=time(0)-30;
         assert(gateway.applyMatterContact(first.node,time(0)-10,&error));
+        Gateway::AutomationChanges contactChanges=gateway.takeAutomationChanges();
+        assert(!contactChanges.inventory && contactChanges.devices.count(first.id) && contactChanges.devices.count(second.id) && contactChanges.devices.count(node));
         const time_t observed=gateway.devices_[node].lastSeen;
         assert(gateway.applyMatterContact(first.node,100,&error));
         assert(gateway.devices_[node].lastSeen==observed);
         assert(gateway.reconcileMatterDevices(endpoints,&error));
         assert(gateway.devices_[first.id].lastSeen==observed);
+        gateway.takeAutomationChanges();endpoints[0].rssiDbm=first.rssiDbm-1;
+        assert(gateway.reconcileMatterDevices(endpoints,&error));
+        Gateway::AutomationChanges metadataChanges=gateway.takeAutomationChanges();
+        assert(!metadataChanges.inventory && metadataChanges.devices.count(first.id));
         assert(!gateway.applyMatterContact("0000000000000099",observed,&error));
         assert(!gateway.applyMatterContact(first.node,0,&error));
         unlink((std::string(directory)+"/devices.json").c_str());rmdir(directory);

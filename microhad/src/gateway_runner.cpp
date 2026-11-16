@@ -317,7 +317,7 @@ void GatewayRunner::publishAutomation(bool force) {
         }
         e.type="device.value";e.field=Automation::findField(report.field);outgoing.push_back(e);
         if(before&&e.field!=Automation::FieldCount&&!Automation::sameField(*before,*current,e.field)){
-            e.type="device.changed";e.old=Automation::fieldValue(*before,e.field);e.hasOld=true;outgoing.push_back(e);
+            e.type="device.changed";e.previous=before;e.hasOld=true;outgoing.push_back(e);
         }
         // Advance only the reported field. Other edges are still discovered
         // below, and repeated reports retain their individual event snapshots.
@@ -355,7 +355,7 @@ void GatewayRunner::publishAutomation(bool force) {
         else if(current!=previous) { AUTOMATION_PROFILE("event.device.compare"); for(unsigned f=0;f<Automation::FieldCount;++f){
             const Automation::Field field=static_cast<Automation::Field>(f);
             if(field==Automation::LastSeen||!current->has(field)||Automation::sameField(*previous,*current,field))continue;
-            Automation::Event e;e.type="device.changed";e.device=current;e.field=field;e.hasOld=true;e.old=Automation::fieldValue(*previous,field);outgoing.push_back(e);
+            Automation::Event e;e.type="device.changed";e.device=current;e.field=field;e.hasOld=true;e.previous=previous;outgoing.push_back(e);
             if(field==Automation::Online){e.type=current->values[field]!=0?"device.online":"device.offline";outgoing.push_back(e);}
         } }
         automationSnapshots_[id]=current;

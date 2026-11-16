@@ -42,7 +42,7 @@ void Gateway::queueThermostatOperation(const Device& device, unsigned pendingId,
     ThermostatOperation op; op.address=device.ieeeAddress; op.pendingId=pendingId; op.cluster=cluster;
     op.endpoint=endpoint; op.command=command; op.payload=payload; op.userRequested=userRequested;
     devices_[device.ieeeAddress].thermostat.ensure().pending.insert(op.pendingId);
-    markViewDirty();
+    markDeviceDirty(device.ieeeAddress);
     if (command==2 || command==0x81) {
         std::deque<ThermostatOperation>::iterator place=thermostatOperations_.begin();
         if (place!=thermostatOperations_.end() && place->deadline!=0) ++place;
@@ -88,7 +88,7 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
             if(!thermostatScheduleMeasurement(encoded,&typed)){*error="invalid thermostat schedule";return false;}
             request.schedule=typed;
         }else request.value=value;
-        matterRequest->device_command_request=request; state.pending.insert(thermostatPendingId(field)); state.error.clear(); markViewDirty(); return true;
+        matterRequest->device_command_request=request; state.pending.insert(thermostatPendingId(field)); state.error.clear(); markDeviceDirty(device.ieeeAddress); return true;
     }
     unsigned char endpoint=0;
     if (!thermostatEndpoint(device,0x0201,&endpoint)) { *error="thermostat interview is incomplete"; return false; }
@@ -97,7 +97,7 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
         if (!thermostatNumber(value,&minutes) || minutes<5 || minutes>1440 || minutes!=std::floor(minutes)) {
             *error="stale timeout must be 5–1440 whole minutes"; return false;
         }
-        device.thermostatStaleMinutes=static_cast<unsigned long>(minutes); savePersistentState(); markViewDirty(); return true;
+        device.thermostatStaleMinutes=static_cast<unsigned long>(minutes); savePersistentState(); markDeviceDirty(device.ieeeAddress); return true;
     }
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_!=0 || device.zigbee.read().networkAddress==0xffff) {
         *error="Zigbee network or device address is unavailable"; return false;
@@ -133,7 +133,7 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
             if (!thermostatEncode(device,"temperature_sensor_select",value=="builtin" ? "0" : "1",&payload,error)) return false;
             queueThermostatOperation(device,ThermostatField::temperature_sensor_select,0xfc11,2,payload);
         }
-        savePersistentState(); markViewDirty(); return true;
+        savePersistentState(); markDeviceDirty(device.ieeeAddress); return true;
     }
     if (field=="boost") {
         const ThermostatAttribute* duration=thermostatAttribute(ThermostatField::temporary_mode_duration);
@@ -157,7 +157,7 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
         payload.insert(payload.end(),selection.begin(),selection.end());
         queueThermostatOperation(device,duration->id,duration->cluster,2,payload,true);
         state.pending.insert(mode->id);
-        state.error.clear(); state.status="Awaiting Boost confirmation"; markViewDirty(); return true;
+        state.error.clear(); state.status="Awaiting Boost confirmation"; markDeviceDirty(device.ieeeAddress); return true;
     }
     for (std::deque<ThermostatOperation>::const_iterator op=thermostatOperations_.begin();op!=thermostatOperations_.end();++op)
         if (op->address==device.ieeeAddress && (op->pendingId==thermostatPendingId(field) || (op->combinedBoost() && field=="temporary_mode_select"))) { *error="this thermostat setting already has a pending request"; return false; }
@@ -181,7 +181,7 @@ bool Gateway::setThermostat(const std::string& address, const std::string& field
         }
     }
     queueThermostatOperation(device,thermostatPendingId(field),cluster,command,payload,true);
-    state.error.clear(); state.status="Awaiting device confirmation"; markViewDirty(); return true;
+    state.error.clear(); state.status="Awaiting device confirmation"; markDeviceDirty(device.ieeeAddress); return true;
 }
 long Gateway::thermostatDeadline() const {
     if (!online_ || !networkFormed_ || coordinatorInitializationStep_!=0) return 0;
@@ -201,7 +201,7 @@ void Gateway::pollThermostats() {
         std::map<std::string,Device>::const_iterator source=devices_.find(valve.thermostatSourceId);
         bool fresh=source!=devices_.end() && !isThermostat(source->second) && sensorFresh(source->second,now,valve.thermostatStaleMinutes);
         long observed=source==devices_.end() ? 0 : source->second.temperature.read().observation.at;
-        if (t.sourceObservedAt!=observed) { t.sourceObservedAt=observed; markViewDirty(); }
+        if (t.sourceObservedAt!=observed) { t.sourceObservedAt=observed; markDeviceDirty(valve.ieeeAddress); }
         bool pending=false;
         for (std::deque<ThermostatOperation>::iterator op=thermostatOperations_.begin();op!=thermostatOperations_.end();) {
             if (op->address==it->first && (op->pendingId==ThermostatField::external_temperature_input || op->pendingId==ThermostatField::temperature_sensor_select)) {
@@ -238,7 +238,7 @@ void Gateway::pollThermostats() {
                 }
             }
         }
-        if (t.status!=status) { t.status=status; markViewDirty(); }
+        if (t.status!=status) { t.status=status; markDeviceDirty(valve.ieeeAddress); }
     }
     if (thermostatOperations_.empty()) return;
     ThermostatOperation& op=thermostatOperations_.front();
@@ -254,7 +254,7 @@ void Gateway::pollThermostats() {
         }
         device->second.thermostat.ensure().pending.erase(op.pendingId);
         if(op.combinedBoost())device->second.thermostat.ensure().pending.erase(ThermostatField::temporary_mode_select);
-        thermostatOperations_.pop_front(); markViewDirty(); return;
+        thermostatOperations_.pop_front(); markDeviceDirty(device->second.ieeeAddress); return;
     }
     if (interviewRequestInFlight_) return;
     if (!op.attempts) op.sequence=++zclTransactionSequence_;
@@ -299,7 +299,7 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
         if(!thermostatOperations_.empty()) {
             const ThermostatOperation& reporting=thermostatOperations_.front();
             if(reporting.command==6 && reporting.address==address && reporting.endpoint==endpoint && reporting.cluster==cluster && reporting.sequence==sequence && reporting.deadline) {
-                device.thermostat.ensure().pending.erase(reporting.pendingId); thermostatOperations_.pop_front();markViewDirty();return true;
+                device.thermostat.ensure().pending.erase(reporting.pendingId); thermostatOperations_.pop_front();markDeviceDirty(device.ieeeAddress);return true;
             }
         }
         return false;
@@ -346,7 +346,7 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
             ThermostatOperation& op=thermostatOperations_.front();
             if (op.command==0x82) completed=payload[1]==op.payload[0];
         }
-        markViewDirty();
+        markDeviceDirty(device.ieeeAddress);
     } else if ((control&3)==0 && (command==1 || command==0x0a)) {
         unsigned long at=0;
         while (at+3<=payload.size()) {
@@ -411,7 +411,7 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
             reply.push_back(0x0b); reply.push_back(command); reply.push_back(0);
             sendApsUnicast(device.zigbee.read().networkAddress,0x0104,cluster,1,endpoint,reply);
         }
-        markViewDirty();
+        markDeviceDirty(device.ieeeAddress);
     }
     if(!thermostatOperations_.empty() && thermostatOperations_.front().address==address &&
         thermostatOperations_.front().combinedBoost() && !completed) {
@@ -446,7 +446,7 @@ bool Gateway::handleThermostatMessage(const std::string& address, unsigned char 
                 }
             }
         }
-        markViewDirty();
+        markDeviceDirty(device.ieeeAddress);
     }
     return true;
 }
@@ -457,7 +457,7 @@ bool Gateway::thermostatResult(const std::string& node, unsigned short endpoint,
         if(d.source=="matter" && d.matter.read().node==node && d.matter.read().endpoint==endpoint && isThermostat(d)) {
             d.thermostat.ensure().pending.erase(thermostatPendingId(field)); d.thermostat.ensure().error=error;
             d.thermostat.ensure().status=error.empty()?"Device confirmed "+field:"Thermostat request failed";
-            markViewDirty(); return true;
+            markDeviceDirty(d.ieeeAddress); return true;
         }
     }
     return false;

@@ -698,6 +698,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             Device& fresh = it->second;
             if (fresh.matter.read().endpoint < 0 && fresh.matter.read().metadataState == "missing" && current.matter.read().metadataState != "missing")
                 fresh.matter.ensure().metadataState = "stale";
+            bool devicePersistentChanged = false;
             const time_t now = time(0);
             const bool recentlyReported = current.matter.read().endpoint >= 0 && current.online && current.lastSeen > 0 &&
                 now >= current.lastSeen && now - current.lastSeen <= 60;
@@ -711,7 +712,7 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
                 current.contact.present() != fresh.contact.present() || current.waterLeak.present() != fresh.waterLeak.present() ||
                 current.temperature.present() != fresh.temperature.present() || current.humidity.present() != fresh.humidity.present() ||
                 current.airQuality.present() != fresh.airQuality.present() || current.co2.present() != fresh.co2.present() ||
-                current.pm25.present() != fresh.pm25.present() || current.power.present() != fresh.power.present()) persistentChanged = true;
+                current.pm25.present() != fresh.pm25.present() || current.power.present() != fresh.power.present()) devicePersistentChanged = true;
             // Discovery owns capability presence; copy values only into retained capabilities.
             if(fresh.light.present())fresh.light.ensure()=current.light.read();
             if(fresh.actor.present())fresh.actor.ensure()=current.actor.read();
@@ -741,7 +742,8 @@ bool Gateway::reconcileMatterDevices(const std::vector<MatterEndpoint>& endpoint
             fresh.valueAlerts = current.valueAlerts;
             if (current.online != fresh.online || current.lastSeen != fresh.lastSeen ||
                 current.matter.read().vendorId != fresh.matter.read().vendorId || current.matter.read().productId != fresh.matter.read().productId || current.matter.read().hardwareVersion != fresh.matter.read().hardwareVersion || current.matter.read().softwareVersion != fresh.matter.read().softwareVersion || current.matter.read().softwareVersionString != fresh.matter.read().softwareVersionString || current.matter.read().metadataState != fresh.matter.read().metadataState || current.matter.read().state != fresh.matter.read().state || current.name != fresh.name || current.matter.read().servers != fresh.matter.read().servers ||
-                current.matter.read().clients != fresh.matter.read().clients) changed = true;
+                current.matter.read().clients != fresh.matter.read().clients || devicePersistentChanged) markDeviceDirty(it->first);
+            persistentChanged = persistentChanged || devicePersistentChanged;
             current = fresh;
         }
     }
@@ -912,7 +914,7 @@ bool Gateway::applyMatterContact(const std::string& node, time_t observedAt, std
     if (node.size() != 16 || observedAt <= 0) { if (error) *error = "invalid Matter contact"; return false; }
     const time_t now = time(0);
     if (observedAt > now) observedAt = now;
-    bool found = false, changed = false;
+    bool found = false;
     for (std::map<std::string, Device>::iterator it = devices_.begin(); it != devices_.end(); ++it) {
         Device& device = it->second;
         if (device.source != "matter" || device.matter.read().node != node) continue;
@@ -920,10 +922,9 @@ bool Gateway::applyMatterContact(const std::string& node, time_t observedAt, std
         if (device.lastSeen <= observedAt && (device.lastSeen != observedAt || !device.online)) {
             device.lastSeen = observedAt;
             device.online = true;
-            changed = true;
+            markDeviceDirty(device.ieeeAddress);
         }
     }
-    if (changed) markViewDirty();
     if (!found && error) *error = "Matter device not found";
     return found;
 }

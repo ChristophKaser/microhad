@@ -60,8 +60,15 @@ void electricalSnapshots(){
     state.resetMetadata["imported_reset_timestamp"]=42;
     Value expected;assert(Automation::parse(electricalJson(state),&expected));
     Automation::SnapshotPtr snapshot=Automation::capture(d);
-    assert(snapshot->electrical==expected);
+    assert(*snapshot->electrical==expected);
     assert(Automation::snapshot(*snapshot).fields["electrical"]==expected);
+    Device changed=d;changed.lastSeen=12347;
+    Automation::SnapshotPtr after=Automation::capture(changed,snapshot);
+    assert(after->electrical==snapshot->electrical);
+    changed.electrical.ensure().values["active_power"].value=7;
+    Automation::SnapshotPtr updated=Automation::capture(changed,after);
+    assert(updated->electrical!=after->electrical);
+    assert(Automation::fieldValue(*snapshot,Automation::Electrical)==expected);
 }
 
 void thermostatSnapshots(){
@@ -74,19 +81,30 @@ void thermostatSnapshots(){
     Value fromJson;assert(Automation::parse(thermostatJson(d),&fromJson));
     // Direct construction retains the actual uint32 limit; the old JSON path rounded it.
     fromJson.fields["fields"].fields["feature_map"].fields["max"]=Value(4294967295.);
-    assert(before->thermostat==fromJson);
+    assert(before->thermostat->materialize()==fromJson);
     Device changed=d;changed.thermostat.ensure().scheduleSupported=true;
-    assert(Automation::capture(changed,before)->thermostat.fields.find("schedule_supported")->second==Value(true));
+    assert(Automation::capture(changed,before)->thermostat->materialize().fields.find("schedule_supported")->second==Value(true));
     changed=d;changed.thermostat.ensure().values[ThermostatField::local_temperature]=21.123456789;
-    assert(Automation::capture(changed,before)->thermostat.fields.find("values")->second.fields.find("local_temperature")->second==Value(21.123456789));
-    Value initial=before->thermostat;
+    assert(Automation::capture(changed,before)->thermostat->materialize().fields.find("values")->second.fields.find("local_temperature")->second==Value(21.123456789));
+    Value initial=before->thermostat->materialize();
     assert(initial.fields["values"].fields["occupied_heating_setpoint"]==Value(20.));
     d.thermostat.ensure().pending.insert(ThermostatField::system_mode);d.thermostat.ensure().error="timeout";
     Automation::SnapshotPtr after=Automation::capture(d,before);
     assert(!Automation::sameField(*before,*after,Automation::Thermostat));
+    assert(after->thermostat->capabilities==before->thermostat->capabilities);
+    assert(after->thermostat->schedules==before->thermostat->schedules);
+    assert(after->thermostat->readings==before->thermostat->readings);
+    assert(after->thermostat->status!=before->thermostat->status);
+    Device readChange=d;readChange.thermostat.ensure().values[ThermostatField::occupied_heating_setpoint]=22;
+    Automation::SnapshotPtr reading=Automation::capture(readChange,after);
+    assert(reading->thermostat->capabilities==after->thermostat->capabilities);
+    assert(reading->thermostat->schedules==after->thermostat->schedules);
+    assert(reading->thermostat->status==after->thermostat->status);
+    assert(reading->thermostat->readings!=after->thermostat->readings);
+    assert(Automation::fieldValue(*before,Automation::Thermostat)==initial);
     assert(initial.fields["error"]==Value(""));
     Automation::Event event;event.type="device.changed";event.field=Automation::Thermostat;event.device=after;
-    event.hasOld=true;event.old=Automation::fieldValue(*before,Automation::Thermostat);
+    event.hasOld=true;event.previous=before;
     Value value=Automation::eventValue(event);
     assert(value.fields["field"]==Value("thermostat"));
     assert(value.fields["old"].fields["pending"].items.empty());
@@ -95,7 +113,12 @@ void thermostatSnapshots(){
     assert(!Automation::snapshot(Device()).fields.count("thermostat"));
     const unsigned char mixed[]={1,2,3,60,0,208,7,196,9};
     d.thermostat.ensure().scheduleDetails[1]=std::vector<unsigned char>(mixed,mixed+sizeof(mixed));
-    Value thermostat=Automation::capture(d)->thermostat;
+    Automation::SnapshotPtr scheduled=Automation::capture(d,after);
+    assert(scheduled->thermostat->schedules!=after->thermostat->schedules);
+    assert(scheduled->thermostat->capabilities==after->thermostat->capabilities);
+    assert(scheduled->thermostat->readings==after->thermostat->readings);
+    assert(scheduled->thermostat->status==after->thermostat->status);
+    Value thermostat=scheduled->thermostat->materialize();
     const Value& schedule=thermostat.fields["schedules"].items[1];
     assert(schedule.type==Value::Object&&schedule.fields.find("mode")->second.number==3);
     assert(schedule.fields.find("transitions")->second.items[0].fields.find("cool")->second.number==25);
