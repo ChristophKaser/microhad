@@ -1,6 +1,7 @@
 #include "automation_types.h"
 #include "gateway.h"
 #include "json_util.h"
+#include "automation_profile.h"
 #include <cmath>
 #include <cstdlib>
 #include <sstream>
@@ -220,17 +221,20 @@ SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr&
 #undef ELECTRICAL
     const bool thermostat=isThermostat(d);
     if(thermostat)next.present|=1ULL<<Thermostat;
-    const bool sameThermostat=thermostat&&previous&&previous->has(Thermostat)&&previous->record&&sameThermostatInput(d,*previous->record);
+    bool sameThermostat=false;
+    if(thermostat) { AUTOMATION_PROFILE("snapshot.thermostat.input"); sameThermostat=previous&&previous->has(Thermostat)&&previous->record&&sameThermostatInput(d,*previous->record); }
 #undef F
     bool same=previous&&(!record||record==previous->record)&&next.metadata==previous->metadata&&next.present==previous->present;
     for(unsigned i=0;same&&i<FieldCount;++i)if(i!=Thermostat)same=sameField(next,*previous,static_cast<Field>(i));
     if(same&&(!thermostat||sameThermostat))return previous;
     if(thermostat){
-        next.thermostat=sameThermostat?previous->thermostat:thermostatSnapshotValue(d);
+        if(sameThermostat) { AUTOMATION_PROFILE("snapshot.thermostat.copy"); next.thermostat=previous->thermostat; }
+        else { AUTOMATION_PROFILE("snapshot.thermostat.build"); next.thermostat=thermostatSnapshotValue(d); }
         if(!next.record)next.record=DevicePtr(new Device(d));
     }
     if(same)same=sameField(next,*previous,Thermostat);
-    return same?previous:SnapshotPtr(new DeviceSnapshot(next));
+    if(same)return previous;
+    { AUTOMATION_PROFILE("snapshot.allocate"); return SnapshotPtr(new DeviceSnapshot(next)); }
 }
 Value fieldValue(const DeviceSnapshot& d,Field field) {
     if(field>=FieldCount||!d.has(field))return Value();

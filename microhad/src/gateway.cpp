@@ -3773,7 +3773,19 @@ void Gateway::automationRemoteAction(const Device& device, const std::string& ac
     markDeviceDirty(device.ieeeAddress);
 }
 std::vector<Gateway::AutomationReport> Gateway::takeAutomationReports() { std::vector<AutomationReport> result;result.swap(automationReports_);return result; }
-void Gateway::markViewDirty() { viewDirty_=true;++viewRevision_;automationInventoryDirty_=true; }
+void Gateway::markViewDirty() {
+    if(AutomationProfile::enabled()) {
+        void* caller=__builtin_return_address(0);
+        static std::map<void*,double> last;
+        static std::map<void*,unsigned long> counts;
+        ++counts[caller];const double now=AutomationProfile::clock(CLOCK_MONOTONIC);
+        if(now-last[caller]>=3) {
+            char detail[100];std::snprintf(detail,sizeof(detail),"caller=%p count=%lu",caller,counts[caller]);
+            AutomationProfile::mark("inventory.dirty",detail);last[caller]=now;counts[caller]=0;
+        }
+    }
+    viewDirty_=true;++viewRevision_;automationInventoryDirty_=true;
+}
 void Gateway::markDeviceDirty(const std::string& id) const {
     viewDirty_=true;++viewRevision_;if(!automationInventoryDirty_)automationDeviceDirty_.insert(id);
 }
@@ -3958,7 +3970,19 @@ uint64_t deviceCacheMilliseconds() {
 }
 }
 void Gateway::saveState(const std::string& id) const {
-    if(id.empty()){viewDirty_=true;++viewRevision_;automationInventoryDirty_=true;}
+    if(id.empty()){
+        if(AutomationProfile::enabled()) {
+            void* caller=__builtin_return_address(0);
+            static std::map<void*,double> last;
+            static std::map<void*,unsigned long> counts;
+            ++counts[caller];const double now=AutomationProfile::clock(CLOCK_MONOTONIC);
+            if(now-last[caller]>=3) {
+                char detail[100];std::snprintf(detail,sizeof(detail),"caller=%p count=%lu",caller,counts[caller]);
+                AutomationProfile::mark("inventory.save",detail);last[caller]=now;counts[caller]=0;
+            }
+        }
+        viewDirty_=true;++viewRevision_;automationInventoryDirty_=true;
+    }
     else markDeviceDirty(id);
     // A fixed window from the first dirty value prevents continuous reports
     // from postponing persistence indefinitely. No snapshot or I/O here.
