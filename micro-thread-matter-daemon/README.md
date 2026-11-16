@@ -327,8 +327,13 @@ startup event arrives, or explicit recovery invalidates them. Registered
 Check-In devices retain wake-window gating. After a restart, a saved ICD
 registration can request an authenticated StayActive window using its saved
 management endpoint, even before metadata or subscription keys exist. Recovery
-probes run only while operational work is idle, time out after ten seconds,
+probes use an independent recovery slot, time out after sixty seconds,
 and back off for sixty seconds on failure without replacing registration keys.
+Two ordinary recovery slots advance descriptor interviews and subscriptions
+for distinct peers independently, with their existing thirty-second deadlines.
+A pending ICD probe does not block these slots. Clock maintenance follows
+ready recovery work; foreground commands retain their priority. Explicit restore,
+node removal and radio loss retire the affected ordinary recovery transactions.
 Authenticated Check-Ins also request a window when startup metadata is missing.
 Short-idle ICDs do not need Check-In support to remain recoverable.
 Negotiated report intervals and the

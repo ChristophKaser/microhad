@@ -103,9 +103,12 @@ services that need uploading. `--services matter`, `--services native`,
 `--services ziggurat`, or a comma-separated combination verify local MIPS
 artifacts, compare installed hashes, and skip unchanged services. Native
 updates require a matching Matter manifest. Only the selected changed
-executables (and native manifest when selected) are transferred. A changed
-selection quiesces and restarts the paired stack using its installed launcher;
-an unchanged selection performs no restart. Configuration, identity, network
+executables (and native manifest when selected) are transferred. When only the
+native service changes, deployment stages and verifies its executable and manifest,
+then restarts only MicroHAD through the existing supervisor. Matter and Ziggurat
+keep running, preserving live CASE sessions and Thread attachment. Other changed
+selections quiesce and restart the paired stack using its installed launcher.
+An unchanged selection performs no restart. Configuration, identity, network
 state, Web UI and existing backups are preserved.
 
 ```sh

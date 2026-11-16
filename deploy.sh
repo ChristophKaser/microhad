@@ -361,12 +361,68 @@ selected_services_deploy() {
     for selected in $changed_services; do
         selected_service_paths "$selected"
         staging_bytes=$(wc -c < "$service_source")
+        if [ "$selected" = native ]; then staging_bytes=$((staging_bytes + $(wc -c < "$binary.matter-manifest"))); fi
         if [ "$selected" = supervisor ]; then
             staging_bytes=$((staging_bytes + $(wc -c < "$project_dir/scripts/paired_control.sh")))
         fi
         needed=$(((staging_bytes + 1023) / 1024 + flash_reserve_kib))
         [ "$available" -ge "$needed" ] || { echo "Insufficient staging space for $selected; installation unchanged" >&2; return 1; }
     done
+    if [ "$changed_services" = ' native' ]; then
+        # Keep the radio and Matter's RAM sessions alive. The paired supervisor
+        # already respawns only MicroHAD when this exact child exits.
+        radio_pids=$(ssh_command 'for file in /tmp/ziggurat-supervisor/ziggurat.pid /tmp/ziggurat-supervisor/matter.pid; do pid=$(cat "$file") || exit 1; case "$pid" in ""|*[!0-9]*) exit 1 ;; esac; test "$pid" -gt 1 && kill -0 "$pid" || exit 1; echo "$pid"; done' </dev/null) || return 1
+        native_stage="$target/.microhad.native-$$.new"
+        manifest_stage="$target/.microhad.manifest-$$.new"
+        native_hash=$(md5sum "$binary" | awk '{print $1}')
+        manifest_hash=$(md5sum "$binary.matter-manifest" | awk '{print $1}')
+        ssh_command "dd bs=64k of=\"$native_stage\"" < "$binary" || {
+            ssh_command "rm -f \"$native_stage\"" </dev/null || true; return 1;
+        }
+        ssh_command "dd bs=64k of=\"$manifest_stage\"" < "$binary.matter-manifest" || {
+            ssh_command "rm -f \"$native_stage\" \"$manifest_stage\"" </dev/null || true; return 1;
+        }
+        ssh_command "set -e
+            trap 'rm -f \"$native_stage\" \"$manifest_stage\"' EXIT
+            test ! -e /tmp/ziggurat-supervisor/quiesce
+            test ! -e /tmp/ziggurat-supervisor/stop
+            test \"\$(md5sum \"$native_stage\" | awk '{print \$1}')\" = '$native_hash'
+            test \"\$(md5sum \"$manifest_stage\" | awk '{print \$1}')\" = '$manifest_hash'
+            available=\$(df -k /tuya | awk 'END {print \$4}')
+            case \"\$available\" in ''|*[!0-9]*) exit 1 ;; esac
+            test \"\$available\" -ge $flash_reserve_kib
+            pid=\$(cat /tmp/ziggurat-supervisor/native.pid)
+            case \"\$pid\" in ''|*[!0-9]*) exit 1 ;; esac
+            test \"\$pid\" -gt 1
+            image=\$(ls -l /proc/\$pid/exe)
+            case \"\$image\" in *\" -> $target/microhad\") ;; *) exit 1 ;; esac
+            kill -0 \"\$pid\"
+            chmod 700 \"$native_stage\"
+            chmod 600 \"$manifest_stage\"
+            mv \"$native_stage\" \"$target/microhad\"
+            mv \"$manifest_stage\" \"$target/microhad.matter-manifest\"
+            kill -TERM \"\$pid\"
+            n=0
+            while [ \$n -lt 30 ]; do
+                new_pid=\$(cat /tmp/ziggurat-supervisor/native.pid 2>/dev/null) || new_pid=
+                case \"\$new_pid\" in ''|*[!0-9]*) ;; *)
+                    if [ \"\$new_pid\" != \"\$pid\" ] && kill -0 \"\$new_pid\" 2>/dev/null; then
+                        image=\$(ls -l /proc/\$new_pid/exe)
+                        case \"\$image\" in *\" -> $target/microhad\")
+                            test \"\$(md5sum /proc/\$new_pid/exe | awk '{print \$1}')\" = '$native_hash'
+                            exit 0 ;; esac
+                    fi ;;
+                esac
+                sleep 1; n=\$((n+1))
+            done
+            echo 'Native supervisor did not start the new executable' >&2
+            exit 1" </dev/null || return 1
+        wait_for_dashboard || return 1
+        current_radio_pids=$(ssh_command 'for file in /tmp/ziggurat-supervisor/ziggurat.pid /tmp/ziggurat-supervisor/matter.pid; do pid=$(cat "$file") || exit 1; case "$pid" in ""|*[!0-9]*) exit 1 ;; esac; test "$pid" -gt 1 && kill -0 "$pid" || exit 1; echo "$pid"; done' </dev/null) || return 1
+        [ "$radio_pids" = "$current_radio_pids" ] || { echo 'Matter or Ziggurat restarted during the native update' >&2; return 1; }
+        echo 'Native deployment complete; Matter and Ziggurat were kept running'
+        return 0
+    fi
     supervisor_pid=$(ssh_command 'cat /tmp/ziggurat-supervisor/supervisor.pid' </dev/null) || return 1
     case "$supervisor_pid" in ''|*[!0-9]*) echo 'Invalid supervisor PID' >&2; return 1 ;; esac
     [ "$supervisor_pid" -gt 1 ] || return 1

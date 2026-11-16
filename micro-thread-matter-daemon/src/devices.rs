@@ -223,7 +223,7 @@ enum JobRecordState {
     Failed(crate::operations::Failure),
 }
 
-/// One operational job at a time, yielding to commissioning and radio recovery.
+/// Foreground jobs remain serialized; bounded recovery slots progress independent peers.
 pub struct Manager<'a, C: Crypto> {
     matter: &'a Matter<'a>,
     crypto: &'a C,
@@ -253,6 +253,8 @@ pub struct Manager<'a, C: Crypto> {
     contacts: Vec<(u64, Instant)>,
     snapshots: Vec<Snapshot>,
     work: Option<(u64, Instant, Work<'a>)>,
+    pending_discoveries: Vec<(u64, Instant, Work<'a>)>,
+    pending_subscriptions: Vec<((SubscriptionKey, Instant, SubscriptionWork<'a>), Vec<SubscriptionKey>)>,
     revision: u64,
     inventory_peers: Vec<InventoryPeer>,
     inventory_bootstrap_until: Instant,
@@ -358,6 +360,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             contacts: Vec::new(),
             snapshots: Vec::new(),
             work: None,
+            pending_discoveries: Vec::new(),
+            pending_subscriptions: Vec::new(),
             revision,
             inventory_peers: Vec::new(),
             inventory_bootstrap_until: Instant::now(),
@@ -624,11 +628,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         // An awake promise must come from the peer, but obtaining that promise
         // cannot itself require a Check-In. Persisted subscriptions and volatile
         // metadata can disappear independently across a controller restart.
-        if self.local_node == 0 || self.work.is_some() || self.subscription_work.is_some() || self.active.is_some() {
+        if self.local_node == 0 {
             return None;
         }
         let registry = self.icd_registry.as_ref()?;
         self.registered_nodes.iter().find_map(|&node| {
+            if self.recovery_node_busy(node) { return None; }
             let registration = registry.registration(self.fabric, node)?;
             let key = (node, registration.endpoint);
             (self.catalog.nodes().iter().any(|entry| entry.id == node && entry.phase == Phase::Complete)
@@ -951,6 +956,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         self.unsupported_clock_events.retain(|key| key.node != node);
         self.catalog.remove(node).map_err(|_| Failure::Storage)?;
         self.snapshots.retain(|entry| entry.node != node);
+        self.pending_discoveries.retain(|(id, _, _)| *id != node);
+        self.pending_subscriptions.retain(|((key, _, _), _)| key.node != node);
         if self.work.as_ref().is_some_and(|(id, _, _)| *id == node) { self.work = None; }
         if self.icd_work.as_ref().is_some_and(|(id, _, _, _)| *id == node) { self.icd_work = None; }
         self.registered_nodes.retain(|id| *id != node);
@@ -1089,6 +1096,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if !ready {
             self.work = None;
             self.subscription_work = None;
+            self.pending_discoveries.clear();
+            self.pending_subscriptions.clear();
             self.report_receiver = crate::subscriptions::ReportReceiver::default();
             let changed = self.snapshots.iter().any(|s| s.online);
             for snapshot in &mut self.snapshots {
@@ -1174,17 +1183,17 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if now < self.inventory_bootstrap_until || self.inventory_pending() {
             return;
         }
-        self.recover_peer_activity(now);
-        if self.poll_icd(now, context, !commissioning) {
-            return;
-        }
         if commissioning {
             self.work = None;
+            self.subscription_work = None;
+            self.subscription_members.clear();
+            self.pending_discoveries.clear();
+            self.pending_subscriptions.clear();
             return;
         }
-        if self.icd_work.is_some() {
-            return;
-        }
+        self.poll_pending_recoveries(now, context);
+        self.recover_peer_activity(now);
+        self.poll_icd(now, context, true);
         if let Some(active) = &mut self.active {
             let completed = if now >= active.deadline {
                 Some(Err(crate::operations::Failure::Timeout))
@@ -1236,6 +1245,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             // Foreground work runs first, but a live background exchange must
             // also progress while its transport and deadline keep running.
             self.poll_background(now, context);
+            if self.active.as_ref().is_some_and(|active| active.id == 0) {
+                // A waiting automatic clock sync must not block other peers.
+                self.admit_recovery(now);
+            }
             return;
         }
         while let Some(index) = self.queued.iter().position(|queued| queued.deadline <= now) {
@@ -1299,13 +1312,15 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if self.poll_background(now, context) {
             return;
         }
-        if self.operations_busy() {
+        if self.operations_busy() || self.pending_discoveries.len() + self.pending_subscriptions.len() >= 2 {
             return;
         }
+        self.admit_recovery(now);
+        if self.subscription_work.is_some() || !self.pending_discoveries.is_empty() || !self.pending_subscriptions.is_empty() { return; }
         // Background clock maintenance shares the single operational slot and
         // never writes persistent state during periodic refreshes.
         for preference in self.time_preferences.entries.iter().filter(|p| {
-            p.next <= now && self.node_awake(p.node, now) && self.catalog.nodes().iter()
+            p.next <= now && self.node_awake(p.node, now) && self.snapshots.iter().any(|s|s.node==p.node&&s.online) && self.catalog.nodes().iter()
                 .any(|n| n.id == p.node && n.phase == Phase::Complete)
         }) {
             let operation = crate::operations::Operation {
@@ -1322,6 +1337,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 return;
             }
         }
+    }
+    fn admit_recovery(&mut self, now: Instant) {
+        if self.work.is_some() || self.subscription_work.is_some()
+            || self.pending_discoveries.len() + self.pending_subscriptions.len() >= 2 { return; }
         for node in self
             .catalog
             .nodes()
@@ -1344,7 +1363,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if let Some(snapshot) = self
             .snapshots
             .iter()
-            .filter(|s| s.next.is_some_and(|next| next <= now) && self.node_awake(s.node, now))
+            .filter(|s| s.next.is_some_and(|next| next <= now) && self.node_awake(s.node, now) && !self.recovery_node_busy(s.node))
             .min_by_key(|s| {
                 (self.catalog.nodes().iter().find(|node| node.id == s.node).is_none_or(|node| node.phase != Phase::Complete), s.next,
                 )
@@ -1367,7 +1386,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .subscriptions
             .iter()
             .filter(|subscription| {
-                subscription.next_retry <= now && self.node_awake(subscription.key.node, now)
+                subscription.next_retry <= now && self.node_awake(subscription.key.node, now) && !self.recovery_node_busy(subscription.key.node)
             })
             .min_by_key(|subscription| subscription.next_retry)
         {
@@ -1413,6 +1432,39 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             };
             self.subscription_members = members;
             self.subscription_work = Some((key, now + Duration::from_secs(30), work));
+        }
+    }
+    fn recovery_node_busy(&self, node: u64) -> bool {
+        self.active.as_ref().is_some_and(|active| active.node == node)
+            || self.work.as_ref().is_some_and(|(n, _, _)| *n == node)
+            || self.subscription_work.as_ref().is_some_and(|(key, _, _)| key.node == node)
+            || self.pending_discoveries.iter().any(|(n, _, _)| *n == node)
+            || self.pending_subscriptions.iter().any(|((key, _, _), _)| key.node == node)
+            || self.icd_work.as_ref().is_some_and(|(n, _, _, _)| *n == node)
+    }
+    /// Poll each admitted recovery once, keeping its absolute deadline and
+    /// grouped subscription members. A Pending peer never occupies the next
+    /// peer's admission slot. Two ordinary slots bound memory/radio pressure;
+    /// the existing ICD slot progresses independently.
+    fn poll_pending_recoveries(&mut self, now: Instant, context: &mut Context<'_>) {
+        let mut discoveries = std::mem::take(&mut self.pending_discoveries);
+        let mut subscriptions = std::mem::take(&mut self.pending_subscriptions);
+        if let Some(work) = self.work.take() { discoveries.push(work); }
+        if let Some(work) = self.subscription_work.take() {
+            subscriptions.push((work, std::mem::take(&mut self.subscription_members)));
+        }
+        for work in discoveries {
+            self.work = Some(work);
+            self.poll_background(now, context);
+            if let Some(work) = self.work.take() { self.pending_discoveries.push(work); }
+        }
+        for (work, members) in subscriptions {
+            self.subscription_work = Some(work);
+            self.subscription_members = members;
+            self.poll_background(now, context);
+            if let Some(work) = self.subscription_work.take() {
+                self.pending_subscriptions.push((work, std::mem::take(&mut self.subscription_members)));
+            }
         }
     }
     /// Advance the already-admitted background transaction once per turn.
@@ -1664,6 +1716,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     self.snapshots.iter().find_map(|snapshot| {
                         snapshot.endpoints.iter().find_map(|endpoint| {
                             (endpoint.servers.contains(&ICD_MANAGEMENT_CLUSTER)
+                                && !self.recovery_node_busy(snapshot.node)
                                 && !self.icd_checked.contains(&(snapshot.node, endpoint.id))
                                 && !self.registered_nodes.contains(&snapshot.node)
                                 && !self.icd_retry_after.iter().any(|(key, until)| {
@@ -1830,6 +1883,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
         if restore && cursor != 0 { return Err(Failure::Malformed); }
         if restore {
+            if self.work.as_ref().is_some_and(|(n, _, _)| *n == node) { self.work = None; }
+            self.pending_discoveries.retain(|(n, _, _)| *n != node);
+            self.pending_subscriptions.retain(|((key, _, _), _)| key.node != node);
             self.icd_intervals.invalidate(node);
             self.icd_checked.retain(|(checked_node, _)| *checked_node != node);
             if let Some(snapshot) = self.snapshots.iter_mut().find(|snapshot| snapshot.node == node) {
@@ -1851,7 +1907,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if start > entries.len() { return Err(Failure::Malformed); }
         let end = (start + 6).min(entries.len());
         let subscriptions: Vec<_> = entries[start..end].iter().map(|entry| {
-            let establishing = self.subscription_work.as_ref().is_some_and(|(key, _, _)| *key == entry.key || self.subscription_members.contains(&entry.key));
+            let establishing = self.subscription_work.as_ref().is_some_and(|(key, _, _)| *key == entry.key || self.subscription_members.contains(&entry.key))
+                || self.pending_subscriptions.iter().any(|((key, _, _), members)| *key == entry.key || members.contains(&entry.key));
                 crate::protobuf::Subscription {
                     endpoint: Some(entry.key.endpoint.into()),
                     cluster: Some(entry.key.cluster),
@@ -3282,6 +3339,10 @@ mod tests {
         });
         let before = std::fs::read(directory.join("credentials.bin")).unwrap();
         let mut context = Context::from_waker(std::task::Waker::noop());
+        // Clock maintenance runs once subscription recovery is already healthy.
+        manager.sync_subscriptions(now);
+        for entry in &mut manager.subscriptions { entry.id=Some(100);entry.next_retry=now+Duration::from_secs(300); }
+        manager.sync_report_subscriptions();
         manager.poll(true, true, now, &mut context);
         assert!(manager.active.is_none());
         manager.poll(true, false, now, &mut context);
@@ -3299,6 +3360,7 @@ mod tests {
         // Event subscriptions baseline the initial retained history, then accept
         // both live reboot reports and missed events in replacement priming.
         let key = SubscriptionKey { node: 2, endpoint: 0, cluster: 56, attribute: CLOCK_EVENT_ATTRIBUTE };
+        manager.subscriptions.retain(|entry|entry.key!=key);
         manager.subscriptions.push(SubscriptionState {
             key, id: Some(100), next_retry: now + Duration::from_secs(300), max_interval: 300,
             failures: 0, unit: None, last_report: None, last_received: None,
@@ -3382,6 +3444,79 @@ mod tests {
         assert_eq!(manager.time_preferences.entries[0].next.duration_since(now).as_secs(), 60);
         drop(manager); drop(store);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn recovery_peers_progress_independently() {
+        for subscription in [false,true] {
+        use crate::{entropy::OsEntropy, store::PrivateStore};
+        use rs_matter::{
+            crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET},
+            utils::init::InitMaybeUninit,
+        };
+        let directory = std::env::temp_dir().join(format!(
+            "matter-independent-recovery-{}-{}-{}", std::process::id(), subscription,
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let store = PrivateStore::open(&directory).unwrap();
+        let catalog = Catalog::open(store.clone(), 1, 2).unwrap();
+        let reservation = catalog.reserve(2).unwrap();
+        reservation.fabric_installed().unwrap();
+        reservation.thread_provisioned().unwrap();
+        reservation.complete().unwrap();
+        for node in [3,4] {
+            let reservation=catalog.reserve(node).unwrap();
+            reservation.fabric_installed().unwrap();reservation.thread_provisioned().unwrap();reservation.complete().unwrap();
+        }
+        let before = std::fs::read(directory.join("credentials.bin")).unwrap();
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]),
+        );
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540,
+        ));
+        let mut manager = Manager::new(matter, &crypto, NonZeroU8::new(1).unwrap(), catalog).unwrap();
+        let now=Instant::now();manager.inventory_bootstrap_until=now;
+        for node in [2,3,4] {
+            manager.snapshots.push(Snapshot {node,endpoints:vec![Endpoint {id:1,servers:vec![6],clients:vec![],device_types:vec![]}],
+                manufacturer:String::new(),model:String::new(),rssi_dbm:None,firmware:FirmwareIdentity::default(),online:true,next:None,failures:0});
+        }
+        manager.sync_subscriptions(now);
+        for entry in &mut manager.subscriptions { entry.next_retry=now+Duration::from_secs(300); }
+        let slow=manager.subscriptions.iter().find(|s|s.key.node==3).unwrap().key;
+        let fast=manager.subscriptions.iter().find(|s|s.key.node==4).unwrap().key;
+        manager.subscriptions.iter_mut().find(|s|s.key==fast).unwrap().next_retry=now;
+        manager.icd_work=Some((2,0,now+Duration::from_secs(60),Box::pin(std::future::pending())));
+        if !subscription {
+            manager.active=Some(ActiveOperation {id:0,node:2,deleting:false,time_zone:Some((1,"Europe/Berlin".into())),
+                deadline:now+Duration::from_secs(30),work:Box::pin(std::future::pending())});
+        }
+        if subscription {
+            manager.subscription_work=Some((slow,now+Duration::from_secs(30),Box::pin(std::future::pending())));
+            manager.subscription_members=vec![slow];
+        } else { manager.work=Some((3,now+Duration::from_secs(30),Box::pin(std::future::pending()))); }
+        let mut context=Context::from_waker(std::task::Waker::noop());
+        manager.poll(true,false,now,&mut context);
+        assert_eq!(manager.subscription_work.as_ref().unwrap().0,fast,"a pending ICD/peer must not block another peer's admission");
+        manager.subscription_work=Some((fast,now+Duration::from_secs(30),Box::pin(std::future::ready(Ok(Some(crate::subscriptions::DeviceSubscription {
+            path_units:Vec::new(),clock_events:Vec::new(),unit:None,priming_values:Vec::new(),
+            established:rs_matter::im::SubscribeEstablished {subscription_id:77,max_int:60},
+        }))))));
+        manager.poll(true,false,now+Duration::from_secs(1),&mut context);
+        assert_eq!(manager.subscriptions.iter().find(|s|s.key==fast).unwrap().id,Some(77));
+        assert!(manager.icd_work.is_some());
+        assert!(manager.recovery_node_busy(3));
+        assert_eq!(manager.pending_discoveries.len()+manager.pending_subscriptions.len(),1);
+        manager.subscription_health(3,true,0,now+Duration::from_secs(2)).unwrap();
+        assert!(!manager.recovery_node_busy(3),"explicit restoration retires the old pending transaction");
+        manager.subscription_work=Some((slow,now+Duration::from_secs(30),Box::pin(std::future::pending())));
+        manager.poll(true,true,now+Duration::from_secs(3),&mut context);
+        assert!(manager.work.is_none()&&manager.subscription_work.is_none());
+        assert!(manager.pending_discoveries.is_empty()&&manager.pending_subscriptions.is_empty(),"commissioning retires pending recovery");
+        manager.poll(false,false,now+Duration::from_secs(4),&mut context);
+        assert!(manager.pending_discoveries.is_empty()&&manager.pending_subscriptions.is_empty());
+        assert_eq!(std::fs::read(directory.join("credentials.bin")).unwrap(),before);
+        drop(manager);drop(store);std::fs::remove_dir_all(directory).unwrap();
+        }
     }
 
     // A real network transaction can become ready while a command is pending.
@@ -3514,7 +3649,7 @@ mod tests {
             ).unwrap();
         manager.poll(true, false, later, &mut context);
         assert!(matches!(manager.job(accepted.job).unwrap(), JobState::Running { .. }));
-        assert!(manager.work.is_some() || manager.subscription_work.is_some());
+        assert!(manager.work.is_some() || manager.subscription_work.is_some() || !manager.pending_discoveries.is_empty() || !manager.pending_subscriptions.is_empty());
         manager.poll(false, false, later, &mut context);
         assert!(manager.work.is_none() && manager.subscription_work.is_none());
         assert!(matches!(manager.job(accepted.job).unwrap(),
@@ -3699,11 +3834,9 @@ mod tests {
             Box::pin(std::future::pending()),
         ));
         manager.poll(true, false, now + Duration::from_secs(30), &mut context);
-        assert!(manager.work.is_none());
         assert!(!manager.snapshots[0].online);
         assert_eq!(manager.snapshots[0].next, Some(now + Duration::from_secs(35)));
-        manager.poll(true, false, now + Duration::from_secs(30), &mut context);
-        assert_eq!(manager.work.as_ref().unwrap().0, 3);
+        assert_eq!(manager.work.as_ref().unwrap().0, 3, "the next peer must be admitted immediately");
         manager.work = Some((
             3,
             now + Duration::from_secs(60),
