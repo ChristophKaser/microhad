@@ -298,6 +298,7 @@ void GatewayRunner::publishAutomation(bool force) {
     typedef Automation::SnapshotPtr Snapshot;
     std::vector<Gateway::AutomationReport> reports=gateway_->takeAutomationReports();
     std::vector<Automation::Event> outgoing;
+    std::map<std::string,Snapshot> reportSnapshots;
     const uint64_t chain=activeAutomationChain_?activeAutomationChain_:++automationChain_;
     for(size_t i=0;i<reports.size();++i){
         const Gateway::AutomationReport& report=reports[i];
@@ -310,7 +311,7 @@ void GatewayRunner::publishAutomation(bool force) {
         std::map<std::string,Snapshot>::iterator previous=automationSnapshots_.find(id);
         Snapshot before=previous==automationSnapshots_.end()?Snapshot():previous->second;
         Snapshot current;
-        { AUTOMATION_PROFILE("event.report.capture"); current=Automation::capture(report.device,before); }
+        { AUTOMATION_PROFILE("event.report.capture"); current=Automation::capture(report.device,before,Automation::DevicePtr(),reportSnapshots[id]); reportSnapshots[id]=current; }
         Automation::Event e;e.device=current;
         if(report.remoteAction){
             e.type="remote.action";e.action=report.action;e.endpoint=report.endpoint;e.position=report.position;e.pressCount=report.pressCount;outgoing.push_back(e);continue;
@@ -347,7 +348,8 @@ void GatewayRunner::publishAutomation(bool force) {
         { AUTOMATION_PROFILE("event.device.copy"); record=new Device(live);if(record->contact.present())record->contact.ensure().triggerUntil=gateway_->contactTriggerUntilForView(id); }
         Automation::DevicePtr immutable(record);
         Snapshot current;
-        { AUTOMATION_PROFILE("event.device.capture"); current=Automation::capture(*record,previous,immutable); }
+        const std::map<std::string,Snapshot>::const_iterator cached=reportSnapshots.find(id);
+        { AUTOMATION_PROFILE("event.device.capture"); current=Automation::capture(*record,previous,immutable,cached==reportSnapshots.end()?Snapshot():cached->second); }
         std::map<std::string,Snapshot>::const_iterator published=automationCatalog_->devices.find(id);
         if(published==automationCatalog_->devices.end()||published->second!=current)changed=true;
         if(published==automationCatalog_->devices.end()||published->second->metadata->name!=current->metadata->name)namesChanged=true;

@@ -18,6 +18,7 @@ extern "C" {
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <new>
 #include <dirent.h>
 #include <fcntl.h>
 #include <set>
@@ -59,12 +60,205 @@ bool atomicWrite(const std::string& path,const std::string& content,std::string*
 void push(lua_State* L,const Value& v){switch(v.type){case Value::Null:lua_pushnil(L);break;case Value::Boolean:lua_pushboolean(L,v.boolean);break;case Value::Number:lua_pushnumber(L,v.number);break;case Value::String:lua_pushlstring(L,v.string.data(),v.string.size());break;
     case Value::Object:lua_newtable(L);for(std::map<std::string,Value>::const_iterator it=v.fields.begin();it!=v.fields.end();++it){lua_pushlstring(L,it->first.data(),it->first.size());push(L,it->second);lua_rawset(L,-3);}break;
     case Value::Array:lua_newtable(L);for(size_t i=0;i<v.items.size();++i){push(L,v.items[i]);lua_rawseti(L,-2,i+1);}break;}}
+// Empty table proxies preserve the Lua API while retaining immutable native data.
+// Owners drop raw Device records and charge retained payloads to the Lua budget.
+struct SnapshotOwner {
+    size_t* heap;size_t charge;Automation::Event event;
+    explicit SnapshotOwner(size_t* h):heap(h),charge(0) {}
+    ~SnapshotOwner(){*heap-=charge;}
+};
+struct SnapshotNode {
+    enum Kind { Event,Device,Thermostat,Electrical,ValueNode } kind;
+    SnapshotOwner* owner;const Automation::DeviceSnapshot* device;const Value* value;
+};
+const char* const snapshotOwnerType="microhad.snapshot.owner";
+const char* const snapshotNodeType="microhad.snapshot.node";
+SnapshotNode* snapshotNode(lua_State* L,int index) {
+    if(!lua_istable(L,index)||!lua_getmetatable(L,index))return 0;
+    lua_getfield(L,-1,"__native_node");
+    SnapshotNode* node=static_cast<SnapshotNode*>(luaL_testudata(L,-1,snapshotNodeType));
+    lua_pop(L,2);return node;
+}
+int snapshotOwnerGc(lua_State* L){static_cast<SnapshotOwner*>(lua_touserdata(L,1))->~SnapshotOwner();return 0;}
+int snapshotReadOnly(lua_State* L){return luaL_error(L,"snapshot is immutable");}
+void pushSnapshotNode(lua_State*,int,SnapshotNode::Kind,const Automation::DeviceSnapshot*,const Value*);
+void pushSnapshotChild(lua_State* L,SnapshotNode::Kind kind,const Automation::DeviceSnapshot* d,const Value* v) {
+    lua_getiuservalue(L,lua_upvalueindex(1),1);const int owner=lua_gettop(L);
+    pushSnapshotNode(L,owner,kind,d,v);lua_remove(L,owner);
+}
+void pushSnapshotValue(lua_State* L,const Value* value) {
+    if(!value){lua_pushnil(L);return;}
+    if(value->type==Value::Object||value->type==Value::Array)pushSnapshotChild(L,SnapshotNode::ValueNode,0,value);
+    else push(L,*value);
+}
+void pushSnapshotField(lua_State* L,const Automation::DeviceSnapshot* d,Automation::Field field) {
+    if(!d||field==Automation::FieldCount||!d->has(field)){lua_pushnil(L);return;}
+    if(field==Automation::Thermostat&&d->thermostat)pushSnapshotChild(L,SnapshotNode::Thermostat,d,0);
+    else if(field==Automation::Electrical&&d->electrical)pushSnapshotChild(L,SnapshotNode::Electrical,d,0);
+    else push(L,Automation::fieldValue(*d,field));
+}
+bool snapshotEventKey(const Automation::Event& e,const std::string& key) {
+    if(key=="type"||key=="device"||key=="device_id"||key=="source"||key=="at"||key=="chain_id"||key=="chain_depth")return true;
+    if(key=="field")return e.field!=Automation::FieldCount;
+    if(key=="value")return e.field!=Automation::FieldCount&&e.device->has(e.field);
+    if(key=="old")return e.hasOld&&(e.previous?e.previous->has(e.field):e.old.type!=Value::Null);
+    if(key=="reason")return e.type=="device.removed";
+    if(e.type!="remote.action")return false;
+    return key=="action"||key=="endpoint"||(key=="position"&&e.position>=0)||(key=="press_count"&&e.pressCount>=0);
+}
+void pushSnapshotEventField(lua_State* L,const Automation::Event& e,const std::string& key) {
+    if(!snapshotEventKey(e,key)){lua_pushnil(L);return;}
+    if(key=="device"){pushSnapshotChild(L,SnapshotNode::Device,e.device.get(),0);return;}
+    if(key=="value"){pushSnapshotField(L,e.device.get(),e.field);return;}
+    if(key=="old"){
+        if(e.previous)pushSnapshotField(L,e.previous.get(),e.field);else pushSnapshotValue(L,&e.old);
+        return;
+    }
+    if(key=="at"){lua_pushnumber(L,e.at);return;}
+    if(key=="chain_depth"){lua_pushinteger(L,e.depth);return;}
+    if(key=="endpoint"){lua_pushinteger(L,e.endpoint);return;}
+    if(key=="position"){lua_pushinteger(L,e.position);return;}
+    if(key=="press_count"){lua_pushinteger(L,e.pressCount);return;}
+    if(key=="chain_id"){char text[32];snprintf(text,sizeof(text),"%llu",static_cast<unsigned long long>(e.chain));lua_pushstring(L,text);return;}
+    const std::string* text=key=="type"?&e.type:key=="device_id"?&e.device->metadata->id:key=="source"?&e.device->metadata->source:key=="action"?&e.action:0;
+    if(text)lua_pushlstring(L,text->data(),text->size());
+    else lua_pushstring(L,key=="reason"?"removed":Automation::fieldName(e.field));
+}
+int snapshotIndex(lua_State* L) {
+    SnapshotNode* node=static_cast<SnapshotNode*>(lua_touserdata(L,lua_upvalueindex(1)));
+    lua_getiuservalue(L,lua_upvalueindex(1),2);
+    if(lua_istable(L,-1)){lua_pushvalue(L,2);lua_rawget(L,-2);if(!lua_isnil(L,-1)){lua_remove(L,-2);return 1;}lua_pop(L,1);}lua_pop(L,1);
+    if(node->kind==SnapshotNode::ValueNode&&node->value->type==Value::Array){
+        int valid=0;lua_Integer at=lua_type(L,2)==LUA_TNUMBER?lua_tointegerx(L,2,&valid):0;
+        pushSnapshotValue(L,valid&&at>0&&static_cast<size_t>(at)<=node->value->items.size()?&node->value->items[at-1]:0);
+    } else if(lua_type(L,2)!=LUA_TSTRING)lua_pushnil(L);
+    else {
+        size_t size;const char* text=lua_tolstring(L,2,&size);const std::string key(text,size);
+        if(node->kind==SnapshotNode::Event)pushSnapshotEventField(L,node->owner->event,key);
+        else if(node->kind==SnapshotNode::Device){
+            const Automation::Field field=Automation::findField(key);
+            pushSnapshotField(L,node->device,field<=Automation::Electrical?field:Automation::FieldCount);
+        } else if(node->kind==SnapshotNode::Thermostat){
+            const Automation::ThermostatSnapshot& t=*node->device->thermostat;
+            const Automation::ValuePtr parts[]={t.readings,t.capabilities,t.schedules,t.status};const Value* found=0;
+            for(unsigned i=0;i<4&&!found;++i)if(parts[i]){std::map<std::string,Value>::const_iterator it=parts[i]->fields.find(key);if(it!=parts[i]->fields.end())found=&it->second;}
+            pushSnapshotValue(L,found);
+        } else if(node->kind==SnapshotNode::Electrical){
+            const Automation::ElectricalSnapshot& e=*node->device->electrical;
+            std::map<std::string,Automation::ValuePtr>::const_iterator it=e.measurements.find(key);
+            pushSnapshotValue(L,key=="cumulative_energy_reset"&&e.reset?e.reset.get():it==e.measurements.end()?0:it->second.get());
+        } else {
+            std::map<std::string,Value>::const_iterator it=node->value->fields.find(key);
+            pushSnapshotValue(L,it==node->value->fields.end()?0:&it->second);
+        }
+    }
+    // Cache only child views; scalar access never allocates a C++ value tree.
+    if(lua_istable(L,-1)){
+        const int result=lua_gettop(L);lua_getiuservalue(L,lua_upvalueindex(1),2);
+        if(lua_isnil(L,-1)){lua_pop(L,1);lua_newtable(L);lua_pushvalue(L,-1);lua_setiuservalue(L,lua_upvalueindex(1),2);}
+        lua_pushvalue(L,2);lua_pushvalue(L,result);lua_rawset(L,-3);lua_pop(L,1);
+    }
+    return 1;
+}
+void snapshotCandidate(std::string* candidate,const std::string& key,const std::string& last,bool initial) {
+    if((initial||key>last)&&(candidate->empty()||key<*candidate))*candidate=key;
+}
+int snapshotNext(lua_State* L) {
+    SnapshotNode* node=static_cast<SnapshotNode*>(lua_touserdata(L,lua_upvalueindex(1)));
+    if(node->kind==SnapshotNode::ValueNode&&node->value->type==Value::Array){
+        lua_Integer at=lua_isnil(L,2)?0:luaL_checkinteger(L,2);
+        if(at<0||static_cast<size_t>(at)>=node->value->items.size())return 0;
+        ++at;
+        while(static_cast<size_t>(at)<=node->value->items.size()&&node->value->items[at-1].type==Value::Null)++at;
+        if(static_cast<size_t>(at)>node->value->items.size())return 0;
+        lua_pushinteger(L,at);lua_replace(L,2);lua_settop(L,2);lua_pushvalue(L,2);snapshotIndex(L);return 2;
+    }
+    const bool initial=lua_isnil(L,2);size_t size=0;const char* text=initial?"":luaL_checklstring(L,2,&size);const std::string last(text,size);std::string candidate;bool found=false;
+    if(node->kind==SnapshotNode::Event){
+        static const char* keys[]={"type","device","device_id","source","at","chain_id","chain_depth","field","value","old","reason","action","endpoint","position","press_count"};
+        for(unsigned i=0;i<sizeof(keys)/sizeof(keys[0]);++i)if(snapshotEventKey(node->owner->event,keys[i]))snapshotCandidate(&candidate,keys[i],last,initial);
+    } else if(node->kind==SnapshotNode::Device){
+        for(unsigned i=0;i<=Automation::Electrical;++i)if(node->device->has(static_cast<Automation::Field>(i)))snapshotCandidate(&candidate,Automation::fieldName(static_cast<Automation::Field>(i)),last,initial);
+    } else if(node->kind==SnapshotNode::Thermostat){
+        const Automation::ThermostatSnapshot& t=*node->device->thermostat;const Automation::ValuePtr parts[]={t.readings,t.capabilities,t.schedules,t.status};
+        for(unsigned i=0;i<4;++i)if(parts[i]){
+            std::map<std::string,Value>::const_iterator it=initial?parts[i]->fields.begin():parts[i]->fields.upper_bound(last);
+            while(it!=parts[i]->fields.end()&&it->second.type==Value::Null)++it;
+            if(it!=parts[i]->fields.end())snapshotCandidate(&candidate,it->first,last,initial);
+        }
+    } else if(node->kind==SnapshotNode::Electrical){
+        const Automation::ElectricalSnapshot& e=*node->device->electrical;
+        std::map<std::string,Automation::ValuePtr>::const_iterator it=initial?e.measurements.begin():e.measurements.upper_bound(last);
+        if(it!=e.measurements.end())snapshotCandidate(&candidate,it->first,last,initial);
+        if(e.reset)snapshotCandidate(&candidate,"cumulative_energy_reset",last,initial);
+    } else {
+        std::map<std::string,Value>::const_iterator it=initial?node->value->fields.begin():node->value->fields.upper_bound(last);
+        while(it!=node->value->fields.end()&&it->second.type==Value::Null)++it;
+        if(it!=node->value->fields.end()){candidate=it->first;found=true;}
+    }
+    if(candidate.empty()&&!found)return 0;
+    lua_pushlstring(L,candidate.data(),candidate.size());lua_replace(L,2);lua_settop(L,2);lua_pushvalue(L,2);snapshotIndex(L);return 2;
+}
+int snapshotPairs(lua_State* L){lua_pushvalue(L,lua_upvalueindex(1));lua_pushcclosure(L,snapshotNext,1);lua_pushvalue(L,1);lua_pushnil(L);return 3;}
+int snapshotLength(lua_State* L){
+    SnapshotNode* node=static_cast<SnapshotNode*>(lua_touserdata(L,lua_upvalueindex(1)));size_t count=0;
+    if(node->kind==SnapshotNode::ValueNode&&node->value->type==Value::Array){
+        count=node->value->items.size();while(count&&node->value->items[count-1].type==Value::Null)--count;
+    }
+    lua_pushinteger(L,count);return 1;
+}
+void pushSnapshotNode(lua_State* L,int ownerIndex,SnapshotNode::Kind kind,const Automation::DeviceSnapshot* d,const Value* value) {
+    ownerIndex=lua_absindex(L,ownerIndex);
+    SnapshotNode* node=static_cast<SnapshotNode*>(lua_newuserdatauv(L,sizeof(SnapshotNode),2));const int at=lua_gettop(L);
+    node->kind=kind;node->owner=static_cast<SnapshotOwner*>(lua_touserdata(L,ownerIndex));node->device=d;node->value=value;
+    luaL_setmetatable(L,snapshotNodeType);lua_pushvalue(L,ownerIndex);lua_setiuservalue(L,at,1);
+    lua_newtable(L);lua_createtable(L,0,6);
+    lua_pushvalue(L,at);lua_setfield(L,-2,"__native_node");
+    const char* keys[]={"__index","__pairs","__len"};const lua_CFunction funcs[]={snapshotIndex,snapshotPairs,snapshotLength};
+    for(unsigned i=0;i<3;++i){lua_pushvalue(L,at);lua_pushcclosure(L,funcs[i],1);lua_setfield(L,-2,keys[i]);}
+    lua_pushcfunction(L,snapshotReadOnly);lua_setfield(L,-2,"__newindex");lua_pushboolean(L,0);lua_setfield(L,-2,"__metatable");
+    lua_setmetatable(L,-2);lua_remove(L,at);
+}
+Automation::SnapshotPtr snapshotProjection(const Automation::SnapshotPtr& input) {
+    if(!input)return Automation::SnapshotPtr();
+    Automation::DeviceSnapshot* d=new Automation::DeviceSnapshot(*input);d->record.reset();return Automation::SnapshotPtr(d);
+}
+void pushNativeSnapshot(lua_State* L,const Automation::Event* event,const Automation::SnapshotPtr& device,size_t* heap,size_t limit) {
+    const size_t charge=sizeof(SnapshotOwner)+(device?device->retainedBytes():0)+(event&&event->previous?event->previous->retainedBytes():0)+(event?Automation::retainedValueBytes(event->old)+Automation::retainedValueBytes(event->data):0);
+    if(charge>limit||*heap>limit-charge){lua_gc(L,LUA_GCCOLLECT);if(charge>limit||*heap>limit-charge)luaL_error(L,"snapshot exceeds shared Lua heap limit");}
+    if(luaL_newmetatable(L,snapshotOwnerType)){lua_pushcfunction(L,snapshotOwnerGc);lua_setfield(L,-2,"__gc");}lua_pop(L,1);
+    luaL_newmetatable(L,snapshotNodeType);lua_pop(L,1);
+    void* memory=lua_newuserdatauv(L,sizeof(SnapshotOwner),0);SnapshotOwner* owner=new(memory)SnapshotOwner(heap);const int at=lua_gettop(L);
+    luaL_setmetatable(L,snapshotOwnerType);
+    // Userdata allocation may have consumed the remaining budget.
+    if(charge>limit||*heap>limit-charge)luaL_error(L,"snapshot exceeds shared Lua heap limit");
+    owner->charge=charge;*heap+=charge;
+    if(event)owner->event=*event;
+    owner->event.device=snapshotProjection(device);
+    if(event)owner->event.previous=snapshotProjection(event->previous);
+    pushSnapshotNode(L,at,event?SnapshotNode::Event:SnapshotNode::Device,owner->event.device.get(),0);lua_remove(L,at);
+}
+Value materializeSnapshotNode(const SnapshotNode& node) {
+    if(node.kind==SnapshotNode::Event)return Automation::eventValue(node.owner->event);
+    if(node.kind==SnapshotNode::Device)return Automation::snapshot(*node.device);
+    if(node.kind==SnapshotNode::Thermostat)return node.device->thermostat->materialize();
+    if(node.kind==SnapshotNode::Electrical)return node.device->electrical->materialize();
+    return *node.value;
+}
+bool snapshotValueBudget(const Value& value,unsigned depth,size_t* bytes,bool arrays) {
+    if(depth>48||(!arrays&&value.type==Value::Array))return false;
+    *bytes+=8+value.string.size();if(*bytes>131072)return false;
+    for(std::map<std::string,Value>::const_iterator it=value.fields.begin();it!=value.fields.end();++it){*bytes+=it->first.size();if(!snapshotValueBudget(it->second,depth+1,bytes,arrays))return false;}
+    for(size_t i=0;i<value.items.size();++i)if(!snapshotValueBudget(value.items[i],depth+1,bytes,arrays))return false;
+    return *bytes<=131072;
+}
 bool value(lua_State* L,int index,Value* out,std::set<const void*>* seen,unsigned depth,size_t* bytes,bool arrays=false){
     if(depth>48||*bytes>131072)return false;
     index=lua_absindex(L,index);int t=lua_type(L,index);*bytes+=8;
     if(t==LUA_TNIL){*out=Value();return true;}if(t==LUA_TBOOLEAN){*out=Value(lua_toboolean(L,index)!=0);return true;}
     if(t==LUA_TNUMBER){double n=lua_tonumber(L,index);if(!std::isfinite(n))return false;*out=Value(n);return true;}
     if(t==LUA_TSTRING){size_t n=0;const char* s=lua_tolstring(L,index,&n);*bytes+=n;if(*bytes>131072)return false;*out=Value(std::string(s,n));return true;}
+    if(SnapshotNode* node=snapshotNode(L,index)){*out=materializeSnapshotNode(*node);return snapshotValueBudget(*out,depth,bytes,arrays);}
     if(t!=LUA_TTABLE||lua_getmetatable(L,index)){if(t==LUA_TTABLE)lua_pop(L,1);return false;}
     const void* id=lua_topointer(L,index);if(seen->count(id))return false;seen->insert(id);*out=Value::object();bool ok=true;lua_pushnil(L);
     while(lua_next(L,index)){Value child;if(!value(L,-1,&child,seen,depth+1,bytes,arrays)){lua_pop(L,2);ok=false;break;}if(lua_type(L,-2)==LUA_TSTRING){size_t n;const char* key=lua_tolstring(L,-2,&n);*bytes+=n;out->fields[std::string(key,n)]=child;}
@@ -202,8 +396,22 @@ struct AutomationWorker::Impl {
     static int dump(lua_State* L){Script* s=script(L);std::string text=lua_isnoneornil(L,2)?"":stringArg(L,2)+": ";std::set<const void*> seen;dumpValue(L,1,&text,&seen,0);if(!s->validation)s->owner->record(s,"debug",text);return 0;}
     const Automation::DeviceSnapshot* resolve(const std::string& target,std::string* err){AUTOMATION_PROFILE("auto.resolve");return catalogState->resolve(target,err);}
     static int resolveId(lua_State* L){Script* s=script(L);std::string err;const Automation::DeviceSnapshot* d=s->owner->resolve(stringArg(L,1),&err);if(!d)return failure(L,err);lua_pushlstring(L,d->metadata->id.data(),d->metadata->id.size());return 1;}
-    static int deviceGet(lua_State* L){Script* s=script(L);std::string err;const Automation::DeviceSnapshot* d=s->owner->resolve(stringArg(L,1),&err);if(!d)return failure(L,err);push(L,Automation::snapshot(*d));return 1;}
-    static int deviceList(lua_State* L){Script* s=script(L);Value f=Value::object();if(!lua_isnoneornil(L,1)&&(!readValue(L,1,&f)||f.type!=Value::Object))return luaL_error(L,"invalid device filter");for(std::map<std::string,Value>::const_iterator it=f.fields.begin();it!=f.fields.end();++it)if((it->first!="source"&&it->first!="kind"&&it->first!="online"&&it->first!="name")||(it->first=="online"?it->second.type!=Value::Boolean:it->second.type!=Value::String))return luaL_error(L,"invalid device filter field");Value list=Value::array();for(std::map<std::string,Automation::SnapshotPtr>::const_iterator it=s->owner->catalogState->devices.begin();it!=s->owner->catalogState->devices.end();++it){Value v=Automation::snapshot(*it->second);bool match=true;for(std::map<std::string,Value>::const_iterator filter=f.fields.begin();filter!=f.fields.end();++filter)if(v.fields[filter->first]!=filter->second)match=false;if(match)list.items.push_back(v);}push(L,list);return 1;}
+    static int deviceGet(lua_State* L){Script* s=script(L);std::string err;const Automation::DeviceSnapshot* d=s->owner->resolve(stringArg(L,1),&err);if(!d)return failure(L,err);pushNativeSnapshot(L,0,s->owner->catalogState->devices.find(d->metadata->id)->second,&s->owner->heap,HeapLimit);return 1;}
+    static int deviceList(lua_State* L){
+        Script* s=script(L);Value filter=Value::object();
+        if(!lua_isnoneornil(L,1)&&(!readValue(L,1,&filter)||filter.type!=Value::Object))return luaL_error(L,"invalid device filter");
+        for(std::map<std::string,Value>::const_iterator it=filter.fields.begin();it!=filter.fields.end();++it)
+            if((it->first!="source"&&it->first!="kind"&&it->first!="online"&&it->first!="name")||(it->first=="online"?it->second.type!=Value::Boolean:it->second.type!=Value::String))return luaL_error(L,"invalid device filter field");
+        lua_newtable(L);unsigned count=0;
+        for(std::map<std::string,Automation::SnapshotPtr>::const_iterator it=s->owner->catalogState->devices.begin();it!=s->owner->catalogState->devices.end();++it){
+            bool match=true;
+            for(std::map<std::string,Value>::const_iterator f=filter.fields.begin();f!=filter.fields.end();++f)
+                if(Automation::fieldValue(*it->second,Automation::findField(f->first))!=f->second){match=false;break;}
+            if(match){pushNativeSnapshot(L,0,it->second,&s->owner->heap,HeapLimit);lua_rawseti(L,-2,++count);}
+        }
+        return 1;
+    }
+    static int isNativeSnapshot(lua_State* L){lua_pushboolean(L,snapshotNode(L,1)!=0);return 1;}
     static int historyCancel(lua_State* L){Script* s=script(L);s->owner->cancelHistory(s,stringArg(L,1));return 0;}
     static int historyBegin(lua_State* L) {
         Script* s=script(L);std::string token=stringArg(L,1),target=stringArg(L,2),err;
@@ -412,7 +620,7 @@ struct AutomationWorker::Impl {
         lua_rawgeti(L,LUA_REGISTRYINDEX,s->owner->factory);
         lua_newtable(L);
 #define B(name,fn) s->owner->bind(s,name,fn)
-        B("watch",watch);B("now",now);B("monotonic",clock);B("script_id",id);B("calendar",calendar);B("handle",handle);B("handle_id",handleId);B("limit",limit);B("spent",spent);B("begin",begin);B("finish",finish);B("discard",discard);B("read_state",readState);B("write_state",writeState);B("serializable",serializable);B("failed",failed);B("failure",failureLog);B("log",log);B("dump",dump);B("resolve",resolveId);B("history_begin",historyBegin);B("history_cancel",historyCancel);B("device_get",deviceGet);B("device_list",deviceList);B("action",action);B("scene",scene);B("scene_get",sceneGet);B("notify",notify);
+        B("is_snapshot",isNativeSnapshot);B("watch",watch);B("now",now);B("monotonic",clock);B("script_id",id);B("calendar",calendar);B("handle",handle);B("handle_id",handleId);B("limit",limit);B("spent",spent);B("begin",begin);B("finish",finish);B("discard",discard);B("read_state",readState);B("write_state",writeState);B("serializable",serializable);B("failed",failed);B("failure",failureLog);B("log",log);B("dump",dump);B("resolve",resolveId);B("history_begin",historyBegin);B("history_cancel",historyCancel);B("device_get",deviceGet);B("device_list",deviceList);B("action",action);B("scene",scene);B("scene_get",sceneGet);B("notify",notify);
 #undef B
         lua_call(L,1,1);s->runtime=luaL_ref(L,LUA_REGISTRYINDEX);return 0;
     }
@@ -422,24 +630,24 @@ struct AutomationWorker::Impl {
         if(lua_pcall(lua,1,0,0)!=LUA_OK){error(s,lua_tostring(lua,-1),"runtime");lua_pop(lua,1);release(s);return false;}
         return true;
     }
-    struct Invocation {Script* s;const char* method;const Value* argument;int results;};
-    static int invoke(lua_State* L){Invocation* i=static_cast<Invocation*>(lua_touserdata(L,1));lua_rawgeti(L,LUA_REGISTRYINDEX,i->s->runtime);lua_getfield(L,-1,i->method);if(i->argument)push(L,*i->argument);lua_call(L,i->argument?1:0,i->results);return i->results;}
-    bool call(Script* s,const char* method,const Value* argument=0){AUTOMATION_PROFILE("auto.runtime");ScriptScope scope(s);if(!s->L)return false;lua_State* L=s->L;int base=lua_gettop(L);Invocation i={s,method,argument,0};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&i);int rc=lua_pcall(L,1,0,0);if(rc!=LUA_OK){const char* msg=lua_tostring(L,-1);error(s,msg?msg:"runtime error",method);}lua_settop(L,base);return rc==LUA_OK;}
+    struct Invocation {Script* s;const char* method;const Value* argument;int results;const Automation::Event* event;};
+    static int invoke(lua_State* L){Invocation* i=static_cast<Invocation*>(lua_touserdata(L,1));lua_rawgeti(L,LUA_REGISTRYINDEX,i->s->runtime);lua_getfield(L,-1,i->method);if(i->event)pushNativeSnapshot(L,i->event,i->event->device,&i->s->owner->heap,HeapLimit);else if(i->argument)push(L,*i->argument);lua_call(L,i->event||i->argument?1:0,i->results);return i->results;}
+    bool call(Script* s,const char* method,const Value* argument=0,const Automation::Event* event=0){AUTOMATION_PROFILE("auto.runtime");ScriptScope scope(s);if(!s->L)return false;lua_State* L=s->L;int base=lua_gettop(L);Invocation i={s,method,argument,0,event};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&i);int rc=lua_pcall(L,1,0,0);if(rc!=LUA_OK){const char* msg=lua_tostring(L,-1);error(s,msg?msg:"runtime error",method);}lua_settop(L,base);return rc==LUA_OK;}
     bool interested(Script* s,const Value& hint){
         ScriptScope scope(s);lua_State* L=s->L;const int base=lua_gettop(L);
-        Invocation i={s,"interested",&hint,1};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&i);
+        Invocation i={s,"interested",&hint,1,0};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&i);
         const int rc=lua_pcall(L,1,1,0);const bool result=rc!=LUA_OK||lua_toboolean(L,-1);
         lua_settop(L,base);return result;
     }
     bool callbacksReady(Script* s){
         ScriptScope scope(s);lua_State* L=s->L;const int base=lua_gettop(L);
-        Invocation i={s,"ready",0,1};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&i);
+        Invocation i={s,"ready",0,1,0};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&i);
         const int rc=lua_pcall(L,1,1,0);const bool ready=rc==LUA_OK&&lua_toboolean(L,-1);
         if(rc!=LUA_OK){const char* msg=lua_tostring(L,-1);error(s,msg?msg:"runtime error","ready");}
         lua_settop(L,base);return ready;
     }
     bool initialize(Script* s,const std::string& source){ScriptScope scope(s);if(!create(s))return false;lua_State* L=s->L;lua_rawgeti(L,LUA_REGISTRYINDEX,s->runtime);lua_getfield(L,-1,"initialize");if(luaL_loadbufferx(L,source.data(),source.size(),("@"+s->name).c_str(),"t")!=LUA_OK){error(s,lua_tostring(L,-1),"syntax");lua_settop(L,0);return false;}lua_rawgeti(L,LUA_REGISTRYINDEX,s->runtime);lua_getfield(L,-1,"env");lua_remove(L,-2);lua_setupvalue(L,-2,1);bool ok=lua_pcall(L,1,1,0)==LUA_OK;if(!ok)error(s,lua_tostring(L,-1),"initialization");else ok=lua_toboolean(L,-1)!=0;lua_settop(L,0);return ok;}
-    void status(Script* s,bool force=true){ScriptScope scope(s);const double now=monotonic();if(!force&&now<s->nextStatus)return;s->nextStatus=now+0.1;AUTOMATION_PROFILE("auto.status");Value v=Value::object();v.fields["triggers"]=Value::array();if(s->L&&s->enabled){lua_State* L=s->L;Invocation invocation={s,"stats",0,3};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&invocation);if(lua_pcall(L,1,3,0)==LUA_OK){s->listeners=lua_tointeger(L,-3);s->timers=lua_tointeger(L,-2);s->suspended=lua_tointeger(L,-1);}lua_settop(L,0);Invocation triggers={s,"triggers",0,1};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&triggers);if(lua_pcall(L,1,1,0)==LUA_OK){Value list;if(readValue(L,-1,&list,true)&&list.type==Value::Array)v.fields["triggers"]=list;}lua_settop(L,0);}v.fields["filename"]=Value(s->name);v.fields["id"]=Value(s->id);v.fields["enabled"]=Value(s->enabled);v.fields["loaded"]=Value(s->L!=0);v.fields["generation"]=Value(static_cast<double>(s->generation));v.fields["loaded_at"]=Value(static_cast<double>(s->loaded));v.fields["validated_at"]=Value(static_cast<double>(s->validated));v.fields["last_event_at"]=Value(static_cast<double>(s->lastEvent));v.fields["last_callback_at"]=Value(static_cast<double>(s->lastCallback));v.fields["error"]=Value(s->error);v.fields["listeners"]=Value(static_cast<double>(s->listeners));v.fields["timers"]=Value(static_cast<double>(s->timers));v.fields["coroutines"]=Value(static_cast<double>(s->suspended));v.fields["heap_shared"]=Value(true);v.fields["heap_limit_bytes"]=Value(static_cast<double>(HeapLimit));v.fields["heap_bytes"]=Value(static_cast<double>(heap));RecordPtr published(new Value(v)),retired;pthread_mutex_lock(&mutex);publishedHeap=heap;retired.swap(statuses[s->id]);statuses[s->id]=published;pthread_mutex_unlock(&mutex);}
+    void status(Script* s,bool force=true){ScriptScope scope(s);const double now=monotonic();if(!force&&now<s->nextStatus)return;s->nextStatus=now+0.1;AUTOMATION_PROFILE("auto.status");Value v=Value::object();v.fields["triggers"]=Value::array();if(s->L&&s->enabled){lua_State* L=s->L;Invocation invocation={s,"stats",0,3,0};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&invocation);if(lua_pcall(L,1,3,0)==LUA_OK){s->listeners=lua_tointeger(L,-3);s->timers=lua_tointeger(L,-2);s->suspended=lua_tointeger(L,-1);}lua_settop(L,0);Invocation triggers={s,"triggers",0,1,0};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&triggers);if(lua_pcall(L,1,1,0)==LUA_OK){Value list;if(readValue(L,-1,&list,true)&&list.type==Value::Array)v.fields["triggers"]=list;}lua_settop(L,0);}v.fields["filename"]=Value(s->name);v.fields["id"]=Value(s->id);v.fields["enabled"]=Value(s->enabled);v.fields["loaded"]=Value(s->L!=0);v.fields["generation"]=Value(static_cast<double>(s->generation));v.fields["loaded_at"]=Value(static_cast<double>(s->loaded));v.fields["validated_at"]=Value(static_cast<double>(s->validated));v.fields["last_event_at"]=Value(static_cast<double>(s->lastEvent));v.fields["last_callback_at"]=Value(static_cast<double>(s->lastCallback));v.fields["error"]=Value(s->error);v.fields["listeners"]=Value(static_cast<double>(s->listeners));v.fields["timers"]=Value(static_cast<double>(s->timers));v.fields["coroutines"]=Value(static_cast<double>(s->suspended));v.fields["heap_shared"]=Value(true);v.fields["heap_limit_bytes"]=Value(static_cast<double>(HeapLimit));v.fields["heap_bytes"]=Value(static_cast<double>(heap));RecordPtr published(new Value(v)),retired;pthread_mutex_lock(&mutex);publishedHeap=heap;retired.swap(statuses[s->id]);statuses[s->id]=published;pthread_mutex_unlock(&mutex);}
     void catalog(){AUTOMATION_PROFILE("auto.catalog");if(gateway)catalogState=gateway->acquireAutomationCatalog();}
     void scan(const std::string& force=""){AUTOMATION_PROFILE("auto.scan");
         DIR* entries=opendir(dir.c_str());if(!entries)return;std::map<std::string,std::string> found;std::set<std::string> collisions;dirent* entry;
@@ -458,7 +666,7 @@ struct AutomationWorker::Impl {
             std::map<std::string,Script*>::iterator it=scripts.find(r->name);
             if(it==scripts.end()||!it->second->L||it->second->generation!=r->generation){r->result=false;r->error="trigger unavailable";return;}
             Script* s=it->second;ScriptScope scope(s);lua_State* L=s->L;Value id(r->source);
-            Invocation invocation={s,"trigger",&id,1};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&invocation);
+            Invocation invocation={s,"trigger",&id,1,0};lua_pushcfunction(L,invoke);lua_pushlightuserdata(L,&invocation);
             if(lua_pcall(L,1,1,0)!=LUA_OK)r->error="cannot schedule trigger";
             else if(lua_isstring(L,-1))r->error=lua_tostring(L,-1);
             else r->error="invalid trigger result";
@@ -516,7 +724,7 @@ struct AutomationWorker::Impl {
                 const Automation::Event& input=*queued[i];
                 std::map<std::string,Value>::const_iterator typeField=input.data.fields.find("type");
                 const std::string type=input.device?input.type:typeField==input.data.fields.end()?"":typeField->second.string;
-                Value event;bool materialized=false;const time_t at=time(0);
+                const time_t at=time(0);
                 Value hint=Value::object();
                 if(input.device){
                     hint.fields["type"]=Value(input.type);
@@ -533,8 +741,7 @@ struct AutomationWorker::Impl {
                     Script* s=it->second;if(!s->L)continue;s->lastEvent=at;
                     if(!s->watched.count(type))continue;
                     if(input.device&&!interested(s,hint))continue;
-                    if(!materialized){event=Automation::eventValue(input);materialized=true;}
-                    call(s,"event",&event);
+                    if(input.device)call(s,"event",0,&input);else call(s,"event",&input.data);
                 }
             }
             for(std::map<std::string,Script*>::iterator it=scripts.begin();it!=scripts.end();++it){Script* s=it->second;if(s->L){if(overflow)error(s,"event queue limit reached; reports dropped","queue");std::deque<Value> errors;errors.swap(s->errors);for(size_t i=0;i<errors.size();++i)call(s,"event",&errors[i]);call(s,"tick");}status(s,false);}

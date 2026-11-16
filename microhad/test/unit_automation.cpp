@@ -60,7 +60,7 @@ void electricalSnapshots(){
     state.resetMetadata["imported_reset_timestamp"]=42;
     Value expected;assert(Automation::parse(electricalJson(state),&expected));
     Automation::SnapshotPtr snapshot=Automation::capture(d);
-    assert(*snapshot->electrical==expected);
+    assert(snapshot->electrical->materialize()==expected);
     assert(Automation::snapshot(*snapshot).fields["electrical"]==expected);
     Device changed=d;changed.lastSeen=12347;
     Automation::SnapshotPtr after=Automation::capture(changed,snapshot);
@@ -68,6 +68,14 @@ void electricalSnapshots(){
     changed.electrical.ensure().values["active_power"].value=7;
     Automation::SnapshotPtr updated=Automation::capture(changed,after);
     assert(updated->electrical!=after->electrical);
+    assert(updated->electrical->measurements.find("voltage")->second==after->electrical->measurements.find("voltage")->second);
+    assert(updated->electrical->measurements.find("active_power")->second!=after->electrical->measurements.find("active_power")->second);
+    changed.electrical.ensure().values["active_power"].observedAt++;
+    Automation::SnapshotPtr reported=Automation::capture(changed,updated);
+    Automation::DevicePtr live(new Device(changed));
+    Automation::SnapshotPtr published=Automation::capture(*live,after,live,reported);
+    assert(published->electrical==reported->electrical);
+    assert(Automation::fieldValue(*after,Automation::Electrical)==expected);
     assert(Automation::fieldValue(*snapshot,Automation::Electrical)==expected);
 }
 
@@ -198,6 +206,50 @@ void thermostatEventBurst(){
     assert(f.state("other").fields["seen"].number==64);
     assert(f.status().fields["error"].string.empty());assert(f.status("other").fields["error"].string.empty());
     assert(f.worker->logsJson("").find("not enough memory")==std::string::npos);
+}
+void nativeSnapshotViews(){
+    Fixture f;
+    f.save("local retained;events.on({type='device.changed',field='thermostat'},function(e)"
+        "assert(type(e)=='table' and type(e.device)=='table');assert(rawequal(e.device,e.device));"
+        "assert(rawequal(e.value,e.value));local count=0;for k,v in pairs(e)do count=count+1 end;assert(count>=10);"
+        "local modes=0;for i,v in ipairs(e.value.modes)do modes=modes+1;assert(type(v)=='number')end;assert(modes==#e.value.modes and modes>0);"
+        "local count=0;for k,v in pairs(e.value.fields)do count=count+1;assert(v.min~=nil)end;assert(count>20);"
+        "assert(not pcall(function()e.device.name='changed'end));assert(not pcall(function()e.value.values.system_mode=9 end));"
+        "assert(not pcall(function()table.insert(e.value.modes,9)end));"
+        "assert(#e.value.schedule_details==2 and #e.value.schedule_details[2].transitions==1);"
+        "local n=0;for i,v in pairs(e.value.schedule_details)do n=n+1;assert(i==2 and v.mode==3)end;assert(n==1);"
+        "assert(e.device.electrical.voltage.value==nil);for k,v in pairs(e.device.electrical.voltage)do assert(v~=nil)end;"
+        "assert(e.value.schedule_details[2].transitions[1].cool==25);"
+        "log('info','native schedule',{schedule=e.value.schedule_details[2]});persistent.saved=e.value.values;"
+        "assert(not pcall(function()persistent.bad=e.value.modes end));"
+        "if not retained then retained=e;local nested=e.value.values;automation.sleep(.02);assert(nested.system_mode==4)"
+        "else assert(retained.old.values.system_mode==1 and retained.value.values.system_mode==4)end;"
+        "persistent.seen=(persistent.seen or 0)+1 end)");
+    Device d;d.ieeeAddress="snapshot-trv";d.source="zigbee";d.modelId="TRVZB";
+    d.electrical.ensure().values["voltage"].unit="V";
+    EndpointDescriptor ep;ep.inputClusters.push_back(513);d.zigbee.ensure().endpoints.push_back(ep);
+    const unsigned char schedule[]={1,2,3,60,0,208,7,196,9};
+    d.thermostat.ensure().scheduleDetails[1]=std::vector<unsigned char>(schedule,schedule+sizeof(schedule));
+    d.thermostat.ensure().values[ThermostatField::system_mode]=1;
+    Automation::SnapshotPtr before=Automation::capture(d);
+    d.thermostat.ensure().values[ThermostatField::system_mode]=4;
+    Automation::SnapshotPtr after=Automation::capture(d,before);
+    Automation::Event event;event.type="device.changed";event.field=Automation::Thermostat;event.device=after;event.previous=before;event.hasOld=true;
+    assert(f.worker->enqueue(event));
+    for(unsigned i=0;i<100&&f.status().fields["coroutines"].number!=1;++i)usleep(10000);
+    f.worker->advanceTimeForTests(.1);assert(f.until("seen",1));
+    d.thermostat.ensure().values[ThermostatField::system_mode]=1;
+    event.previous=after;event.device=Automation::capture(d,after);before.reset();after.reset();
+    assert(f.worker->enqueue(event));assert(f.until("seen",2));assert(f.worker->waitIdle());
+    assert(f.state().fields["saved"].fields["system_mode"]==Value(1.));
+    assert(f.status().fields["error"].string.empty());
+    // Retained native payloads consume the same bounded heap as Lua objects.
+    f.save("local held={};events.on({type='device.changed',field='thermostat'},function(e)held[#held+1]=e end)","hold.lua");
+    for(unsigned i=0;i<80;++i){assert(f.worker->enqueue(event));usleep(2000);}
+    assert(f.worker->waitIdle());Value all;assert(Automation::parse(f.worker->listJson(),&all));
+    assert(all.fields["heap_bytes"].number<=all.fields["heap_limit_bytes"].number);
+    assert(!f.status("hold").fields["error"].string.empty());
+    assert(f.worker->remove("hold.lua",&f.error));
 }
 void globalLuaMemoryLimit(){
     Fixture f;
@@ -373,4 +425,4 @@ void callbackBudgetAndQueues(){Fixture f;
     assert(rejected>0);assert(f.worker->waitIdle());usleep(100000);assert(f.worker->logsJson("test.lua").find("limit")!=std::string::npos);assert(f.state().fields["good"].number==1);
 }
 }
-void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();jsonSizeAccounting();typedSnapshots();electricalSnapshots();thermostatSnapshots();sharedLuaState();thermostatEventBurst();globalLuaMemoryLimit();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();manualTriggers();callbackBudgetAndQueues();}
+void runAutomationUnitTests(){printf("unit: Lua sandbox, validation, persistence, reload, event filtering, coroutines, timers, cron, shared state, limits, logs and all report sources\n");serialization();jsonSizeAccounting();typedSnapshots();electricalSnapshots();thermostatSnapshots();sharedLuaState();thermostatEventBurst();nativeSnapshotViews();globalLuaMemoryLimit();sandboxAndValidation();errorLocations();persistenceAndReload();eventsAndCoroutines();timersLimitsAndLogs();safeFiles();schedulesSharedAndShutdown();acceptedReportSources();manualTriggers();callbackBudgetAndQueues();}

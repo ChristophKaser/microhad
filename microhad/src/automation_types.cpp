@@ -97,6 +97,37 @@ DeviceMetadata::DeviceMetadata(const Device& d):id(d.ieeeAddress),name(d.name),l
 bool DeviceMetadata::matches(const Device& d) const {
     return id==d.ieeeAddress&&name==d.name&&source==(d.source.empty()?"zigbee":d.source)&&kind==d.kind&&matterNode==d.matter.read().node&&matterEndpoint==d.matter.read().endpoint&&light==d.light.present()&&actor==d.actor.present()&&brightness==dimmable(d)&&contact==d.contact.present()&&humidity==d.humidity.present();
 }
+size_t retainedValueBytes(const Value& value) {
+    size_t bytes=sizeof(Value)+value.string.capacity();
+    for(std::map<std::string,Value>::const_iterator it=value.fields.begin();it!=value.fields.end();++it)
+        bytes+=sizeof(std::string)+4*sizeof(void*)+it->first.capacity()+retainedValueBytes(it->second);
+    for(size_t i=0;i<value.items.size();++i)bytes+=retainedValueBytes(value.items[i]);
+    return bytes;
+}
+ImmutableValue::ImmutableValue(const Value& value):Value(value),retainedBytes(retainedValueBytes(value)) {}
+size_t DeviceSnapshot::retainedBytes() const {
+    size_t bytes=sizeof(DeviceSnapshot)+airQuality.capacity();
+    if(metadata)bytes+=sizeof(DeviceMetadata)+metadata->id.capacity()+metadata->name.capacity()+metadata->lookupName.capacity()+metadata->source.capacity()+metadata->kind.capacity()+metadata->matterNode.capacity();
+    if(electrical)bytes+=electrical->retainedBytes;
+    if(thermostat){
+        bytes+=sizeof(ThermostatSnapshot);
+        const ValuePtr parts[]={thermostat->readings,thermostat->capabilities,thermostat->schedules,thermostat->status};
+        for(unsigned i=0;i<4;++i)if(parts[i])bytes+=parts[i]->retainedBytes;
+    }
+    return bytes;
+}
+Value ElectricalSnapshot::materialize() const {
+    Value out=Value::object();
+    for(std::map<std::string,ValuePtr>::const_iterator it=measurements.begin();it!=measurements.end();++it)out.fields[it->first]=*it->second;
+    if(reset)out.fields["cumulative_energy_reset"]=*reset;
+    return out;
+}
+bool ElectricalSnapshot::operator==(const ElectricalSnapshot& other) const {
+    if(measurements.size()!=other.measurements.size())return false;
+    std::map<std::string,ValuePtr>::const_iterator a=measurements.begin(),b=other.measurements.begin();
+    for(;a!=measurements.end();++a,++b)if(a->first!=b->first||(a->second!=b->second&&*a->second!=*b->second))return false;
+    return reset==other.reset||(reset&&other.reset&&*reset==*other.reset);
+}
 DeviceSnapshot::DeviceSnapshot():present(0) { for(unsigned i=0;i<FieldCount;++i)values[i]=0; }
 const char* fieldName(Field field) { return field<FieldCount?names[field]:""; }
 Field findField(const std::string& name) { for(unsigned i=0;i<FieldCount;++i)if(name==names[i])return static_cast<Field>(i);return FieldCount; }
@@ -129,34 +160,43 @@ bool sameThermostatCapabilities(const Device& a,const Device& b) {
     return ::thermostatValue(a,ThermostatField::number_of_daily_transitions,::thermostatValue(a,ThermostatField::number_of_weekly_transitions,10))==
            ::thermostatValue(b,ThermostatField::number_of_daily_transitions,::thermostatValue(b,ThermostatField::number_of_weekly_transitions,10));
 }
-bool sameElectricalInput(const ElectricalState& a,const ElectricalState& b) {
-    if(a.resetMetadata!=b.resetMetadata||a.values.size()!=b.values.size())return false;
-    std::map<std::string,ElectricalMeasurement>::const_iterator x=a.values.begin(),y=b.values.begin();
-    for(;x!=a.values.end();++x,++y){
-        const ElectricalMeasurement& l=x->second;const ElectricalMeasurement& r=y->second;
-        if(x->first!=y->first||l.known!=r.known||l.value!=r.value||l.unit!=r.unit||l.metadata!=r.metadata||l.observedAt!=r.observedAt||l.endpoint!=r.endpoint)return false;
-    }
-    return true;
+bool sameElectricalMeasurement(const ElectricalMeasurement& a,const ElectricalMeasurement& b) {
+    return a.known==b.known&&(!a.known||a.value==b.value)&&a.unit==b.unit&&a.metadata==b.metadata&&a.observedAt==b.observedAt&&a.endpoint==b.endpoint;
 }
-Value electricalSnapshotValue(const ElectricalState& state) {
-    Value result=Value::object();
-    for(std::map<std::string,ElectricalMeasurement>::const_iterator i=state.values.begin();i!=state.values.end();++i){
-        if(!electricalDefinition(i->first))continue;
-        const ElectricalMeasurement& v=i->second;
-        Value entry=Value::object();
-        for(std::map<std::string,uint64_t>::const_iterator m=v.metadata.begin();m!=v.metadata.end();++m)entry.fields[m->first]=Value(static_cast<double>(m->second));
-        entry.fields["value"]=v.known?Value(v.value):Value();
-        entry.fields["unit"]=Value(v.unit);
-        entry.fields["quality"]=Value(v.known?"measured":"unknown");
-        entry.fields["observed_at"]=Value(static_cast<double>(v.observedAt));
-        entry.fields["endpoint"]=Value(static_cast<double>(v.endpoint));
-        result.fields[i->first]=entry;
+ElectricalSnapshotPtr captureElectrical(const ElectricalState& state,const SnapshotPtr& previous) {
+    const ElectricalSnapshot* old=previous&&previous->electrical&&previous->record&&previous->record->electrical.present()?previous->electrical.get():0;
+    const ElectricalState* before=old?&previous->record->electrical.read():0;
+    if(old&&state.resetMetadata==before->resetMetadata&&state.values.size()==before->values.size()){
+        bool unchanged=true;
+        std::map<std::string,ElectricalMeasurement>::const_iterator a=state.values.begin(),b=before->values.begin();
+        for(;a!=state.values.end();++a,++b)if(a->first!=b->first||!sameElectricalMeasurement(a->second,b->second)){unchanged=false;break;}
+        if(unchanged)return previous->electrical;
+    }
+    ElectricalSnapshot* next=new ElectricalSnapshot;ElectricalSnapshotPtr result(next);bool same=old!=0;
+    for(std::map<std::string,ElectricalMeasurement>::const_iterator it=state.values.begin();it!=state.values.end();++it){
+        if(!electricalDefinition(it->first))continue;
+        const ElectricalMeasurement& v=it->second;ValuePtr entry;
+        if(old){
+            std::map<std::string,ElectricalMeasurement>::const_iterator prior=before->values.find(it->first);
+            std::map<std::string,ValuePtr>::const_iterator cached=old->measurements.find(it->first);
+            if(prior!=before->values.end()&&cached!=old->measurements.end()&&sameElectricalMeasurement(v,prior->second))entry=cached->second;
+        }
+        if(!entry){
+            AUTOMATION_PROFILE("snapshot.electrical.measurement");
+            Value value=Value::object();
+            for(std::map<std::string,uint64_t>::const_iterator m=v.metadata.begin();m!=v.metadata.end();++m)value.fields[m->first]=Value(static_cast<double>(m->second));
+            value.fields["value"]=v.known?Value(v.value):Value();value.fields["unit"]=Value(v.unit);
+            value.fields["quality"]=Value(v.known?"measured":"unknown");value.fields["observed_at"]=Value(static_cast<double>(v.observedAt));
+            value.fields["endpoint"]=Value(static_cast<double>(v.endpoint));entry=ValuePtr(new ImmutableValue(value));same=false;
+        }
+        next->measurements[it->first]=entry;next->retainedBytes+=sizeof(std::pair<const std::string,ValuePtr>)+4*sizeof(void*)+it->first.capacity()+entry->retainedBytes;
     }
     if(!state.resetMetadata.empty()){
-        Value reset=Value::object();
-        for(std::map<std::string,uint64_t>::const_iterator m=state.resetMetadata.begin();m!=state.resetMetadata.end();++m)reset.fields[m->first]=Value(static_cast<double>(m->second));
-        result.fields["cumulative_energy_reset"]=reset;
+        if(old&&old->reset&&state.resetMetadata==before->resetMetadata)next->reset=old->reset;
+        else {Value reset=Value::object();for(std::map<std::string,uint64_t>::const_iterator it=state.resetMetadata.begin();it!=state.resetMetadata.end();++it)reset.fields[it->first]=Value(static_cast<double>(it->second));next->reset=ValuePtr(new ImmutableValue(reset));same=false;}
+        next->retainedBytes+=next->reset->retainedBytes;
     }
+    if(same&&next->measurements.size()==old->measurements.size()&&next->reset==old->reset)return previous->electrical;
     return result;
 }
 Value thermostatSnapshotPart(const Device& d,unsigned part) {
@@ -218,7 +258,7 @@ Value thermostatSnapshotPart(const Device& d,unsigned part) {
 }
 ValuePtr thermostatPart(const Device& d,unsigned part) {
     AUTOMATION_PROFILE("snapshot.thermostat.part");
-    return ValuePtr(new Value(thermostatSnapshotPart(d,part)));
+    return ValuePtr(new ImmutableValue(thermostatSnapshotPart(d,part)));
 }
 ThermostatSnapshotPtr captureThermostat(const Device& d,const SnapshotPtr& previous) {
     const ThermostatSnapshot* old=previous&&previous->thermostat&&previous->record?previous->thermostat.get():0;
@@ -244,7 +284,8 @@ bool ThermostatSnapshot::operator==(const ThermostatSnapshot& other) const {
     for(unsigned i=0;i<4;++i)if(left[i]!=right[i]&&(!left[i]||!right[i]||*left[i]!=*right[i]))return false;
     return true;
 }
-SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr& record) {
+SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr& record,const SnapshotPtr& cached) {
+    const SnapshotPtr& payload=cached?cached:previous;
     DeviceSnapshot next;next.record=record;
     next.metadata=previous&&previous->metadata->matches(d)?previous->metadata:MetadataPtr(new DeviceMetadata(d));
     const bool zigbee=d.source.empty()||d.source=="zigbee";
@@ -264,7 +305,7 @@ SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr&
     F(Battery,d.battery.present(),d.battery.read().percent);F(WifiSignal,d.wifiSignal.present(),d.wifiSignal.read().percent);F(LinkQuality,zigbee,d.zigbee.read().linkQuality);
     if(d.electrical.present()) {
         next.present|=1ULL<<Electrical;
-        next.electrical=previous&&previous->electrical&&previous->record&&previous->record->electrical.present()&&sameElectricalInput(d.electrical.read(),previous->record->electrical.read())?previous->electrical:ValuePtr(new Value(electricalSnapshotValue(d.electrical.read())));
+        next.electrical=captureElectrical(d.electrical.read(),payload);
     }
     if(d.electrical.present()) {
 #define ELECTRICAL(c,a,s,k,u,div,m) {std::map<std::string,ElectricalMeasurement>::const_iterator e=d.electrical.read().values.find(#k);if(e!=d.electrical.read().values.end()) {F(Electrical_##k,e->second.known,e->second.value);}}
@@ -277,7 +318,7 @@ SnapshotPtr capture(const Device& d,const SnapshotPtr& previous,const DevicePtr&
 #undef F
     if(thermostat){
         AUTOMATION_PROFILE("snapshot.thermostat.build");
-        next.thermostat=captureThermostat(d,previous);
+        next.thermostat=captureThermostat(d,payload);
         if(!next.record)next.record=DevicePtr(new Device(d));
     }
     bool same=previous&&(!record||record==previous->record)&&next.metadata==previous->metadata&&next.present==previous->present;
@@ -291,7 +332,7 @@ Value fieldValue(const DeviceSnapshot& d,Field field) {
     case Id:return Value(d.metadata->id);case Name:return Value(d.metadata->name);
     case Kind:return Value(d.metadata->kind);case Source:return Value(d.metadata->source);
     case AirQuality:return Value(d.airQuality);
-    case Electrical:return d.electrical?*d.electrical:Value();
+    case Electrical:return d.electrical?d.electrical->materialize():Value();
     case Thermostat:return d.thermostat?d.thermostat->materialize():Value();
     default:return booleanField(field)?Value(d.values[field]!=0):Value(d.values[field]);
     }

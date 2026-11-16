@@ -15,6 +15,7 @@ local tasks, listeners, timers, registered = {}, {}, {}, {}
 local serial, last_minute = 0, table.concat(host.calendar(),':')
 local current, initializing, has_cron
 local env = {}
+local function retain_snapshot(v) return host.is_snapshot and host.is_snapshot(v) and v or immutable(v) end
 local function strict(v, t, name)
   if type(v) ~= t then error((name or 'argument') .. ' must be ' .. t, 3) end
   return v
@@ -206,8 +207,8 @@ env._VERSION=_VERSION;env._G=env
 env.math=basis.math;env.string=basis.string;env.table=basis.table
 -- Native string operations do not consume VM ticks; the allocator caps memory.
 env.events=events;env.automation=automation;env.triggers=triggers
-env.devices={get=function(target)local v,e=host.device_get(target);return v and immutable(v),e end,
-  list=function(f)local values=host.device_list(f);for i,v in ipairs(values)do values[i]=immutable(v)end return values end,
+env.devices={get=function(target)local v,e=host.device_get(target);return v and retain_snapshot(v),e end,
+  list=function(f)local values=host.device_list(f);for i,v in ipairs(values)do values[i]=retain_snapshot(v)end return values end,
   actor=function(target,on)strict(on,'boolean','on');return host.action('actor',target,{on=on})end,
   light=function(target,state)
     strict(state,'table','light state');assert(state.on~=nil or state.brightness~=nil,'empty light state')
@@ -278,9 +279,9 @@ function runtime.event(event)
   for _,entry in pairs(listeners) do if matches(entry.filter,event)then
     -- Check admission before copying a potentially large device snapshot.
     if count(tasks)>=128 then report('callback queue limit reached','queue')
-    else snapshot=snapshot or immutable(event);start(entry.fn,{snapshot},event.chain_id,event.chain_depth)end
+    else snapshot=snapshot or retain_snapshot(event);start(entry.fn,{snapshot},event.chain_id,event.chain_depth)end
   end end
-  for _,task in pairs(tasks)do if task.wait and task.wait.kind=='event' and matches(task.wait.filter,event)then snapshot=snapshot or immutable(event);unwatch(task);task.wait=nil;task.args={snapshot}end end
+  for _,task in pairs(tasks)do if task.wait and task.wait.kind=='event' and matches(task.wait.filter,event)then snapshot=snapshot or retain_snapshot(event);unwatch(task);task.wait=nil;task.args={snapshot}end end
 end
 -- The native worker drains runnable callbacks before delivering another event.
 -- Suspended callbacks must still receive events that can wake their waiters.

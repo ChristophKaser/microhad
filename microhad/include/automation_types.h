@@ -50,7 +50,21 @@ struct DeviceMetadata {
     bool matches(const Device& device) const;
 };
 typedef std::tr1::shared_ptr<const DeviceMetadata> MetadataPtr;
-typedef std::tr1::shared_ptr<const Value> ValuePtr;
+size_t retainedValueBytes(const Value& value);
+struct ImmutableValue : Value {
+    const size_t retainedBytes;
+    explicit ImmutableValue(const Value& value);
+};
+typedef std::tr1::shared_ptr<const ImmutableValue> ValuePtr;
+struct ElectricalSnapshot {
+    std::map<std::string,ValuePtr> measurements;
+    ValuePtr reset;
+    size_t retainedBytes;
+    ElectricalSnapshot():retainedBytes(sizeof(ElectricalSnapshot)) {}
+    Value materialize() const;
+    bool operator==(const ElectricalSnapshot& other) const;
+};
+typedef std::tr1::shared_ptr<const ElectricalSnapshot> ElectricalSnapshotPtr;
 struct ThermostatSnapshot {
     ValuePtr readings,capabilities,schedules,status;
     Value materialize() const;
@@ -64,12 +78,13 @@ struct DeviceSnapshot {
     double values[FieldCount];
     std::string airQuality;
     ThermostatSnapshotPtr thermostat;
-    ValuePtr electrical;
+    ElectricalSnapshotPtr electrical;
     DeviceSnapshot();
+    size_t retainedBytes() const;
     bool has(Field field) const { return (present & (1ULL<<field))!=0; }
 };
 typedef std::tr1::shared_ptr<const DeviceSnapshot> SnapshotPtr;
-SnapshotPtr capture(const Device& device,const SnapshotPtr& previous=SnapshotPtr(),const DevicePtr& record=DevicePtr());
+SnapshotPtr capture(const Device& device,const SnapshotPtr& previous=SnapshotPtr(),const DevicePtr& record=DevicePtr(),const SnapshotPtr& cached=SnapshotPtr());
 bool sameField(const DeviceSnapshot& a,const DeviceSnapshot& b,Field field);
 Value fieldValue(const DeviceSnapshot& snapshot,Field field);
 const char* fieldName(Field field);
