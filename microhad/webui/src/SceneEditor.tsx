@@ -16,6 +16,8 @@ type Props = {
 const actionLabels: Record<string, string> = {
   on: 'Power on',
   off: 'Power off',
+  brightness_up: 'Brightness increase',
+  brightness_down: 'Brightness decrease',
   arrow_left: '← Arrow left',
   arrow_right: '→ Arrow right',
   matter_press: 'Matter: press',
@@ -562,6 +564,8 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
                             </> : <>
                               <option value="on">Power on</option>
                               <option value="off">Power off</option>
+                              <option value="brightness_up">Brightness increase</option>
+                              <option value="brightness_down">Brightness decrease</option>
                               <option value="arrow_left">← Arrow left</option>
                               <option value="arrow_right">→ Arrow right</option>
                             </>}

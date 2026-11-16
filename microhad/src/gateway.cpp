@@ -2904,7 +2904,7 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
         }
         std::map<std::string, Device>::const_iterator remote = devices_.find(bindings[i].ieeeAddress);
         if (group==0 || remote == devices_.end() || !remote->second.remote.present() ||
-            (bindings[i].action!="on" && bindings[i].action!="off" && bindings[i].action!="arrow_left" && bindings[i].action!="arrow_right" &&
+            (bindings[i].action!="on" && bindings[i].action!="off" && bindings[i].action!="brightness_up" && bindings[i].action!="brightness_down" && bindings[i].action!="arrow_left" && bindings[i].action!="arrow_right" &&
              bindings[i].action!="matter_press" && bindings[i].action!="matter_hold" && bindings[i].action!="matter_release" &&
              bindings[i].action!="matter_multi_press") ||
             (!bindings[i].off && bindings[i].sceneIds.empty())) { *error="invalid remote binding"; return false; }
@@ -3073,6 +3073,12 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
     else if (bindingAction == "arrow_right_click") bindingAction = "arrow_right";
     automationRemoteAction(device->second, bindingAction, endpoint);
     dispatchRemoteSceneAction(device->second.ieeeAddress, bindingAction);
+    if (cluster == 0x0008 && (command == 0x01 || command == 0x05 || command == 0x02 || command == 0x06) &&
+        !arguments.empty() && arguments[0] <= 1) {
+        const char* direction = arguments[0] == 0 ? "brightness_up" : "brightness_down";
+        automationRemoteAction(device->second, direction, endpoint);
+        dispatchRemoteSceneAction(device->second.ieeeAddress, direction);
+    }
     return true;
 }
 

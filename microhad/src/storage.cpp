@@ -879,7 +879,7 @@ bool parseSceneRecord(const std::vector<std::string>& fields, std::vector<SceneG
         if (fields.size() != 6 || !decimalField(fields[3], 0xfff7, &groupId) || groupId == 0 ||
             fields[1].empty() || (fields[4] != "0" && fields[4] != "1") ||
             (fields[2] != "on" && fields[2] != "off" && fields[2] != "arrow_left" &&
-             fields[2] != "arrow_right" && fields[2] != "matter_press" &&
+             fields[2] != "arrow_right" && fields[2] != "brightness_up" && fields[2] != "brightness_down" && fields[2] != "matter_press" &&
              fields[2] != "matter_hold" && fields[2] != "matter_release" &&
              fields[2] != "matter_multi_press")) return false;
         RemoteSceneBinding binding;
