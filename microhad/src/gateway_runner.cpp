@@ -302,9 +302,15 @@ void GatewayRunner::publishAutomation(bool force) {
     for(size_t i=0;i<reports.size();++i){
         const Gateway::AutomationReport& report=reports[i];
         const std::string& id=report.device.ieeeAddress;
+        static std::map<std::string,AutomationProfile::Stats> reportProfiles;
+        static AutomationProfile::Stats unusedReportProfile;
+        const bool profileReport=AutomationProfile::enabled();
+        const std::string reportProfileName=profileReport?std::string("report.")+id:std::string();
+        AutomationProfile::Scope reportProfile(profileReport?reportProfiles[id]:unusedReportProfile, reportProfileName.c_str());
         std::map<std::string,Snapshot>::iterator previous=automationSnapshots_.find(id);
         Snapshot before=previous==automationSnapshots_.end()?Snapshot():previous->second;
-        Snapshot current=Automation::capture(report.device,before);
+        Snapshot current;
+        { AUTOMATION_PROFILE("event.report.capture"); current=Automation::capture(report.device,before); }
         Automation::Event e;e.device=current;
         if(report.remoteAction){
             e.type="remote.action";e.action=report.action;e.endpoint=report.endpoint;e.position=report.position;e.pressCount=report.pressCount;outgoing.push_back(e);continue;
@@ -330,21 +336,28 @@ void GatewayRunner::publishAutomation(bool force) {
     bool changed=false,namesChanged=false;
     for(size_t index=0;index<inspect.size();++index){
         const Device& live=*inspect[index];const std::string& id=live.ieeeAddress;
+        static std::map<std::string,AutomationProfile::Stats> deviceProfiles;
+        static AutomationProfile::Stats unusedDeviceProfile;
+        const bool profileDevice=AutomationProfile::enabled();
+        const std::string profileName=profileDevice?std::string("device.")+id:std::string();
+        AutomationProfile::Scope deviceProfile(profileDevice?deviceProfiles[id]:unusedDeviceProfile,profileName.c_str());
         std::map<std::string,Snapshot>::iterator old=automationSnapshots_.find(id);
         Snapshot previous=old==automationSnapshots_.end()?Snapshot():old->second;
-        Device* record=new Device(live);if(record->contact.present())record->contact.ensure().triggerUntil=gateway_->contactTriggerUntilForView(id);
+        Device* record;
+        { AUTOMATION_PROFILE("event.device.copy"); record=new Device(live);if(record->contact.present())record->contact.ensure().triggerUntil=gateway_->contactTriggerUntilForView(id); }
         Automation::DevicePtr immutable(record);
-        Snapshot current=Automation::capture(*record,previous,immutable);
+        Snapshot current;
+        { AUTOMATION_PROFILE("event.device.capture"); current=Automation::capture(*record,previous,immutable); }
         std::map<std::string,Snapshot>::const_iterator published=automationCatalog_->devices.find(id);
         if(published==automationCatalog_->devices.end()||published->second!=current)changed=true;
         if(published==automationCatalog_->devices.end()||published->second->metadata->name!=current->metadata->name)namesChanged=true;
         if(!previous){Automation::Event e;e.type="device.added";e.device=current;outgoing.push_back(e);}
-        else if(current!=previous)for(unsigned f=0;f<Automation::FieldCount;++f){
+        else if(current!=previous) { AUTOMATION_PROFILE("event.device.compare"); for(unsigned f=0;f<Automation::FieldCount;++f){
             const Automation::Field field=static_cast<Automation::Field>(f);
             if(field==Automation::LastSeen||!current->has(field)||Automation::sameField(*previous,*current,field))continue;
             Automation::Event e;e.type="device.changed";e.device=current;e.field=field;e.hasOld=true;e.old=Automation::fieldValue(*previous,field);outgoing.push_back(e);
             if(field==Automation::Online){e.type=current->values[field]!=0?"device.online":"device.offline";outgoing.push_back(e);}
-        }
+        } }
         automationSnapshots_[id]=current;
     }
     std::vector<std::string> removed;
@@ -355,6 +368,7 @@ void GatewayRunner::publishAutomation(bool force) {
     const bool groupsChanged=!sameScenes(*gateway_,source,*automationCatalog_->groups);
     Automation::CatalogPtr published=automationCatalog_;
     if(changed||groupsChanged){
+        AUTOMATION_PROFILE("event.catalog");
         Automation::Catalog* next=new Automation::Catalog;next->devices=automationSnapshots_;next->names=automationCatalog_->names;next->groups=automationCatalog_->groups;
         std::tr1::shared_ptr<Automation::SnapshotList> ordered(new Automation::SnapshotList);ordered->reserve(next->devices.size());
         for(std::map<std::string,Snapshot>::const_iterator it=next->devices.begin();it!=next->devices.end();++it)ordered->push_back(it->second);
@@ -386,7 +400,7 @@ void GatewayRunner::publishAutomation(bool force) {
     // allocations and retired catalog destruction happen outside this mutex.
     Automation::CatalogPtr retired;
     pthread_mutex_lock(&mutex_);retired.swap(automationCatalog_);automationCatalog_=published;
-    if(automation_)for(size_t i=0;i<outgoing.size();++i){outgoing[i].chain=chain;outgoing[i].depth=activeAutomationDepth_;outgoing[i].at=time(0);automation_->enqueue(outgoing[i]);}
+    { AUTOMATION_PROFILE("event.enqueue"); if(automation_)for(size_t i=0;i<outgoing.size();++i){outgoing[i].chain=chain;outgoing[i].depth=activeAutomationDepth_;outgoing[i].at=time(0);automation_->enqueue(outgoing[i]);} }
     pthread_mutex_unlock(&mutex_);
 }
 
