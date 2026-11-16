@@ -329,11 +329,19 @@ registration can request an authenticated StayActive window using its saved
 management endpoint, even before metadata or subscription keys exist. Recovery
 probes use an independent recovery slot, time out after sixty seconds,
 and back off for sixty seconds on failure without replacing registration keys.
-Two ordinary recovery slots advance descriptor interviews and subscriptions
-for distinct peers independently, with their existing thirty-second deadlines.
-A pending ICD probe does not block these slots. Clock maintenance follows
-ready recovery work; foreground commands retain their priority. Explicit restore,
-node removal and radio loss retire the affected ordinary recovery transactions.
+Descriptor interviews and subscriptions advance independently, with at most
+one ordinary recovery transaction per peer and no fixed global task limit.
+Session-start admission is shared with ICD probes, authenticated Check-In work,
+clock maintenance and managed foreground commands: at most two attempts requiring
+a new CASE session are admitted in any rolling ten-second window. Existing live
+sessions bypass the budget. Waiting recovery stays queued without consuming its
+thirty-second network deadline, while per-peer failure backoff remains in effect.
+Unfinished attempts do not block admission when the next window opens; completion
+and cancellation do not refund the budget. Authenticated Check-In requests retain
+required key refreshes while admission is delayed. The existing single ICD
+management slot remains independent of ordinary peer recovery. Clock maintenance
+follows ready recovery work; foreground commands retain their priority. Explicit
+restore, node removal and radio loss retire affected ordinary transactions.
 Authenticated Check-Ins also request a window when startup metadata is missing.
 Short-idle ICDs do not need Check-In support to remain recoverable.
 Negotiated report intervals and the

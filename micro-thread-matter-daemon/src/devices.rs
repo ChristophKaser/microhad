@@ -24,6 +24,8 @@ use std::{
 // Discovery, CASE and ICD requests share this deadline. A sleepy peer may
 // take 15 seconds just to return Sigma2; ten seconds cancels valid handshakes.
 const ICD_SETUP_TIMEOUT: Duration = Duration::from_secs(60);
+const SESSION_START_WINDOW: Duration = Duration::from_secs(10);
+const SESSION_START_LIMIT: usize = 2;
 
 pub const MAX_ENDPOINTS: usize = 32;
 pub const MAX_CLUSTERS: usize = 64;
@@ -253,6 +255,8 @@ pub struct Manager<'a, C: Crypto> {
     contacts: Vec<(u64, Instant)>,
     snapshots: Vec<Snapshot>,
     work: Option<(u64, Instant, Work<'a>)>,
+    session_starts: VecDeque<Instant>,
+    pending_icd_wakes: Vec<crate::icd::Wake>,
     pending_discoveries: Vec<(u64, Instant, Work<'a>)>,
     pending_subscriptions: Vec<((SubscriptionKey, Instant, SubscriptionWork<'a>), Vec<SubscriptionKey>)>,
     revision: u64,
@@ -360,6 +364,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             contacts: Vec::new(),
             snapshots: Vec::new(),
             work: None,
+            session_starts: VecDeque::new(),
+            pending_icd_wakes: Vec::new(),
             pending_discoveries: Vec::new(),
             pending_subscriptions: Vec::new(),
             revision,
@@ -633,7 +639,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
         let registry = self.icd_registry.as_ref()?;
         self.registered_nodes.iter().find_map(|&node| {
-            if self.recovery_node_busy(node) { return None; }
+            if self.recovery_node_busy(node) || !self.session_start_available(node, now) { return None; }
             let registration = registry.registration(self.fabric, node)?;
             let key = (node, registration.endpoint);
             (self.catalog.nodes().iter().any(|entry| entry.id == node && entry.phase == Phase::Complete)
@@ -956,6 +962,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         self.unsupported_clock_events.retain(|key| key.node != node);
         self.catalog.remove(node).map_err(|_| Failure::Storage)?;
         self.snapshots.retain(|entry| entry.node != node);
+        self.pending_icd_wakes.retain(|wake| wake.node != node);
         self.pending_discoveries.retain(|(id, _, _)| *id != node);
         self.pending_subscriptions.retain(|((key, _, _), _)| key.node != node);
         if self.work.as_ref().is_some_and(|(id, _, _)| *id == node) { self.work = None; }
@@ -1262,7 +1269,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .queued
             .iter()
             .position(|queued| {
-            matches!(queued.operation.action, crate::operations::Action::Delete { .. }) || self.node_awake(queued.operation.node, now)
+            matches!(queued.operation.action, crate::operations::Action::Delete { local: true })
+                || ((matches!(queued.operation.action, crate::operations::Action::Delete { .. })
+                    || self.node_awake(queued.operation.node, now))
+                    && self.session_start_available(queued.operation.node, now))
         });
         if let Some(index) = ready_job {
             let queued = self.queued.remove(index).unwrap();
@@ -1292,6 +1302,9 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 crate::operations::Action::SyncTime { time_zone, .. } => Some((queued.operation.endpoint, time_zone.clone())),
                 _ => None,
             };
+            if !matches!(queued.operation.action, crate::operations::Action::Delete { local: true }) {
+                self.note_session_start(operation_node, now);
+            }
             let work = queued
                 .operation
                 .run_for(self.matter, self.crypto, self.fabric, timeout);
@@ -1312,11 +1325,11 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if self.poll_background(now, context) {
             return;
         }
-        if self.operations_busy() || self.pending_discoveries.len() + self.pending_subscriptions.len() >= 2 {
+        if self.operations_busy() {
             return;
         }
         self.admit_recovery(now);
-        if self.subscription_work.is_some() || !self.pending_discoveries.is_empty() || !self.pending_subscriptions.is_empty() { return; }
+        if self.work.is_some() || self.subscription_work.is_some() || !self.pending_discoveries.is_empty() || !self.pending_subscriptions.is_empty() { return; }
         // Background clock maintenance shares the single operational slot and
         // never writes persistent state during periodic refreshes.
         for preference in self.time_preferences.entries.iter().filter(|p| {
@@ -1327,10 +1340,12 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 node: preference.node, endpoint: preference.endpoint,
                 action: crate::operations::Action::SyncTime { time_zone: preference.name.clone(), offset_seconds: 0 },
             };
-            if operation.authorize(&self.snapshots).is_ok() {
+            if operation.authorize(&self.snapshots).is_ok() && self.session_start_available(operation.node, now) {
+                let time_zone = Some((operation.endpoint, preference.name.clone()));
+                self.note_session_start(operation.node, now);
                 self.active = Some(ActiveOperation {
                     id: 0, node: operation.node, deleting: false,
-                    time_zone: Some((operation.endpoint, preference.name.clone())),
+                    time_zone,
                     deadline: now + Duration::from_secs(30),
                     work: Box::pin(operation.run(self.matter, self.crypto, self.fabric)),
                 });
@@ -1339,8 +1354,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
     }
     fn admit_recovery(&mut self, now: Instant) {
-        if self.work.is_some() || self.subscription_work.is_some()
-            || self.pending_discoveries.len() + self.pending_subscriptions.len() >= 2 { return; }
+        if self.work.is_some() || self.subscription_work.is_some() { return; }
         for node in self
             .catalog
             .nodes()
@@ -1363,20 +1377,22 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if let Some(snapshot) = self
             .snapshots
             .iter()
-            .filter(|s| s.next.is_some_and(|next| next <= now) && self.node_awake(s.node, now) && !self.recovery_node_busy(s.node))
+            .filter(|s| s.next.is_some_and(|next| next <= now) && self.node_awake(s.node, now) && !self.recovery_node_busy(s.node) && self.session_start_available(s.node, now))
             .min_by_key(|s| {
                 (self.catalog.nodes().iter().find(|node| node.id == s.node).is_none_or(|node| node.phase != Phase::Complete), s.next,
                 )
             })
         {
+            let node = snapshot.node;
+            self.note_session_start(node, now);
             self.work = Some((
-                snapshot.node,
+                node,
                 now + Duration::from_secs(30),
                 Box::pin(discover_with_metadata(
                     self.matter,
                     self.crypto,
                     self.fabric,
-                    snapshot.node,
+                    node,
                 )),
             ));
             return;
@@ -1386,7 +1402,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .subscriptions
             .iter()
             .filter(|subscription| {
-                subscription.next_retry <= now && self.node_awake(subscription.key.node, now) && !self.recovery_node_busy(subscription.key.node)
+                subscription.next_retry <= now && self.node_awake(subscription.key.node, now) && !self.recovery_node_busy(subscription.key.node) && self.session_start_available(subscription.key.node, now)
             })
             .min_by_key(|subscription| subscription.next_retry)
         {
@@ -1394,6 +1410,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             if subscription.id.is_some() {
                 log::warn!("Matter subscription overdue: node={:016x} endpoint={} cluster={} interval={}s; restoring", key.node, key.endpoint, key.cluster, subscription.max_interval);
             }
+            self.note_session_start(key.node, now);
             let max_interval = if matches!(key.cluster,144|145) { 60 } else if self.snapshots.iter().any(|snapshot| {
                 snapshot.node == key.node && snapshot.model == "ALPSTUGA air quality monitor"
             }) { 900 } else { crate::subscriptions::MAX_REPORT_INTERVAL_SECONDS };
@@ -1434,6 +1451,30 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             self.subscription_work = Some((key, now + Duration::from_secs(30), work));
         }
     }
+    fn has_case_session(&self, node: u64) -> bool {
+        self.matter.with_state(|state| state.sessions.iter_mut().any(|session| {
+            !session.is_reserved() && !session.is_expired()
+                && session.get_local_fabric_idx() == self.fabric.get()
+                && session.get_peer_node_id() == Some(node)
+                && matches!(session.get_session_mode(), rs_matter::transport::session::SessionMode::Case { .. })
+        }))
+    }
+    // Waiting peers stay in the existing inventory/subscription queues. Their
+    // network deadline starts only on admission, not while the rate limit is
+    // full. Existing sessions bypass the quota; completion never refunds it.
+    fn session_start_available(&self, node: u64, now: Instant) -> bool {
+        self.session_starts.iter()
+            .filter(|started| now.saturating_duration_since(**started) < SESSION_START_WINDOW)
+            .count() < SESSION_START_LIMIT || self.has_case_session(node)
+    }
+    fn note_session_start(&mut self, node: u64, now: Instant) {
+        if self.has_case_session(node) { return; }
+        while self.session_starts.front().is_some_and(|started|
+            now.saturating_duration_since(*started) >= SESSION_START_WINDOW) {
+            self.session_starts.pop_front();
+        }
+        self.session_starts.push_back(now);
+    }
     fn recovery_node_busy(&self, node: u64) -> bool {
         self.active.as_ref().is_some_and(|active| active.node == node)
             || self.work.as_ref().is_some_and(|(n, _, _)| *n == node)
@@ -1444,8 +1485,8 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
     }
     /// Poll each admitted recovery once, keeping its absolute deadline and
     /// grouped subscription members. A Pending peer never occupies the next
-    /// peer's admission slot. Two ordinary slots bound memory/radio pressure;
-    /// the existing ICD slot progresses independently.
+    /// peer's admission slot. One transaction per peer bounds task ownership;
+    /// admission rate-limits new sessions rather than unfinished transactions.
     fn poll_pending_recoveries(&mut self, now: Instant, context: &mut Context<'_>) {
         let mut discoveries = std::mem::take(&mut self.pending_discoveries);
         let mut subscriptions = std::mem::take(&mut self.pending_subscriptions);
@@ -1641,56 +1682,67 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     let until = now
                         + Duration::from_millis(u64::from(wake.active_mode_threshold_ms).max(1));
                     self.record_awake_until(wake.node, until);
-                    if wake.refresh_required || self.icd_recovery_needed(wake.node, now) {
-                        if let Some(endpoint) = self
-                            .icd_registry
-                            .as_ref()
-                            .and_then(|registry| registry.registration(wake.fabric, wake.node))
-                            .map(|registration| registration.endpoint)
-                        {
-                            let matter = self.matter;
-                            let crypto = self.crypto;
-                            let Some(mut registry) = self.icd_registry.take() else {
-                                return progressed;
-                            };
-                            let Some(mut entropy) = self.icd_entropy.take() else {
-                                self.icd_registry = Some(registry);
-                                return progressed;
-                            };
-                            let fabric = wake.fabric;
-                            let node = wake.node;
-                            let local_node = self.local_node;
-                            self.icd_work = Some((
-                                node,
-                                endpoint,
-                                now + ICD_SETUP_TIMEOUT,
-                                Box::pin(async move {
-                                    let result = async {
-                                        if wake.refresh_required {
-                                            registry.register(
-                                                matter,
-                                                crypto,
-                                                fabric,
-                                                node,
-                                                endpoint,
-                                                local_node,
-                                                &mut entropy,
-                                            ).await?;
-                                        }
-                                        crate::icd::subscription_active_until(
-                                            matter, crypto, fabric, node, endpoint,
-                                        ).await.map(Some)
-                                    }.await;
-                                    (registry, entropy, result)
-                                }),
-                            ));
-                        }
+                    if let Some(previous) = self.pending_icd_wakes.iter_mut().find(|pending| pending.node == wake.node) {
+                        let refresh_required = previous.refresh_required || wake.refresh_required;
+                        *previous = wake;
+                        previous.refresh_required = refresh_required;
+                    } else if self.pending_icd_wakes.len() < crate::icd::MAX_ICD_CLIENTS {
+                        self.pending_icd_wakes.push(wake);
                     }
                 } else if self.icd_registry.is_none() {
-                    log::warn!(
-                        "Matter ICD Check-In received without a client registry for {:016x}/fabric {}",
-                        message.node, message.fabric
-                    );
+                    log::warn!("Matter ICD Check-In received without a client registry for {:016x}/fabric {}", message.node, message.fabric);
+                }
+            }
+            // Retain authenticated wake requests while session admission is
+            // throttled. Never discard a required registration-key refresh.
+            if let Some(index) = self.pending_icd_wakes.iter().position(|wake|
+                !self.recovery_node_busy(wake.node) && self.session_start_available(wake.node, now)) {
+                let wake = self.pending_icd_wakes.remove(index);
+                if wake.refresh_required || self.icd_recovery_needed(wake.node, now) {
+                    if let Some(endpoint) = self
+                        .icd_registry
+                        .as_ref()
+                        .and_then(|registry| registry.registration(wake.fabric, wake.node))
+                        .map(|registration| registration.endpoint)
+                    {
+                        let matter = self.matter;
+                        let crypto = self.crypto;
+                        let Some(mut registry) = self.icd_registry.take() else {
+                            return progressed;
+                        };
+                        let Some(mut entropy) = self.icd_entropy.take() else {
+                            self.icd_registry = Some(registry);
+                            return progressed;
+                        };
+                        let fabric = wake.fabric;
+                        let node = wake.node;
+                        let local_node = self.local_node;
+                        self.note_session_start(node, now);
+                        self.icd_work = Some((
+                            node,
+                            endpoint,
+                            now + ICD_SETUP_TIMEOUT,
+                            Box::pin(async move {
+                                let result = async {
+                                    if wake.refresh_required {
+                                        registry.register(
+                                            matter,
+                                            crypto,
+                                            fabric,
+                                            node,
+                                            endpoint,
+                                            local_node,
+                                            &mut entropy,
+                                        ).await?;
+                                    }
+                                    crate::icd::subscription_active_until(
+                                        matter, crypto, fabric, node, endpoint,
+                                    ).await.map(Some)
+                                }.await;
+                                (registry, entropy, result)
+                            }),
+                        ));
+                    }
                 }
             }
         }
@@ -1700,6 +1752,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 let crypto = self.crypto;
                 let fabric = self.fabric;
                 if self.icd_registry.is_some() && self.icd_entropy.is_some() {
+                    self.note_session_start(node, now);
                     let registry = self.icd_registry.take().unwrap();
                     let entropy = self.icd_entropy.take().unwrap();
                     log::info!("Matter ICD recovery probe: node={:016x} endpoint={}", node, endpoint);
@@ -1717,6 +1770,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         snapshot.endpoints.iter().find_map(|endpoint| {
                             (endpoint.servers.contains(&ICD_MANAGEMENT_CLUSTER)
                                 && !self.recovery_node_busy(snapshot.node)
+                                && self.session_start_available(snapshot.node, now)
                                 && !self.icd_checked.contains(&(snapshot.node, endpoint.id))
                                 && !self.registered_nodes.contains(&snapshot.node)
                                 && !self.icd_retry_after.iter().any(|(key, until)| {
@@ -1743,6 +1797,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 };
                 let fabric = self.fabric;
                 let local_node = self.local_node;
+                self.note_session_start(node, now);
                 self.icd_work = Some((
                     node,
                     endpoint,
@@ -3437,12 +3492,89 @@ mod tests {
         assert_eq!(manager.time_preferences.entries[0].next, now);
         manager.registered_nodes.clear();
         // An unsuccessful refresh is delayed, not immediately replayed.
-        manager.time_preferences.entries[0].next = now;
-        manager.poll(true, false, now, &mut context);
+        let retry = returned + SESSION_START_WINDOW;
+        manager.time_preferences.entries[0].next = retry;
+        manager.poll(true, false, retry, &mut context);
         manager.active.as_mut().unwrap().work = Box::pin(std::future::ready(Err(crate::operations::Failure::Unsupported)));
-        manager.poll(true, false, now, &mut context);
-        assert_eq!(manager.time_preferences.entries[0].next.duration_since(now).as_secs(), 60);
+        manager.poll(true, false, retry, &mut context);
+        assert_eq!(manager.time_preferences.entries[0].next.duration_since(retry).as_secs(), 60);
         drop(manager); drop(store);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn recovery_session_starts_are_rate_limited_not_concurrency_limited() {
+        use crate::{entropy::OsEntropy, store::PrivateStore};
+        use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
+            dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET},
+            transport::session::{ReservedSession, SessionMode}, utils::init::InitMaybeUninit};
+        let directory = std::env::temp_dir().join(format!("matter-recovery-rate-{}-{}",
+            std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let store = PrivateStore::open(&directory).unwrap();
+        let catalog = Catalog::open(store.clone(), 1, 2).unwrap();
+        for node in 2..=7 {
+            let reservation = catalog.reserve(node).unwrap();
+            reservation.fabric_installed().unwrap();
+            reservation.thread_provisioned().unwrap();
+            reservation.complete().unwrap();
+        }
+        let credentials = std::fs::read(directory.join("credentials.bin")).unwrap();
+        let crypto = default_crypto(OsEntropy::open().unwrap(), CryptoSensitiveRef::new(&[9; 32]));
+        let mut memory = Box::new(std::mem::MaybeUninit::uninit());
+        let matter = memory.init_with(Matter::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT, 5540));
+        let fabric = NonZeroU8::new(1).unwrap();
+        let mut manager = Manager::new(matter, &crypto, fabric, catalog).unwrap();
+        let now = Instant::now();
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        // No network responses: each admitted discovery remains unfinished.
+        for (node, elapsed) in [(2, 0), (3, 1)] {
+            manager.admit_recovery(now + Duration::from_secs(elapsed));
+            assert_eq!(manager.work.as_ref().unwrap().0, node);
+            manager.work.as_mut().unwrap().2 = Box::pin(std::future::pending());
+            manager.poll_pending_recoveries(now + Duration::from_secs(elapsed), &mut context);
+        }
+        manager.pending_icd_wakes.push(crate::icd::Wake {
+            fabric, node: 6, counter: 1, active_mode_threshold_ms: 1000, refresh_required: true,
+        });
+        manager.poll_icd(now + Duration::from_secs(1), &mut context, true);
+        assert_eq!(manager.pending_icd_wakes.len(), 1, "rate limiting retains accepted Check-Ins");
+        assert!(manager.pending_icd_wakes[0].refresh_required);
+        manager.pending_icd_wakes.clear();
+        manager.admit_recovery(now + Duration::from_millis(9999));
+        assert!(manager.work.is_none(), "no third session start inside the rolling window");
+        manager.admit_recovery(now + Duration::from_secs(10));
+        assert_eq!(manager.work.as_ref().unwrap().0, 4);
+        assert_eq!(manager.work.as_ref().unwrap().1, now + Duration::from_secs(40), "queue time does not consume the network deadline");
+        manager.work.as_mut().unwrap().2 = Box::pin(std::future::pending());
+        manager.poll_pending_recoveries(now + Duration::from_secs(10), &mut context);
+        assert_eq!(manager.pending_discoveries.len(), 3, "two stalled peers do not block the third");
+        manager.admit_recovery(now + Duration::from_millis(10999));
+        assert!(manager.work.is_none(), "a rolling window is not a resettable ten-second bucket");
+        // Reusing a secure session bypasses a full budget and an older queued
+        // peer that still needs a handshake. It must not consume a start.
+        let mut session = ReservedSession::reserve_now(matter.transport(), &crypto).unwrap();
+        session.update(1, 7, 10, 7, rs_matter::transport::network::Address::default(),
+            SessionMode::Case { fab_idx: fabric, cat_ids: Default::default() },
+            None, None, None, None).unwrap();
+        session.complete();
+        let starts = manager.session_starts.clone();
+        manager.admit_recovery(now + Duration::from_millis(10999));
+        assert_eq!(manager.work.as_ref().unwrap().0, 7);
+        assert_eq!(manager.session_starts, starts);
+        manager.work.as_mut().unwrap().2 = Box::pin(std::future::pending());
+        manager.poll_pending_recoveries(now + Duration::from_millis(10999), &mut context);
+        manager.admit_recovery(now + Duration::from_secs(11));
+        assert_eq!(manager.work.as_ref().unwrap().0, 5, "oldest eligible peer gets the next admission");
+        assert_eq!(manager.pending_discoveries.len(), 4);
+        assert_eq!(manager.session_starts.len(), 2);
+        // Commissioning cancels all pending tasks without refunding starts.
+        manager.inventory_bootstrap_until = now;
+        manager.poll(true, true, now + Duration::from_secs(11), &mut context);
+        assert!(manager.work.is_none() && manager.pending_discoveries.is_empty());
+        assert!(!manager.session_start_available(6, now + Duration::from_secs(11)));
+        assert_eq!(std::fs::read(directory.join("credentials.bin")).unwrap(), credentials);
+        drop(manager);
+        drop(store);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3870,8 +4002,10 @@ mod tests {
         manager.poll(false, false, now + Duration::from_secs(31), &mut context);
         assert!(manager.snapshots.iter().all(|s| !s.online));
         manager.poll(true, false, now + Duration::from_secs(31), &mut context);
+        assert!(manager.work.is_none(), "radio recovery does not reset the session-start budget");
+        manager.poll(true, false, now + Duration::from_secs(40), &mut context);
         assert!(manager.work.is_some());
-        manager.poll(true, true, now + Duration::from_secs(31), &mut context);
+        manager.poll(true, true, now + Duration::from_secs(40), &mut context);
         assert!(manager.work.is_none());
         manager.snapshots[1].endpoints = (0..MAX_ENDPOINTS)
             .map(|id| Endpoint {
