@@ -338,7 +338,13 @@ sessions bypass the budget. Waiting recovery stays queued without consuming its
 thirty-second network deadline, while per-peer failure backoff remains in effect.
 Unfinished attempts do not block admission when the next window opens; completion
 and cancellation do not refund the budget. Authenticated Check-In requests retain
-required key refreshes while admission is delayed. The existing single ICD
+required key refreshes while admission is delayed. Check-Ins are authenticated
+even while ICD network work is pending. Queued wakes keep their original absolute
+deadlines; expired key refreshes wait for a fresh authenticated wake. With saved
+ICD registrations, background recovery leaves one session-start token available
+for authenticated wakes, within the same overall limit. Read-only speculative
+StayActive probes yield to authenticated wakes; registration exchanges finish
+without cancellation. The existing single ICD
 management slot remains independent of ordinary peer recovery. Clock maintenance
 follows ready recovery work; foreground commands retain their priority. Explicit
 restore, node removal and radio loss retire affected ordinary transactions.

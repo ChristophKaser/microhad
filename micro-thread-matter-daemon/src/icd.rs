@@ -186,7 +186,16 @@ impl ClientRegistry {
         })
     }
 
+    /// Independent network futures share the same authoritative store. Refresh
+    /// before mutation so an older view cannot roll back Check-In replay state.
+    pub fn fork(&self) -> Result<Self, Error> { Self::open(self.store.clone()) }
+    fn reload(&mut self) -> Result<(), Error> {
+        self.registrations = self.fork()?.registrations;
+        Ok(())
+    }
+
     pub fn remove(&mut self, fabric: NonZeroU8, node: u64) -> Result<(), Error> {
+        self.reload()?;
         if let Some(index) = self.registrations.iter().position(|r| r.fabric == fabric && r.node == node) {
             let previous = self.registrations.remove(index);
             if let Err(error) = self.persist() {
@@ -273,6 +282,7 @@ impl ClientRegistry {
         if key.iter().all(|byte| *byte == 0) {
             return Err(invalid());
         }
+        self.reload()?;
         let existing = self
             .registrations
             .iter()
@@ -307,6 +317,7 @@ impl ClientRegistry {
     /// Authenticate one Check-In, enforce the spec's strictly increasing
     /// offset rule, and durably save that offset before returning a wake.
     pub fn accept<C: Crypto>(&mut self, crypto: &C, message: &IcdCheckIn) -> Result<Wake, Error> {
+        self.reload()?;
         let payload_len = message.payload().len();
         let mut authenticated = None;
         for (index, registration) in self.registrations.iter().enumerate() {
@@ -440,6 +451,25 @@ mod tests {
 
     fn incoming(node: u64, payload: Vec<u8>) -> IcdCheckIn {
         IcdCheckIn::from_received(1, node, &payload).unwrap()
+    }
+
+    #[test]
+    fn independent_registry_views_preserve_replay_offsets_and_other_registrations() {
+        let directory=fixture_dir();let store=PrivateStore::open(&directory).unwrap();
+        let fabric=NonZeroU8::new(1).unwrap();
+        let crypto=default_crypto(crate::entropy::OsEntropy::open().unwrap(),CryptoSensitiveRef::new(&[9;32]));
+        let mut auth=ClientRegistry::open(store.clone()).unwrap();auth.install(fabric,2,0,[7;16],10).unwrap();
+        let mut network=auth.fork().unwrap();
+        let message=incoming(2,wire_check_in(&crypto,&[7;16],11));auth.accept(&crypto,&message).unwrap();
+        network.install(fabric,3,0,[8;16],100).unwrap();
+        assert_eq!(network.registration(fabric,2).unwrap().last_offset,1,"network completion cannot roll back a concurrent Check-In");
+        assert_eq!(network.accept(&crypto,&message).unwrap_err().code(),ErrorCode::Duplicate);
+        let message=incoming(2,wire_check_in(&crypto,&[7;16],12));network.accept(&crypto,&message).unwrap();
+        auth.remove(fabric,3).unwrap();
+        assert_eq!(auth.registration(fabric,2).unwrap().last_offset,2);
+        assert_eq!(auth.accept(&crypto,&message).unwrap_err().code(),ErrorCode::Duplicate);
+        assert!(!auth.is_registered(fabric,3));
+        drop(network);drop(auth);drop(store);std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

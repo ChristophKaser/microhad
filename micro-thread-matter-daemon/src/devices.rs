@@ -180,6 +180,14 @@ fn cached_unit(unit:Option<&str>)->Option<&'static str> {match unit {
 }}
 type SubscriptionWork<'a> =
     Pin<Box<dyn Future<Output = Result<Option<crate::subscriptions::DeviceSubscription>, Error>> + 'a>>;
+struct PendingIcdWake {
+    wake: crate::icd::Wake,
+    until: Instant,
+}
+impl std::ops::Deref for PendingIcdWake {
+    type Target = crate::icd::Wake;
+    fn deref(&self) -> &Self::Target { &self.wake }
+}
 type IcdWork<'a> = Pin<
     Box<
         dyn Future<
@@ -240,6 +248,7 @@ pub struct Manager<'a, C: Crypto> {
     local_node: u64,
     icd_entropy: Option<crate::entropy::OsEntropy>,
     icd_work: Option<(u64, u16, Instant, IcdWork<'a>)>,
+    icd_work_is_probe: bool,
     registered_nodes: Vec<u64>,
     icd_checked: Vec<(u64, u16)>,
     icd_retry_after: Vec<((u64, u16), Instant)>,
@@ -256,7 +265,7 @@ pub struct Manager<'a, C: Crypto> {
     snapshots: Vec<Snapshot>,
     work: Option<(u64, Instant, Work<'a>)>,
     session_starts: VecDeque<Instant>,
-    pending_icd_wakes: Vec<crate::icd::Wake>,
+    pending_icd_wakes: Vec<PendingIcdWake>,
     pending_discoveries: Vec<(u64, Instant, Work<'a>)>,
     pending_subscriptions: Vec<((SubscriptionKey, Instant, SubscriptionWork<'a>), Vec<SubscriptionKey>)>,
     revision: u64,
@@ -366,6 +375,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             work: None,
             session_starts: VecDeque::new(),
             pending_icd_wakes: Vec::new(),
+            icd_work_is_probe: false,
             pending_discoveries: Vec::new(),
             pending_subscriptions: Vec::new(),
             revision,
@@ -639,7 +649,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         }
         let registry = self.icd_registry.as_ref()?;
         self.registered_nodes.iter().find_map(|&node| {
-            if self.recovery_node_busy(node) || !self.session_start_available(node, now) { return None; }
+            if self.recovery_node_busy(node) || !self.recovery_start_available(node, now) { return None; }
             let registration = registry.registration(self.fabric, node)?;
             let key = (node, registration.endpoint);
             (self.catalog.nodes().iter().any(|entry| entry.id == node && entry.phase == Phase::Complete)
@@ -1340,7 +1350,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 node: preference.node, endpoint: preference.endpoint,
                 action: crate::operations::Action::SyncTime { time_zone: preference.name.clone(), offset_seconds: 0 },
             };
-            if operation.authorize(&self.snapshots).is_ok() && self.session_start_available(operation.node, now) {
+            if operation.authorize(&self.snapshots).is_ok() && self.recovery_start_available(operation.node, now) {
                 let time_zone = Some((operation.endpoint, preference.name.clone()));
                 self.note_session_start(operation.node, now);
                 self.active = Some(ActiveOperation {
@@ -1377,7 +1387,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         if let Some(snapshot) = self
             .snapshots
             .iter()
-            .filter(|s| s.next.is_some_and(|next| next <= now) && self.node_awake(s.node, now) && !self.recovery_node_busy(s.node) && self.session_start_available(s.node, now))
+            .filter(|s| s.next.is_some_and(|next| next <= now) && self.node_awake(s.node, now) && !self.recovery_node_busy(s.node) && self.recovery_start_available(s.node, now))
             .min_by_key(|s| {
                 (self.catalog.nodes().iter().find(|node| node.id == s.node).is_none_or(|node| node.phase != Phase::Complete), s.next,
                 )
@@ -1402,7 +1412,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .subscriptions
             .iter()
             .filter(|subscription| {
-                subscription.next_retry <= now && self.node_awake(subscription.key.node, now) && !self.recovery_node_busy(subscription.key.node) && self.session_start_available(subscription.key.node, now)
+                subscription.next_retry <= now && self.node_awake(subscription.key.node, now) && !self.recovery_node_busy(subscription.key.node) && self.recovery_start_available(subscription.key.node, now)
             })
             .min_by_key(|subscription| subscription.next_retry)
         {
@@ -1466,6 +1476,38 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         self.session_starts.iter()
             .filter(|started| now.saturating_duration_since(**started) < SESSION_START_WINDOW)
             .count() < SESSION_START_LIMIT || self.has_case_session(node)
+    }
+    fn recovery_start_available(&self, node: u64, now: Instant) -> bool {
+        let reserved = usize::from(!self.registered_nodes.is_empty());
+        self.has_case_session(node) || self.session_starts.iter()
+            .filter(|started| now.saturating_duration_since(**started) < SESSION_START_WINDOW)
+            .count() < SESSION_START_LIMIT - reserved
+    }
+    fn icd_registry_for_work(&self) -> Option<crate::icd::ClientRegistry> {
+        self.icd_registry.as_ref()?.fork().map_err(|error|
+            log::warn!("Matter ICD registry unavailable for network work: {:?}", error)).ok()
+    }
+    fn queue_icd_wake(&mut self, wake: crate::icd::Wake, now: Instant) {
+        let until = now + Duration::from_millis(u64::from(wake.active_mode_threshold_ms).max(1));
+        self.record_awake_until(wake.node, until);
+        if let Some(previous) = self.pending_icd_wakes.iter_mut().find(|pending| pending.node == wake.node) {
+            let refresh_required = previous.refresh_required || wake.refresh_required;
+            *previous = PendingIcdWake { wake, until };
+            previous.wake.refresh_required = refresh_required;
+        } else if self.pending_icd_wakes.len() < crate::icd::MAX_ICD_CLIENTS {
+            self.pending_icd_wakes.push(PendingIcdWake { wake, until });
+        }
+        // StayActive-only speculative probes do not mutate registration keys,
+        // so they may safely yield to a newly authenticated awake peer.
+        if self.icd_work_is_probe {
+            if let Some((node, endpoint, _, _)) = self.icd_work.take() {
+                self.icd_retry_after.retain(|(key, _)| *key != (node, endpoint));
+                self.icd_retry_after.push(((node, endpoint), now + Duration::from_secs(60)));
+                self.icd_entropy = crate::entropy::OsEntropy::open().ok();
+                log::debug!("Matter ICD speculative probe yielded to authenticated wake: node={:016x}", node);
+            }
+            self.icd_work_is_probe = false;
+        }
     }
     fn note_session_start(&mut self, node: u64, now: Instant) {
         if self.has_case_session(node) { return; }
@@ -1665,38 +1707,23 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
         // Check-In capture is bounded inside Matter. Drain at most one message
         // per service turn so authentication and private-store sync cannot
         // starve Thread, IPC, or the Matter transport pump.
-        if self.icd_work.is_none() {
-            if let Some(message) = self.matter.pop_icd_check_in() {
-                let accepted = self
-                    .icd_registry
-                    .as_mut()
-                    .map(|registry| registry.accept(self.crypto, &message));
-                if let Some(Err(error)) = accepted.as_ref() {
-                    log::warn!(
-                        "Matter ICD Check-In rejected for {:016x}/fabric {}: {:?}",
-                        message.node, message.fabric, error
-                    );
-                }
-                if let Some(Ok(wake)) = accepted {
-                    progressed = true;
-                    let until = now
-                        + Duration::from_millis(u64::from(wake.active_mode_threshold_ms).max(1));
-                    self.record_awake_until(wake.node, until);
-                    if let Some(previous) = self.pending_icd_wakes.iter_mut().find(|pending| pending.node == wake.node) {
-                        let refresh_required = previous.refresh_required || wake.refresh_required;
-                        *previous = wake;
-                        previous.refresh_required = refresh_required;
-                    } else if self.pending_icd_wakes.len() < crate::icd::MAX_ICD_CLIENTS {
-                        self.pending_icd_wakes.push(wake);
-                    }
-                } else if self.icd_registry.is_none() {
-                    log::warn!("Matter ICD Check-In received without a client registry for {:016x}/fabric {}", message.node, message.fabric);
-                }
+        if let Some(message) = self.matter.pop_icd_check_in() {
+            let accepted = self.icd_registry.as_mut().map(|registry| registry.accept(self.crypto, &message));
+            match accepted {
+                Some(Ok(wake)) => { progressed = true; self.queue_icd_wake(wake, now); }
+                Some(Err(error)) => log::warn!("Matter ICD Check-In rejected for {:016x}/fabric {}: {:?}",message.node,message.fabric,error),
+                None => log::warn!("Matter ICD Check-In received without a client registry for {:016x}/fabric {}",message.node,message.fabric),
             }
+        }
+        let now = now.max(Instant::now());
+        // Expiry never invents a new awake window. Preserve required key
+        // refreshes until a new authenticated wake can make them actionable.
+        self.pending_icd_wakes.retain(|pending| pending.until > now || pending.refresh_required);
+        if self.icd_work.is_none() {
             // Retain authenticated wake requests while session admission is
             // throttled. Never discard a required registration-key refresh.
             if let Some(index) = self.pending_icd_wakes.iter().position(|wake|
-                !self.recovery_node_busy(wake.node) && self.session_start_available(wake.node, now)) {
+                wake.until > now && !self.recovery_node_busy(wake.node) && self.session_start_available(wake.node, now)) {
                 let wake = self.pending_icd_wakes.remove(index);
                 if wake.refresh_required || self.icd_recovery_needed(wake.node, now) {
                     if let Some(endpoint) = self
@@ -1707,7 +1734,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                     {
                         let matter = self.matter;
                         let crypto = self.crypto;
-                        let Some(mut registry) = self.icd_registry.take() else {
+                        let Some(mut registry) = self.icd_registry_for_work() else {
                             return progressed;
                         };
                         let Some(mut entropy) = self.icd_entropy.take() else {
@@ -1718,6 +1745,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         let node = wake.node;
                         let local_node = self.local_node;
                         self.note_session_start(node, now);
+                        self.icd_work_is_probe = false;
                         self.icd_work = Some((
                             node,
                             endpoint,
@@ -1753,9 +1781,10 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 let fabric = self.fabric;
                 if self.icd_registry.is_some() && self.icd_entropy.is_some() {
                     self.note_session_start(node, now);
-                    let registry = self.icd_registry.take().unwrap();
+                    let Some(registry) = self.icd_registry_for_work() else { return progressed; };
                     let entropy = self.icd_entropy.take().unwrap();
                     log::info!("Matter ICD recovery probe: node={:016x} endpoint={}", node, endpoint);
+                    self.icd_work_is_probe = true;
                     self.icd_work = Some((node, endpoint, now + ICD_SETUP_TIMEOUT, Box::pin(async move {
                         let result = crate::icd::subscription_active_until(matter, crypto, fabric, node, endpoint).await.map(Some);
                         (registry, entropy, result)
@@ -1770,7 +1799,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                         snapshot.endpoints.iter().find_map(|endpoint| {
                             (endpoint.servers.contains(&ICD_MANAGEMENT_CLUSTER)
                                 && !self.recovery_node_busy(snapshot.node)
-                                && self.session_start_available(snapshot.node, now)
+                                && self.recovery_start_available(snapshot.node, now)
                                 && !self.icd_checked.contains(&(snapshot.node, endpoint.id))
                                 && !self.registered_nodes.contains(&snapshot.node)
                                 && !self.icd_retry_after.iter().any(|(key, until)| {
@@ -1788,7 +1817,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 );
                 let matter = self.matter;
                 let crypto = self.crypto;
-                let Some(mut registry) = self.icd_registry.take() else {
+                let Some(mut registry) = self.icd_registry_for_work() else {
                     return progressed;
                 };
                 let Some(mut entropy) = self.icd_entropy.take() else {
@@ -1798,6 +1827,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 let fabric = self.fabric;
                 let local_node = self.local_node;
                 self.note_session_start(node, now);
+                self.icd_work_is_probe = false;
                 self.icd_work = Some((
                     node,
                     endpoint,
@@ -1846,6 +1876,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
             .map(|(node, endpoint, _, _)| (*node, *endpoint));
         if let Some(key) = timed_out {
             self.icd_work = None;
+            self.icd_work_is_probe = false;
             self.icd_registry = crate::icd::ClientRegistry::open(self.catalog.store()).ok();
             self.icd_entropy = crate::entropy::OsEntropy::open().ok();
             log::warn!(
@@ -1870,6 +1901,7 @@ impl<'a, C: Crypto + 'a> Manager<'a, C> {
                 let key = (*node, *endpoint);
                 let node_registered = registry.is_registered(self.fabric, key.0);
                 self.icd_work = None;
+                self.icd_work_is_probe = false;
                 self.icd_registry = Some(registry);
                 self.icd_entropy = Some(entropy);
                 if node_registered && !self.registered_nodes.contains(&key.0) {
@@ -2843,7 +2875,9 @@ mod tests {
         assert!(manager.poll_background(started,&mut context));
         assert_eq!(manager.subscriptions.len(),3);
         manager.poll(true,false,started,&mut context);
-        assert!(manager.subscription_work.is_some(), "recovered metadata must proceed to button subscriptions");
+        assert!(manager.subscription_work.is_none(), "synthetic discovery without a live CASE session must preserve the wake token");
+        manager.poll(true,false,started + SESSION_START_WINDOW,&mut context);
+        assert!(manager.subscription_work.is_some(), "recovered metadata must proceed to button subscriptions after admission opens");
         manager.subscription_work=None;
         assert_eq!(manager.icd_recovery_candidate(until),Some((2,0)), "expired promises can be renewed for outstanding work");
         for entry in &mut manager.subscriptions {entry.id=Some(77);entry.next_retry=until+Duration::from_secs(900);}
@@ -3503,6 +3537,70 @@ mod tests {
     }
 
     #[test]
+    fn check_in_is_authenticated_during_network_work_and_queued_wakes_expire() {
+        use crate::{entropy::OsEntropy, store::PrivateStore};
+        use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef, CanonAeadKeyRef},
+            sc::checkin::CheckIn, dm::devices::test::{TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET},
+            utils::init::InitMaybeUninit};
+        let directory=std::env::temp_dir().join(format!("matter-prompt-wake-{}",std::process::id()));
+        let store=PrivateStore::open(&directory).unwrap();
+        let catalog=Catalog::open(store.clone(),1,2).unwrap();
+        for node in [2,3,4] { let r=catalog.reserve(node).unwrap();r.fabric_installed().unwrap();r.thread_provisioned().unwrap();r.complete().unwrap(); }
+        let fabric=NonZeroU8::new(1).unwrap();
+        let mut registry=crate::icd::ClientRegistry::open(store.clone()).unwrap();
+        registry.install(fabric,2,0,[7;16],10).unwrap();
+        let crypto=default_crypto(OsEntropy::open().unwrap(),CryptoSensitiveRef::new(&[9;32]));
+        let mut memory=Box::new(std::mem::MaybeUninit::uninit());
+        let matter=memory.init_with(Matter::init(&TEST_DEV_DET,TEST_DEV_COMM,&TEST_DEV_ATT,5540));
+        let mut manager=Manager::new(matter,&crypto,fabric,catalog).unwrap();
+        let now=Instant::now();let mut context=Context::from_waker(std::task::Waker::noop());
+        manager.icd_work=Some((3,0,now+Duration::from_secs(60),Box::pin(std::future::pending())));
+        // A registration/key-changing operation remains intact while Check-In
+        // authentication uses an independent view of the shared store.
+        let check_in=CheckIn::new(CanonAeadKeyRef::new(&[7;16]));
+        let mut payload=vec![0;CheckIn::payload_len(2)];
+        check_in.generate(&crypto,11,&500u16.to_le_bytes(),&mut payload).unwrap();
+        matter.queue_sessionless_icd_check_in(&payload).unwrap();
+        assert!(manager.poll_icd(now,&mut context,false));
+        assert!(matter.pop_icd_check_in().is_none());
+        assert_eq!(manager.icd_work.as_ref().unwrap().0,3,"key-changing work cannot be cancelled");
+        assert_eq!(manager.pending_icd_wakes.len(),1);
+        assert_eq!(manager.pending_icd_wakes[0].until,now+Duration::from_millis(500));
+        assert!(manager.node_awake(2,now));
+        assert_eq!(manager.icd_registry.as_ref().unwrap().registration(fabric,2).unwrap().last_offset,1);
+        check_in.generate(&crypto,0x8000000b,&500u16.to_le_bytes(),&mut payload).unwrap();
+        matter.queue_sessionless_icd_check_in(&payload).unwrap();
+        manager.poll_icd(now+Duration::from_millis(100),&mut context,false);
+        assert!(manager.pending_icd_wakes[0].refresh_required);
+        manager.icd_work=None;
+        manager.poll_icd(now+Duration::from_secs(11),&mut context,false);
+        assert!(manager.icd_work.is_none(),"an expired wake must not start CASE or StayActive");
+        assert!(!manager.node_awake(2,now+Duration::from_secs(11)));
+        assert_eq!(manager.pending_icd_wakes.len(),1,"expired key refresh remains pending for a fresh wake");
+        // Speculative work leaves one token for authenticated wake traffic.
+        assert!(manager.recovery_start_available(3,now));manager.note_session_start(3,now);
+        assert!(!manager.recovery_start_available(4,now));assert!(manager.session_start_available(2,now));
+        // A fresh authenticated wake can cancel a read-only speculative probe,
+        // even when admission must still wait for user-initiated session starts.
+        let fresh=now+Duration::from_secs(12);
+        manager.session_starts.clear();manager.session_starts.extend([fresh,fresh]);
+        manager.icd_work=Some((3,0,fresh+Duration::from_secs(60),Box::pin(std::future::pending())));
+        manager.icd_work_is_probe=true;
+        check_in.generate(&crypto,0x8000000c,&500u16.to_le_bytes(),&mut payload).unwrap();
+        matter.queue_sessionless_icd_check_in(&payload).unwrap();
+        manager.poll_icd(fresh,&mut context,false);
+        assert!(manager.icd_work.is_none(),"read-only speculative work yields to a real wake");
+        assert_eq!(manager.pending_icd_wakes[0].until,fresh+Duration::from_millis(500));
+        assert!(manager.pending_icd_wakes[0].refresh_required);
+        assert_eq!(manager.session_starts.len(),2,"authenticated wakes do not bypass the global limit");
+        manager.poll_icd(fresh+SESSION_START_WINDOW,&mut context,false);
+        assert!(manager.icd_work.is_none(),"reopening the rate limit cannot revive an expired awake window");
+        let replay=rs_matter::IcdCheckIn::from_received(1,2,&payload).unwrap();
+        assert_eq!(manager.icd_registry.as_mut().unwrap().accept(&crypto,&replay).unwrap_err().code(),ErrorCode::Duplicate);
+        drop(manager);drop(registry);drop(store);std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn recovery_session_starts_are_rate_limited_not_concurrency_limited() {
         use crate::{entropy::OsEntropy, store::PrivateStore};
         use rs_matter::{crypto::{default_crypto, CryptoSensitiveRef},
@@ -3533,9 +3631,9 @@ mod tests {
             manager.work.as_mut().unwrap().2 = Box::pin(std::future::pending());
             manager.poll_pending_recoveries(now + Duration::from_secs(elapsed), &mut context);
         }
-        manager.pending_icd_wakes.push(crate::icd::Wake {
+        manager.pending_icd_wakes.push(PendingIcdWake { wake: crate::icd::Wake {
             fabric, node: 6, counter: 1, active_mode_threshold_ms: 1000, refresh_required: true,
-        });
+        }, until: now + Duration::from_secs(2) });
         manager.poll_icd(now + Duration::from_secs(1), &mut context, true);
         assert_eq!(manager.pending_icd_wakes.len(), 1, "rate limiting retains accepted Check-Ins");
         assert!(manager.pending_icd_wakes[0].refresh_required);
