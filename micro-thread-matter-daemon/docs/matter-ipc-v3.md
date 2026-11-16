@@ -50,6 +50,16 @@ node and all endpoints; inventory refreshes preserve it.
 
 Deploy native and Matter services together when adding this event.
 
+## Relative level commands
+
+Device command requests support `step_up` and `step_down` with `level` (step
+size, 1–254) and `transition_deciseconds` (0–65535). `move_up` and
+`move_down` use `level` as the rate in level units per second (1–254); 255
+selects the device default. A step transition of 65535 selects the device default.
+`stop_level` takes no level or transition. These commands address one Matter
+endpoint; the gateway submits one command per Matter light in a configured
+scene group. The service validates the endpoint's Level Control capability.
+
 ## Bindings and builds
 
 The native implementation uses generated owned C++03 message structs with

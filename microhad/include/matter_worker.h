@@ -60,6 +60,7 @@ private:
         unsigned char responseOpcode;
         std::string error;
         uint64_t serviceJob;
+        std::string lightLabel;
         std::string thermostatNode;
         std::string thermostatField;
         unsigned short thermostatEndpoint;

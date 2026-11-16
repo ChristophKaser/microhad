@@ -368,5 +368,41 @@
   "contact": {
     "node": "@id",
     "age_seconds": ""
+  },
+  "device_command_request:step_up": {
+    "schema": "",
+    "command": "",
+    "node": "@id",
+    "endpoint": "",
+    "level": "",
+    "transition_deciseconds": ""
+  },
+  "device_command_request:step_down": {
+    "schema": "",
+    "command": "",
+    "node": "@id",
+    "endpoint": "",
+    "level": "",
+    "transition_deciseconds": ""
+  },
+  "device_command_request:move_up": {
+    "schema": "",
+    "command": "",
+    "node": "@id",
+    "endpoint": "",
+    "level": ""
+  },
+  "device_command_request:move_down": {
+    "schema": "",
+    "command": "",
+    "node": "@id",
+    "endpoint": "",
+    "level": ""
+  },
+  "device_command_request:stop_level": {
+    "schema": "",
+    "command": "",
+    "node": "@id",
+    "endpoint": ""
   }
 }

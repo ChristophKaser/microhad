@@ -137,6 +137,8 @@ struct RemoteSceneBinding {
     std::string action; /* on, off, arrow_left, arrow_right */
     unsigned short groupId;
     bool off;
+    int dimDirection; /* 0: scene/off, 1: increase, -1: decrease */
+    int position; /* Matter switch position, or -1 for any */
     std::vector<unsigned char> sceneIds;
     RemoteSceneBinding();
 };
@@ -333,6 +335,7 @@ public:
         AutomationReport() : endpoint(0), position(-1), pressCount(-1), remoteAction(false) {}
     };
     std::vector<AutomationReport> takeAutomationReports();
+    std::vector<MatterProto::MessageBody> takeMatterLightCommands();
     std::string statusJson() const;
     std::string logsJson() const;
 
@@ -348,6 +351,8 @@ private:
     } otaPage_;
     void pollOtaPage();
     std::vector<AutomationReport> automationReports_;
+    std::vector<MatterProto::MessageBody> matterLightCommands_;
+    bool queueMatterLightCommand(const Device& device, const std::string& command, int level, int transition);
     void automationReport(const Device& device, const std::string& field);
     void automationRemoteAction(const Device& device, const std::string& action,
                                 unsigned short endpoint, int position = -1, int pressCount = -1);
@@ -535,6 +540,7 @@ private:
     std::map<unsigned short, std::map<uint64_t, long> > sensorRefreshAttemptAt_;
     std::map<unsigned short, bool> lightSetupPending_;
     std::map<unsigned short, std::string> remoteSceneHolds_;
+    std::map<std::string, std::vector<unsigned short> > remoteDimGroups_;
     struct RemoteCommand {
         std::vector<unsigned char> signature;
         int64_t receivedAt;
@@ -718,7 +724,8 @@ private:
     bool handleSceneProvisionResponse(const std::string& ieeeAddress, unsigned short cluster,
                                       unsigned char transaction, unsigned char command,
                                       const std::vector<unsigned char>& message, unsigned long argumentOffset);
-    void dispatchRemoteSceneAction(const std::string& ieeeAddress, const std::string& action);
+    void dispatchRemoteSceneAction(const std::string& ieeeAddress, const std::string& action, int endpoint = -1, int position = -1);
+    void queueMatterGroupDim(unsigned short groupId, const std::string& command, int level, int transition);
     void pollSceneRetries();
     bool sendSceneRetry(unsigned short groupId, SceneRetry* retry);
     bool scheduleSceneRetry(SceneRetry* retry, long now);

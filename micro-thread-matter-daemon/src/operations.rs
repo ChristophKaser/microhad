@@ -9,7 +9,7 @@ use rs_matter::tlv::Nullable;
 use rs_matter::{
     crypto::Crypto,
     dm::clusters::app::{
-        level_control::{LevelControlClient, OptionsBitmap},
+        level_control::{LevelControlClient, OptionsBitmap, MoveModeEnum, StepModeEnum},
         on_off::OnOffClient,
     },
     dm::clusters::decl::{
@@ -53,6 +53,9 @@ pub enum Action {
         level: u8,
         transition_deciseconds: u16,
     },
+    Step { up: bool, level: u8, transition_deciseconds: u16 },
+    Move { up: bool, rate: u8 },
+    StopLevel,
     SyncTime { time_zone: String, offset_seconds: i32,
     },
     Bind {
@@ -421,6 +424,15 @@ impl Operation {
                     transition_deciseconds,
                 },
             ),
+            Request::Command(CommandRequest::StepUp { node, endpoint, level, transition_deciseconds, .. }) =>
+                (node, endpoint, Action::Step { up: true, level, transition_deciseconds }),
+            Request::Command(CommandRequest::StepDown { node, endpoint, level, transition_deciseconds, .. }) =>
+                (node, endpoint, Action::Step { up: false, level, transition_deciseconds }),
+            Request::Command(CommandRequest::MoveUp { node, endpoint, level, .. }) =>
+                (node, endpoint, Action::Move { up: true, rate: level }),
+            Request::Command(CommandRequest::MoveDown { node, endpoint, level, .. }) =>
+                (node, endpoint, Action::Move { up: false, rate: level }),
+            Request::Command(CommandRequest::StopLevel { node, endpoint, .. }) => (node, endpoint, Action::StopLevel),
             Request::Command(CommandRequest::SyncTime { node, endpoint, time_zone, offset_seconds, .. }) => (
                 node,
                 endpoint,
@@ -458,7 +470,7 @@ impl Operation {
         let required_cluster = match &self.action {
             Action::Delete { .. } => unreachable!(),
             Action::Read | Action::On | Action::Off | Action::Toggle => 6,
-            Action::ReadLevel | Action::MoveToLevel { .. } => 8,
+            Action::ReadLevel | Action::MoveToLevel { .. } | Action::Step { .. } | Action::Move { .. } | Action::StopLevel => 8,
             Action::ReadSensor { cluster } | Action::ReadElectrical { cluster,.. } => *cluster,
             Action::Bind { .. } => 59,
             Action::Identify => 3,
@@ -638,6 +650,25 @@ impl Operation {
                             })
                             .await?
                     }
+                    Action::Step { up, level, transition_deciseconds } => {
+                        exchange.level_control().step(self.endpoint, |request| {
+                            request.step_mode(if up { StepModeEnum::Up } else { StepModeEnum::Down })?
+                                .step_size(level)?.transition_time(if transition_deciseconds == 65535 { Nullable::none() } else { Nullable::some(transition_deciseconds) })?
+                                .options_mask(OptionsBitmap::empty())?.options_override(OptionsBitmap::empty())?.end()
+                        }).await?
+                    }
+                    Action::Move { up, rate } => {
+                        exchange.level_control().r#move(self.endpoint, |request| {
+                            request.move_mode(if up { MoveModeEnum::Up } else { MoveModeEnum::Down })?
+                                .rate(if rate == 255 { Nullable::none() } else { Nullable::some(rate) })?.options_mask(OptionsBitmap::empty())?
+                                .options_override(OptionsBitmap::empty())?.end()
+                        }).await?
+                    }
+                    Action::StopLevel => {
+                        exchange.level_control().stop(self.endpoint, |request| {
+                            request.options_mask(OptionsBitmap::empty())?.options_override(OptionsBitmap::empty())?.end()
+                        }).await?
+                    }
                     Action::SyncTime { ref time_zone, offset_seconds,
                     } => {
                         const MATTER_EPOCH_UNIX_SECONDS: u64 = 946_684_800;
@@ -810,7 +841,7 @@ impl Operation {
                     value,
                 });
             }
-            if matches!(self.action, Action::ReadLevel | Action::MoveToLevel { .. }) {
+            if matches!(self.action, Action::ReadLevel | Action::MoveToLevel { .. } | Action::Step { .. } | Action::Move { .. } | Action::StopLevel) {
                 let value = exchange
                     .level_control()
                     .current_level_read(self.endpoint)

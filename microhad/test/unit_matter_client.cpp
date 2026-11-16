@@ -357,6 +357,14 @@ void runMatterClientUnitTests() {
     assert(!MatterChannel::deviceCommandRequest("{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":1,\"transition_deciseconds\":65536}", &devicePrepared));
     assert(!MatterChannel::validRequest(11, "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":255,\"transition_deciseconds\":0}"));
     assert(!MatterChannel::validRequest(11, "{\"schema\":1,\"command\":\"move_to_level\",\"node\":\"0000000000000002\",\"endpoint\":1}"));
+    const std::string stepBody = "{\"schema\":1,\"command\":\"step_down\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":25,\"transition_deciseconds\":5}";
+    assert(MatterChannel::deviceCommandRequest(stepBody, &devicePrepared));
+    MatterProto::MessageBody stepWire;
+    assert(MatterWire::parseJson(0, 11, stepBody, &stepWire));
+    assert(stepWire.device_command_request.value.command.value == "step_down");
+    assert(MatterChannel::deviceCommandRequest("{\"schema\":1,\"command\":\"move_up\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":64}", &devicePrepared));
+    assert(MatterChannel::deviceCommandRequest("{\"schema\":1,\"command\":\"stop_level\",\"node\":\"0000000000000002\",\"endpoint\":1}", &devicePrepared));
+    assert(!MatterChannel::deviceCommandRequest("{\"schema\":1,\"command\":\"move_up\",\"node\":\"0000000000000002\",\"endpoint\":1,\"level\":0}", &devicePrepared));
     std::vector<std::string> operationReplies;
     operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"job\":\"0000000000000001\",\"state\":\"queued\"}}");
     operationReplies.push_back("{\"schema\":1,\"ok\":true,\"result\":{\"state\":\"queued\",\"job\":\"0000000000000001\"}}");

@@ -876,8 +876,8 @@ bool parseSceneRecord(const std::vector<std::string>& fields, std::vector<SceneG
         return true;
     }
     if (type == "B") {
-        if (fields.size() != 6 || !decimalField(fields[3], 0xfff7, &groupId) || groupId == 0 ||
-            fields[1].empty() || (fields[4] != "0" && fields[4] != "1") ||
+        if ((fields.size() != 6 && fields.size() != 7) || !decimalField(fields[3], 0xfff7, &groupId) || groupId == 0 ||
+            fields[1].empty() || (fields[4] != "0" && fields[4] != "1" && fields[4] != "2" && fields[4] != "3") ||
             (fields[2] != "on" && fields[2] != "off" && fields[2] != "arrow_left" &&
              fields[2] != "arrow_right" && fields[2] != "brightness_up" && fields[2] != "brightness_down" && fields[2] != "matter_press" &&
              fields[2] != "matter_hold" && fields[2] != "matter_release" &&
@@ -885,8 +885,15 @@ bool parseSceneRecord(const std::vector<std::string>& fields, std::vector<SceneG
         RemoteSceneBinding binding;
         binding.ieeeAddress = fields[1];
         binding.action = fields[2];
+        if (fields.size() == 7) {
+            unsigned long position;
+            if (!decimalField(fields[6], 254, &position)) return false;
+            binding.position = static_cast<int>(position);
+        }
         binding.groupId = static_cast<unsigned short>(groupId);
         binding.off = fields[4] == "1";
+        binding.dimDirection = fields[4] == "2" ? 1 : fields[4] == "3" ? -1 : 0;
+        if (binding.dimDirection != 0 && !fields[5].empty()) return false;
         std::stringstream ids(fields[5]);
         std::string id;
         while (std::getline(ids, id, ',')) {
@@ -951,11 +958,12 @@ bool saveSceneConfiguration(const std::string& filename, const std::vector<Scene
     }
     for (unsigned long i = 0; i < bindings.size(); ++i) {
         output << "B\t" << bindings[i].ieeeAddress << "\t" << bindings[i].action << "\t" << bindings[i].groupId
-               << "\t" << (bindings[i].off ? 1 : 0) << "\t";
+               << "\t" << (bindings[i].dimDirection > 0 ? 2 : bindings[i].dimDirection < 0 ? 3 : bindings[i].off ? 1 : 0) << "\t";
         for (unsigned long j = 0; j < bindings[i].sceneIds.size(); ++j) {
             if (j) output << ',';
             output << static_cast<unsigned int>(bindings[i].sceneIds[j]);
         }
+        if (bindings[i].position >= 0) output << "\t" << bindings[i].position;
         output << "\n";
     }
     for (unsigned long i = 0; i < nativeBindings.size(); ++i)

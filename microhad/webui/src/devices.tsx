@@ -5,7 +5,7 @@ import { ThermostatPanel, ThermostatSettingsButton } from './ThermostatPanel'
 import type { TemperatureSource } from './api'
 import type { Device, EndpointDescriptor, Status } from './api'
 import { errorMessage, form, post } from './api'
-import { isDimmable } from './scenes'
+import { isDimmable, sceneDeviceId } from './scenes'
 import { DeleteDeviceDialog } from './DeviceDeletion'
 import { matterSyncTime, matterSubscriptions } from './matter'
 import type { MatterSubscriptionHealth } from './matter'
@@ -218,7 +218,7 @@ export function LightGroupStates({ members, devices }: { members: string[]; devi
   return (
     <div className="group-light-states" role="group" aria-label="Light states">
       {members.map((address) => {
-        const device = devices.find((item) => item.ieee_address === address && item.has_light)
+        const device = devices.find((item) => sceneDeviceId(item) === address && item.has_light)
         const state = device ? (device.light_on ? 'on' : 'off') : 'unknown'
         const brightness = device?.has_brightness ? Math.max(0, Math.min(100, device.brightness_percent)) : 100
         const level = device?.light_on ? brightness / 100 : 0

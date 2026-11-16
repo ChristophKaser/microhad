@@ -172,6 +172,7 @@ private:
     AutomationWorker* automation_;
     MatterWorker* automationMatter_;
     std::deque<Automation::Action> automationActions_;
+    std::deque<MatterProto::MessageBody> matterLightPending_;
     std::map<std::string, unsigned long> automationGenerations_;
     std::map<std::string, Automation::SnapshotPtr> automationSnapshots_;
     Automation::CatalogPtr automationCatalog_;

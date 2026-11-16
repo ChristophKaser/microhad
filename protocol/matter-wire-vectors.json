@@ -92,6 +92,82 @@
     }
   },
   {
+    "name": "level-step_up",
+    "wire": "1f0008031000180b20012a155a130801100218012207737465705f75702819300a",
+    "valid": true,
+    "kind": 0,
+    "opcode": 11,
+    "id": 1,
+    "body": {
+      "schema": 1,
+      "node": "0000000000000002",
+      "endpoint": 1,
+      "command": "step_up",
+      "level": 25,
+      "transition_deciseconds": 10
+    }
+  },
+  {
+    "name": "level-step_down",
+    "wire": "210008031000180b20012a175a150801100218012209737465705f646f776e2819300a",
+    "valid": true,
+    "kind": 0,
+    "opcode": 11,
+    "id": 1,
+    "body": {
+      "schema": 1,
+      "node": "0000000000000002",
+      "endpoint": 1,
+      "command": "step_down",
+      "level": 25,
+      "transition_deciseconds": 10
+    }
+  },
+  {
+    "name": "level-move_up",
+    "wire": "1d0008031000180b20012a135a1108011002180122076d6f76655f75702840",
+    "valid": true,
+    "kind": 0,
+    "opcode": 11,
+    "id": 1,
+    "body": {
+      "schema": 1,
+      "node": "0000000000000002",
+      "endpoint": 1,
+      "command": "move_up",
+      "level": 64
+    }
+  },
+  {
+    "name": "level-move_down",
+    "wire": "1f0008031000180b20012a155a1308011002180122096d6f76655f646f776e2840",
+    "valid": true,
+    "kind": 0,
+    "opcode": 11,
+    "id": 1,
+    "body": {
+      "schema": 1,
+      "node": "0000000000000002",
+      "endpoint": 1,
+      "command": "move_down",
+      "level": 64
+    }
+  },
+  {
+    "name": "level-stop",
+    "wire": "1e0008031000180b20012a145a12080110021801220a73746f705f6c6576656c",
+    "valid": true,
+    "kind": 0,
+    "opcode": 11,
+    "id": 1,
+    "body": {
+      "schema": 1,
+      "node": "0000000000000002",
+      "endpoint": 1,
+      "command": "stop_level"
+    }
+  },
+  {
     "name": "thermostat-write",
     "wire": "3f0008031000180b20012a355a33080110021802220a746865726d6f737461743a196f636375706965645f636f6f6c696e675f736574706f696e74420432352e35",
     "valid": true,

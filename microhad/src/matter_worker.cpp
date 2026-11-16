@@ -115,6 +115,10 @@ bool MatterWorker::submit(unsigned char opcode,const MatterProto::MessageBody& b
     value.minimumRole = opcode == 11 ? 1 :
         (opcode == 10 && body.device_control_request.present && body.device_control_request.value.action.value == "read" ? 0 : 2);
     value.opcode = opcode; value.body = body; value.state = "queued";
+    if (opcode == 11 && body.device_command_request.present && body.device_command_request.value.command.value != "thermostat") {
+        const MatterProto::DeviceCommandRequest& request = body.device_command_request.value;
+        value.lightLabel = MatterWire::hexId(request.node.value) + "/" + request.command.value;
+    }
     if(opcode==11&&body.device_command_request.present&&body.device_command_request.value.command.value=="thermostat"){
         const MatterProto::DeviceCommandRequest& request=body.device_command_request.value;
         value.thermostatNode=MatterWire::hexId(request.node.value);value.thermostatField=request.field.value;value.thermostatEndpoint=request.endpoint.value;
@@ -309,6 +313,13 @@ void MatterWorker::flushDeferredReadings() {
 void MatterWorker::executeJob() {
     pthread_mutex_lock(&mutex_);
     if (pending_.empty()) { pthread_mutex_unlock(&mutex_); return; }
+    if (jobs_[pending_.front()].opcode == 11) {
+        unsigned int active = 0;
+        for (std::map<uint32_t, Job>::const_iterator it = jobs_.begin(); it != jobs_.end(); ++it)
+            if (it->second.state == "running" && it->second.serviceJob != 0) ++active;
+        /* Keep headroom in the service's eight-operation queue. */
+        if (active >= 4) { pthread_mutex_unlock(&mutex_); return; }
+    }
     uint32_t id = pending_.front(); pending_.pop_front();
     Job& value = jobs_[id]; value.state = "running";
     unsigned char opcode = value.opcode;
@@ -346,7 +357,9 @@ void MatterWorker::executeJob() {
         completed.error = valid ? "" : "transport";
         if(valid){completed.response.reset(new MatterProto::MessageBody(response));completed.responseOpcode=opcode;}else completed.response.reset();
     }
+    const std::string lightLabel = completed.lightLabel;
     pthread_mutex_unlock(&mutex_);
+    if (!operation && !lightLabel.empty()) syslog(LOG_WARNING, "Matter light command rejected: %s", lightLabel.c_str());
     if(!operation && !thermostatNode.empty() && gateway_) gateway_->thermostatResult(thermostatNode,static_cast<unsigned short>(thermostatEndpoint),thermostatField,valid?"Matter device rejected request":"transport");
     if (!valid) unavailable(); else collectEvents();
 }
@@ -390,10 +403,13 @@ void MatterWorker::pollOperationJob() {
             found->second.serviceJob=0;
         }
     }
+    const std::string lightLabel = found == jobs_.end() ? "" : found->second.lightLabel;
     std::string thermostatNode=found==jobs_.end()?"":found->second.thermostatNode;
     std::string thermostatField=found==jobs_.end()?"":found->second.thermostatField;
     unsigned short thermostatEndpoint=found==jobs_.end()?0:found->second.thermostatEndpoint;
     pthread_mutex_unlock(&mutex_);
+    if ((!valid || (terminal && failed)) && !lightLabel.empty())
+        syslog(LOG_WARNING, "Matter light command failed: %s: %s", lightLabel.c_str(), valid ? operationError.c_str() : "transport");
     if((!valid || terminal) && !thermostatNode.empty() && gateway_) gateway_->thermostatResult(thermostatNode,thermostatEndpoint,thermostatField,(!valid?"transport":failed?operationError:""));
     if (!valid) unavailable(); else collectEvents();
 }

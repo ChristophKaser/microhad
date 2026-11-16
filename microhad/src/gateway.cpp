@@ -45,7 +45,7 @@ EndpointDescriptor::EndpointDescriptor() : endpoint(0), profileId(0), deviceId(0
 SceneLightState::SceneLightState() : on(false), brightnessPercent(-1) {}
 Scene::Scene() : id(0) {}
 SceneGroup::SceneGroup() : id(0) {}
-RemoteSceneBinding::RemoteSceneBinding() : groupId(0), off(false) {}
+RemoteSceneBinding::RemoteSceneBinding() : groupId(0), off(false), dimDirection(0), position(-1) {}
 Gateway::SceneRetry::SceneRetry() : off(false), inFlight(false), retryRequested(false), sentOff(false), unicast(false), memberIndex(0), sceneId(0), sentSceneId(0),
                                     ezspSequence(0), attempts(0), sentAt(0), retryAt(0) {}
 
@@ -984,7 +984,7 @@ bool Gateway::logMatterButtonEvent(const MatterButtonEvent& event) {
     addLog(line.str());
     if (action != 0)
         automationRemoteAction(device->second, action, event.endpoint, event.position, event.pressCount);
-    if (action != 0) dispatchRemoteSceneAction(device->second.ieeeAddress, action);
+    if (action != 0) dispatchRemoteSceneAction(device->second.ieeeAddress, action, event.endpoint, event.position);
     return true;
 }
 
@@ -2445,6 +2445,27 @@ bool Gateway::handleSceneProvisionResponse(const std::string& ieeeAddress, unsig
     return true;
 }
 
+bool Gateway::queueMatterLightCommand(const Device& device, const std::string& command, int level, int transition) {
+    const MatterDeviceState& matter = device.matter.read();
+    if (device.source != "matter" || matter.endpoint < 0 || matter.endpoint > 65534 || matter.node.size() != 16 ||
+        matterLightCommands_.size() >= 128) {
+        addLog("Matter light command could not be queued: " + device.ieeeAddress);
+        return false;
+    }
+    MatterProto::DeviceCommandRequest request;
+    request.schema = 1; request.node = static_cast<uint64_t>(strtoull(matter.node.c_str(), 0, 16));
+    request.endpoint = static_cast<unsigned int>(matter.endpoint); request.command = command;
+    if (level >= 0) request.level = static_cast<unsigned int>(level);
+    if (transition >= 0) request.transition_deciseconds = static_cast<unsigned int>(transition);
+    MatterProto::MessageBody body; body.device_command_request = request;
+    matterLightCommands_.push_back(body);
+    return true;
+}
+
+std::vector<MatterProto::MessageBody> Gateway::takeMatterLightCommands() {
+    std::vector<MatterProto::MessageBody> result; result.swap(matterLightCommands_); return result;
+}
+
 bool Gateway::activateScene(unsigned short groupId, unsigned char sceneId, std::string* error) {
     SceneGroup* group = findSceneGroup(groupId);
     if (group == 0) { *error = "scene group not found"; return false; }
@@ -2452,7 +2473,31 @@ bool Gateway::activateScene(unsigned short groupId, unsigned char sceneId, std::
     bool found = false;
     for (unsigned long i = 0; i < group->scenes.size(); ++i) if (group->scenes[i].id == sceneId) found = true;
     if (!found) { *error = "scene not found"; return false; }
-    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
+    bool zigbee = false, matter = false;
+    for (unsigned long i = 0; i < group->members.size(); ++i) {
+        std::map<std::string, Device>::const_iterator device = devices_.find(group->members[i]);
+        if (device == devices_.end() || device->second.source != "matter") zigbee = true;
+    }
+    for (unsigned long i = 0; i < group->scenes.size(); ++i) if (group->scenes[i].id == sceneId) {
+        const Scene& scene = group->scenes[i];
+        for (unsigned long j = 0; j < scene.states.size(); ++j) {
+            const SceneLightState& state = scene.states[j];
+            std::map<std::string, Device>::const_iterator device = devices_.find(state.ieeeAddress);
+            if (device == devices_.end()) continue;
+            if (device->second.source != "matter") { zigbee = true; continue; }
+            matter = true;
+            queueMatterLightCommand(device->second, state.on ? "on" : "off", -1, -1);
+            if (state.on && state.brightnessPercent >= 0)
+                queueMatterLightCommand(device->second, "move_to_level", (state.brightnessPercent * 254 + 50) / 100, 0);
+        }
+    }
+    if (!zigbee || !online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
+        if (zigbee && !matter) { *error = "Zigbee network is not ready"; return false; }
+        if (zigbee) addLog("Scene partially applied: Zigbee network is not ready");
+        sceneRetries_.erase(groupId);
+        selectedScenes_[groupId] = sceneId; sceneGroupOff_[groupId] = false;
+        saveSceneRuntime(); markViewDirty(); return true;
+    }
     SceneRetry& retry = sceneRetries_[groupId];
     bool pending = retry.inFlight || (retry.retryAt != LONG_MAX && (retry.off || retry.sceneId != 0));
     bool changed = retry.off || retry.sceneId != sceneId;
@@ -2470,7 +2515,18 @@ bool Gateway::turnOffSceneGroup(unsigned short groupId, std::string* error) {
     SceneGroup* group = findSceneGroup(groupId);
     if (group == 0) { *error = "scene group not found"; return false; }
     if (group->members.empty()) { *error = "scene group is empty"; return false; }
-    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
+    bool zigbee = false, matter = false;
+    for (unsigned long i = 0; i < group->members.size(); ++i) {
+        std::map<std::string, Device>::const_iterator device = devices_.find(group->members[i]);
+        if (device == devices_.end() || device->second.source != "matter") { zigbee = true; continue; }
+        matter = true; queueMatterLightCommand(device->second, "off", -1, -1);
+    }
+    if (!zigbee || !online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) {
+        if (zigbee && !matter) { *error = "Zigbee network is not ready"; return false; }
+        if (zigbee) addLog("Group off partially applied: Zigbee network is not ready");
+        sceneRetries_.erase(groupId);
+        sceneGroupOff_[groupId] = true; saveSceneRuntime(); markViewDirty(); return true;
+    }
     SceneRetry& retry = sceneRetries_[groupId];
     bool pending = retry.inFlight || (retry.retryAt != LONG_MAX && (retry.off || retry.sceneId != 0));
     bool changed = !retry.off;
@@ -2568,7 +2624,7 @@ void Gateway::completeSceneRetry(unsigned short groupId, SceneRetry* retry) {
         for (unsigned long i = 0; i < group->members.size(); ++i) {
             std::map<std::string, Device>::const_iterator device = devices_.find(group->members[i]);
             unsigned char endpoint;
-            if (device != devices_.end() && !endpointForCluster(device->second, kGroupsCluster, &endpoint)) {
+            if (device != devices_.end() && device->second.source != "matter" && !endpointForCluster(device->second, kGroupsCluster, &endpoint)) {
                 std::string ignored;
                 setLightState(group->members[i], "off", -1, &ignored);
             }
@@ -2584,7 +2640,7 @@ void Gateway::completeSceneRetry(unsigned short groupId, SceneRetry* retry) {
         for (unsigned long i = 0; i < scene->states.size(); ++i) {
             const SceneLightState& state = scene->states[i];
             std::map<std::string, Device>::const_iterator device = devices_.find(state.ieeeAddress);
-            if (device != devices_.end() && !sceneMemberNative(device->second, *scene, state)) {
+            if (device != devices_.end() && device->second.source != "matter" && !sceneMemberNative(device->second, *scene, state)) {
                 std::string ignored;
                 setLightState(state.ieeeAddress, state.on ? "on" : "off",
                               state.on ? state.brightnessPercent : -1, &ignored);
@@ -2646,11 +2702,64 @@ void Gateway::pollSceneRetries() {
     }
 }
 
-void Gateway::dispatchRemoteSceneAction(const std::string& ieeeAddress, const std::string& action) {
+void Gateway::queueMatterGroupDim(unsigned short groupId, const std::string& command, int level, int transition) {
+    SceneGroup* group = findSceneGroup(groupId);
+    if (!group) return;
+    bool missingZigbee = false;
+    for (unsigned long i = 0; i < group->members.size(); ++i) {
+        std::map<std::string, Device>::const_iterator device = devices_.find(group->members[i]);
+        if (device == devices_.end() || device->second.source != "matter") missingZigbee = true;
+        else if (device->second.brightness.present()) queueMatterLightCommand(device->second, command, level, transition);
+    }
+    if (missingZigbee && (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0))
+        addLog("Group dimming partially applied: Zigbee network is not ready");
+}
+
+void Gateway::dispatchRemoteSceneAction(const std::string& ieeeAddress, const std::string& action, int endpoint, int position) {
     if (nativeBindingEnabled(ieeeAddress)) return;
+    std::ostringstream source;
+    source << ieeeAddress << ':' << endpoint << ':' << position;
+    if (endpoint >= 0 && action == "matter_release") {
+        std::ostringstream prefix; prefix << ieeeAddress << ':' << endpoint << ':';
+        const std::string unknownPosition = prefix.str() + "-1";
+        for (std::map<std::string, std::vector<unsigned short> >::iterator active = remoteDimGroups_.begin(); active != remoteDimGroups_.end();) {
+            if (active->first != source.str() && active->first != unknownPosition &&
+                (position >= 0 || active->first.compare(0, prefix.str().size(), prefix.str()) != 0)) { ++active; continue; }
+            for (unsigned long i = 0; i < active->second.size(); ++i) {
+                if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0) {
+                    std::vector<unsigned char> frame; frame.push_back(kZclClusterCommandNoDefaultResponse);
+                    frame.push_back(++zclTransactionSequence_); frame.push_back(0x03);
+                    sendApsMulticast(active->second[i], kHomeAutomationProfile, kLevelCluster, kCoordinatorEndpoint, frame);
+                }
+                queueMatterGroupDim(active->second[i], "stop_level", -1, -1);
+            }
+            remoteDimGroups_.erase(active++);
+        }
+    }
+    if (endpoint >= 0 && (action == "matter_press" || action == "matter_hold" || action == "matter_multi_press")) {
+        for (unsigned long i = 0; i < sceneBindings_.size(); ++i) {
+            const RemoteSceneBinding& binding = sceneBindings_[i];
+            if (binding.ieeeAddress != ieeeAddress || binding.action != action || !binding.dimDirection || (binding.position >= 0 && binding.position != position)) continue;
+            const bool hold = action == "matter_hold";
+            const bool up = binding.dimDirection > 0;
+            const unsigned char amount = hold ? 64 : 25;
+            if (online_ && networkFormed_ && coordinatorInitializationStep_ == 0) {
+                std::vector<unsigned char> frame; frame.push_back(kZclClusterCommandNoDefaultResponse);
+                frame.push_back(++zclTransactionSequence_); frame.push_back(hold ? 0x01 : 0x02);
+                frame.push_back(up ? 0 : 1); frame.push_back(amount);
+                if (!hold) { frame.push_back(0); frame.push_back(0); }
+                sendApsMulticast(binding.groupId, kHomeAutomationProfile, kLevelCluster, kCoordinatorEndpoint, frame);
+            }
+            queueMatterGroupDim(binding.groupId, hold ? (up ? "move_up" : "move_down") : (up ? "step_up" : "step_down"), amount, hold ? -1 : 0);
+            if (hold) {
+                std::vector<unsigned short>& active = remoteDimGroups_[source.str()];
+                if (std::find(active.begin(), active.end(), binding.groupId) == active.end()) active.push_back(binding.groupId);
+            }
+        }
+    }
     for (unsigned long i = 0; i < sceneBindings_.size(); ++i) {
         RemoteSceneBinding& binding = sceneBindings_[i];
-        if (binding.ieeeAddress != ieeeAddress || binding.action != action) continue;
+        if (binding.ieeeAddress != ieeeAddress || binding.action != action || binding.dimDirection != 0 || (binding.position >= 0 && binding.position != position)) continue;
 
         std::string error;
         if (binding.off) {
@@ -2907,8 +3016,13 @@ bool Gateway::setSceneConfiguration(const std::string& encoded, std::string* err
             (bindings[i].action!="on" && bindings[i].action!="off" && bindings[i].action!="brightness_up" && bindings[i].action!="brightness_down" && bindings[i].action!="arrow_left" && bindings[i].action!="arrow_right" &&
              bindings[i].action!="matter_press" && bindings[i].action!="matter_hold" && bindings[i].action!="matter_release" &&
              bindings[i].action!="matter_multi_press") ||
-            (!bindings[i].off && bindings[i].sceneIds.empty())) { *error="invalid remote binding"; return false; }
-        if (!bindings[i].off) {
+            (bindings[i].position >= 0 && remote != devices_.end() && remote->second.source != "matter") ||
+            (bindings[i].dimDirection != 0 && remote != devices_.end() &&
+             (remote->second.source == "matter" ?
+              (bindings[i].action != "matter_press" && bindings[i].action != "matter_hold" && bindings[i].action != "matter_multi_press") :
+              (bindings[i].action != "brightness_up" && bindings[i].action != "brightness_down"))) ||
+            (bindings[i].dimDirection == 0 && !bindings[i].off && bindings[i].sceneIds.empty())) { *error="invalid remote binding"; return false; }
+        if (!bindings[i].off && bindings[i].dimDirection == 0) {
             for (unsigned long j = 0; j < bindings[i].sceneIds.size(); ++j) {
                 bool sceneFound = false;
                 for (unsigned long k = 0; k < group->scenes.size(); ++k)
@@ -3078,6 +3192,47 @@ bool Gateway::logRemoteKeyEvent(unsigned short sender, unsigned short cluster, u
         const char* direction = arguments[0] == 0 ? "brightness_up" : "brightness_down";
         automationRemoteAction(device->second, direction, endpoint);
         dispatchRemoteSceneAction(device->second.ieeeAddress, direction);
+    }
+    if (cluster == kLevelCluster && !nativeBindingEnabled(device->second.ieeeAddress) && online_ && networkFormed_ && coordinatorInitializationStep_ == 0) {
+        std::ostringstream source;
+        source << device->second.ieeeAddress << ':' << static_cast<unsigned int>(endpoint);
+        std::vector<unsigned short>& moving = remoteDimGroups_[source.str()];
+        if (command == 0x03 || command == 0x07) {
+            for (unsigned long i = 0; i < moving.size(); ++i) {
+                std::vector<unsigned char> message;
+                message.push_back(kZclClusterCommandNoDefaultResponse);
+                message.push_back(++zclTransactionSequence_);
+                message.push_back(command);
+                message.insert(message.end(), arguments.begin(), arguments.end());
+                sendApsMulticast(moving[i], kHomeAutomationProfile, kLevelCluster, kCoordinatorEndpoint, message);
+                queueMatterGroupDim(moving[i], "stop_level", -1, -1);
+            }
+            remoteDimGroups_.erase(source.str());
+        } else if ((command == 0x01 || command == 0x05 || command == 0x02 || command == 0x06) &&
+                   arguments.size() >= ((command == 0x01 || command == 0x05) ? 2U : 4U) && arguments[0] <= 1) {
+            const std::string direction = arguments[0] == 0 ? "brightness_up" : "brightness_down";
+            for (unsigned long i = 0; i < sceneBindings_.size(); ++i) {
+                const RemoteSceneBinding& binding = sceneBindings_[i];
+                if (binding.ieeeAddress != device->second.ieeeAddress || binding.action != direction || binding.dimDirection == 0) continue;
+                std::vector<unsigned char> message;
+                message.push_back(kZclClusterCommandNoDefaultResponse);
+                message.push_back(++zclTransactionSequence_);
+                message.push_back(command);
+                message.insert(message.end(), arguments.begin(), arguments.end());
+                message[3] = binding.dimDirection > 0 ? 0 : 1;
+                sendApsMulticast(binding.groupId, kHomeAutomationProfile, kLevelCluster, kCoordinatorEndpoint, message);
+                const bool move = command == 0x01 || command == 0x05;
+                const int amount = arguments[1] == 255 && !move ? 254 : arguments[1];
+                if (amount > 0) {
+                    const int transition = move ? -1 : static_cast<int>(arguments[2] | (arguments[3] << 8));
+                    queueMatterGroupDim(binding.groupId, move ? (binding.dimDirection > 0 ? "move_up" : "move_down") :
+                                        (binding.dimDirection > 0 ? "step_up" : "step_down"), amount, transition);
+                }
+                if ((command == 0x01 || command == 0x05) && std::find(moving.begin(), moving.end(), binding.groupId) == moving.end())
+                    moving.push_back(binding.groupId);
+            }
+            if (moving.empty()) remoteDimGroups_.erase(source.str());
+        } else if (moving.empty()) remoteDimGroups_.erase(source.str());
     }
     return true;
 }

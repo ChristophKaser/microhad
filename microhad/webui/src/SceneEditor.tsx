@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Device } from './api'
 import { errorMessage, post, textRequest } from './api'
 import { matterCall } from './matter'
-import { isDimmable, newState, nextId, parseScenes, serializeScenes } from './scenes'
+import { isDimmable, newState, nextId, parseScenes, serializeScenes, sceneDeviceId } from './scenes'
 import type { SceneConfig, SceneState } from './scenes'
 
 type Props = {
@@ -141,7 +141,7 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
     })
   const lights = devices.filter((device) => device.has_light)
   const remotes = devices.filter((device) => device.has_remote)
-  const remoteId = (device: Device) => device.source === 'matter' ? device.external_id : device.ieee_address
+  const remoteId = sceneDeviceId
   const addGroup = () => {
     if (!config) return
     const id = nextId(config.groups, 0xfff7)
@@ -311,18 +311,18 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
                   <h3>Lights</h3>
                   <div className="choice-grid">
                     {lights.map((light) => {
-                      const selected = group.members.includes(light.ieee_address)
+                      const selected = group.members.includes(sceneDeviceId(light))
                       const assigned = config.groups.some(
-                        (other) => other.id !== group.id && other.members.includes(light.ieee_address)
+                        (other) => other.id !== group.id && other.members.includes(sceneDeviceId(light))
                       )
                       return (
-                        <label className="check" key={light.ieee_address}>
+                        <label className="check" key={sceneDeviceId(light)}>
                           <input
                             type="checkbox"
                             checked={selected}
                             disabled={assigned}
                             onChange={(event) =>
-                              setGroupMember(groupIndex, light.ieee_address, event.target.checked)
+                              setGroupMember(groupIndex, sceneDeviceId(light), event.target.checked)
                             }
                           />{' '}
                           {light.name}
@@ -369,7 +369,7 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
                             </button>
                           </div>
                           {group.members.map((address) => {
-                            const device = devices.find((item) => item.ieee_address === address)
+                            const device = devices.find((item) => sceneDeviceId(item) === address)
                             const state =
                               scene.states.find((item) => item.ieee === address) ??
                               newState(address, devices)
@@ -401,7 +401,7 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
             </button>}
             {mode === 'remotes' && <section className="editor-card">
               <h3>Remote bindings</h3>
-              <p className="muted">Choose native control for direct On/Off and dimming while the gateway is off. Gateway scene rules stay saved and resume when you choose Gateway scenes.</p>
+              <p className="muted">Choose native control for direct On/Off and dimming while the gateway is off. Gateway scene rules stay saved and resume when you choose Gateway scenes. In gateway mode, brightness bindings adjust the group; Matter button positions can distinguish buttons on the same endpoint. A hold stops when the button is released.</p>
               {remotes.filter((remote) => remote.source !== 'matter').map((remote) => {
                 const native = config.nativeBindings.find((binding) => binding.ieee === remote.ieee_address)
                 const provisioned = nativeStatuses.find((item) => item.ieee_address === remote.ieee_address)
@@ -535,7 +535,11 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
                             value={binding.ieee}
                             onChange={(event) =>
                               change((d) => {
+                                const selected = remotes.find((item) => remoteId(item) === event.target.value)
                                 d.bindings[index].ieee = event.target.value
+                                d.bindings[index].action = selected?.source === 'matter' ? 'matter_press' : 'on'
+                                d.bindings[index].dimDirection = 0
+                                d.bindings[index].position = -1
                               })
                             }
                           >
@@ -571,6 +575,13 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
                             </>}
                           </select>
                         </label>
+                        {remote?.source === 'matter' && <label className="field">
+                          Button position (optional)
+                          <input type="number" min="0" max="254" value={binding.position < 0 ? '' : binding.position}
+                            placeholder="Any" onChange={(event) => change((d) => {
+                              d.bindings[index].position = event.target.value === '' ? -1 : Number(event.target.value)
+                            })} />
+                        </label>}
                         <label className="field">
                           Group
                           <select
@@ -603,19 +614,20 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
                           Remove
                         </button>
                       </div>
-                      <label className="check">
-                        <input
-                          type="checkbox"
-                          checked={binding.off}
-                          onChange={(event) =>
-                            change((d) => {
-                              d.bindings[index].off = event.target.checked
-                            })
-                          }
-                        />{' '}
-                        Turn group off
+                      <label className="field">
+                        Result
+                        <select value={binding.dimDirection > 0 ? 'up' : binding.dimDirection < 0 ? 'down' : binding.off ? 'off' : 'scene'} onChange={(event) => change((d) => {
+                          const entry = d.bindings[index]
+                          entry.off = event.target.value === 'off'
+                          entry.dimDirection = event.target.value === 'up' ? 1 : event.target.value === 'down' ? -1 : 0
+                        })}>
+                          <option value="scene">Activate scenes</option>
+                          <option value="off">Turn group off</option>
+                          <option value="up">Increase group brightness</option>
+                          <option value="down">Decrease group brightness</option>
+                        </select>
                       </label>
-                      {!binding.off && (
+                      {!binding.off && !binding.dimDirection && (
                         <div className="choice-grid">
                           {group?.scenes.map((scene) => (
                             <label className="check" key={scene.id}>
@@ -649,10 +661,12 @@ export function SceneEditor({ devices, nativeStatuses, mode, onClose, onSaved }:
                   change((d) => {
                     const group = d.groups[0]
                     d.bindings.push({
-                      ieee: remotes[0].ieee_address,
-                      action: 'on',
+                      ieee: remoteId(remotes[0]),
+                      action: remotes[0].source === 'matter' ? 'matter_press' : 'on',
                       groupId: group.id,
                       off: false,
+                      dimDirection: 0,
+                      position: -1,
                       sceneIds: group.scenes.length ? [group.scenes[0].id] : [],
                     })
                   })

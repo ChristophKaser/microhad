@@ -1,4 +1,5 @@
 import { electricalDefinitions } from './electrical'
+import { sceneDeviceId } from './scenes'
 import { startVisiblePolling } from './visiblePolling'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
@@ -94,7 +95,7 @@ function GatewayWidget({ status, deviceCount, restarting, thread, resources }: {
 
 function GroupWidget({ group, devices, action }: { group: SceneGroupSummary | undefined; devices: Device[]; action: (url: string, body?: string) => void }) {
   if (!group) return <article className="dashboard-widget"><h3>Unavailable group</h3><p className="muted small">This saved group is no longer configured.</p></article>
-  return <article className="dashboard-widget"><div className="dashboard-widget-title"><div><h3>{group.name}</h3><span>{group.members.length} light(s)</span></div><button className="button" onClick={() => action(`/api/scenes/${group.id}/off`)}>Turn off</button></div><div className="presets">{group.scenes.map(scene => <button className="button" key={scene.id} onClick={() => action(`/api/scenes/${group.id}/${scene.id}/activate`)}>▶ {scene.name}</button>)}</div><p className="muted small">Group members</p><div className="group-light-states">{group.members.map(address => { const d=devices.find(item=>item.ieee_address===address); return <span className="dashboard-member" key={address}>{d?.name ?? address} · {d ? (d.light_on ? 'On' : 'Off') : 'Unknown'}</span> })}</div></article>
+  return <article className="dashboard-widget"><div className="dashboard-widget-title"><div><h3>{group.name}</h3><span>{group.members.length} light(s)</span></div><button className="button" onClick={() => action(`/api/scenes/${group.id}/off`)}>Turn off</button></div><div className="presets">{group.scenes.map(scene => <button className="button" key={scene.id} onClick={() => action(`/api/scenes/${group.id}/${scene.id}/activate`)}>▶ {scene.name}</button>)}</div><p className="muted small">Group members</p><div className="group-light-states">{group.members.map(address => { const d=devices.find(item=>sceneDeviceId(item)===address); return <span className="dashboard-member" key={address}>{d?.name ?? address} · {d ? (d.light_on ? 'On' : 'Off') : 'Unknown'}</span> })}</div></article>
 }
 
 function DeviceListWidget({ title, devices, empty }: { title: string; devices: Device[]; empty: string }) {

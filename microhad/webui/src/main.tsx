@@ -442,7 +442,7 @@ function App() {
       {externalDeviceId !== null && <ExternalDeviceDialog key={externalDeviceId || 'new'} id={externalDeviceId} onClose={() => setExternalDeviceId(null)} onSaved={() => void refreshStatus()} />}
       {dialog === 'scenes' && (
         <SceneEditor
-          devices={status?.devices.filter(device => device.source === 'zigbee') ?? []}
+          devices={status?.devices.filter(device => device.source === 'zigbee' || device.source === 'matter') ?? []}
           nativeStatuses={status?.native_bindings ?? []}
           mode="scenes"
           onClose={() => setDialog(null)}
@@ -451,7 +451,7 @@ function App() {
       )}
       {dialog === 'remotes' && (
         <SceneEditor
-          devices={status?.devices.filter(device => device.source === 'zigbee') ?? []}
+          devices={status?.devices.filter(device => device.source === 'zigbee' || device.source === 'matter') ?? []}
           nativeStatuses={status?.native_bindings ?? []}
           mode="remotes"
           onClose={() => setDialog(null)}

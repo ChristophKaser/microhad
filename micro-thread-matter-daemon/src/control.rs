@@ -228,6 +228,11 @@ pub enum CommandRequest {
         level: u8,
         transition_deciseconds: u16,
     },
+    StepUp { schema: Schema, node: Id, endpoint: u16, level: u8, transition_deciseconds: u16 },
+    StepDown { schema: Schema, node: Id, endpoint: u16, level: u8, transition_deciseconds: u16 },
+    MoveUp { schema: Schema, node: Id, endpoint: u16, level: u8 },
+    MoveDown { schema: Schema, node: Id, endpoint: u16, level: u8 },
+    StopLevel { schema: Schema, node: Id, endpoint: u16 },
     SyncTime {
         schema: Schema,
         node: Id,
@@ -335,6 +340,13 @@ impl Request {
             11 => {
                 let body: CommandRequest = parse(bytes)?;
                 if matches!(&body, CommandRequest::MoveToLevel { level: 255, .. }) {
+                    return Err(BodyError::Malformed);
+                }
+                if matches!(&body,
+                    CommandRequest::StepUp { level: 0 | 255, .. } |
+                    CommandRequest::StepDown { level: 0 | 255, .. } |
+                    CommandRequest::MoveUp { level: 0, .. } |
+                    CommandRequest::MoveDown { level: 0, .. }) {
                     return Err(BodyError::Malformed);
                 }
                 if let CommandRequest::SyncTime { time_zone, offset_seconds, .. } = &body {
@@ -805,6 +817,26 @@ impl Request {
                             transition_deciseconds: small(req(&f.transition_deciseconds)?)?,
                         }
                     }
+                    Some("step_up" | "step_down") if fields == 6 => {
+                        let level: u8 = small(req(&f.level)?)?;
+                        if level == 0 || level == 255 { return Err(malformed); }
+                        let transition_deciseconds = small(req(&f.transition_deciseconds)?)?;
+                        if f.command.as_deref() == Some("step_up") {
+                            CommandRequest::StepUp { schema: s, node, endpoint, level, transition_deciseconds }
+                        } else {
+                            CommandRequest::StepDown { schema: s, node, endpoint, level, transition_deciseconds }
+                        }
+                    }
+                    Some("move_up" | "move_down") if fields == 5 => {
+                        let level: u8 = small(req(&f.level)?)?;
+                        if level == 0 { return Err(malformed); }
+                        if f.command.as_deref() == Some("move_up") {
+                            CommandRequest::MoveUp { schema: s, node, endpoint, level }
+                        } else {
+                            CommandRequest::MoveDown { schema: s, node, endpoint, level }
+                        }
+                    }
+                    Some("stop_level") if fields == 4 => CommandRequest::StopLevel { schema: s, node, endpoint },
                     Some("thermostat") if fields == 6 => CommandRequest::Thermostat {
                         schema: s,
                         node,
@@ -862,6 +894,23 @@ impl Request {
 mod protobuf_request_tests {
     use super::*;
     use crate::{ipc::Decoder, protobuf as p};
+    #[test]
+    fn relative_level_commands_validate_direction_and_arguments() {
+        let request = |command: &str, level: Option<u32>, transition: Option<u32>| p::MessageBody {
+            choice: Some(p::MessageBodyChoice::DeviceCommandRequest(p::DeviceCommandRequest {
+                schema: Some(1), node: Some(42), endpoint: Some(2), command: Some(command.into()),
+                level, transition_deciseconds: transition, ..Default::default()
+            }))
+        };
+        assert!(matches!(Request::decode(11, &request("step_up", Some(25), Some(0))), Ok(Request::Command(CommandRequest::StepUp { level: 25, .. }))));
+        assert!(matches!(Request::decode(11, &request("step_down", Some(25), Some(10))), Ok(Request::Command(CommandRequest::StepDown { transition_deciseconds: 10, .. }))));
+        assert!(matches!(Request::decode(11, &request("move_up", Some(64), None)), Ok(Request::Command(CommandRequest::MoveUp { level: 64, .. }))));
+        assert!(matches!(Request::decode(11, &request("move_down", Some(64), None)), Ok(Request::Command(CommandRequest::MoveDown { .. }))));
+        assert!(matches!(Request::decode(11, &request("stop_level", None, None)), Ok(Request::Command(CommandRequest::StopLevel { .. }))));
+        assert!(Request::decode(11, &request("step_up", Some(0), Some(0))).is_err());
+        assert!(matches!(Request::decode(11, &request("move_down", Some(255), None)), Ok(Request::Command(CommandRequest::MoveDown { level: 255, .. }))));
+        assert!(Request::decode(11, &request("stop_level", Some(1), None)).is_err());
+    }
     #[test]
     fn thermostat_schedule_is_decoded_without_json() {
         let request = p::DeviceCommandRequest {

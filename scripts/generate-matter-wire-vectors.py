@@ -24,6 +24,11 @@ add('max-ble-bytes',dict(schema=1,session='8000000000000001',generation=42949672
 add('max-dataset-bytes',dict(schema=1,action='import',zigbee_channel=15,dataset='ff'*254),9)
 add('correlated-failure',dict(schema=1,ok=False,error='not_ready'),9,1,4294967295)
 add('measurement-event',dict(schema=1,event='matter_report',data=dict(node='fedcba9876543210',endpoint=1,cluster=1026,attribute=0,value=dict(type='measurement',value=dict(value=-5.25,unit='celsius',quality='measured')))),12,2,0)
+for command in ('step_up', 'step_down'):
+    add('level-'+command,dict(schema=1,command=command,node='0000000000000002',endpoint=1,level=25,transition_deciseconds=10),11)
+for command in ('move_up', 'move_down'):
+    add('level-'+command,dict(schema=1,command=command,node='0000000000000002',endpoint=1,level=64),11)
+add('level-stop',dict(schema=1,command='stop_level',node='0000000000000002',endpoint=1),11)
 add('thermostat-write',dict(schema=1,command='thermostat',node='0000000000000002',endpoint=2,field='occupied_cooling_setpoint',value='25.5'),11)
 add('thermostat-scalar-event',dict(schema=1,event='matter_report',data=dict(node='0000000000000002',endpoint=2,cluster=513,attribute=18,value=dict(type='thermostat',value=-525))),12,2,0)
 add('thermostat-null-event',dict(schema=1,event='matter_report',data=dict(node='0000000000000002',endpoint=2,cluster=513,attribute=0,value=dict(type='thermostat',value=None))),12,2,0)

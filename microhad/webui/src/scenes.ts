@@ -21,6 +21,8 @@ export interface Binding {
   action: string
   groupId: number
   off: boolean
+  dimDirection: number
+  position: number
   sceneIds: number[]
 }
 export interface NativeBinding {
@@ -78,12 +80,14 @@ export function parseScenes(text: string): SceneConfig {
         break
       }
       case 'B':
-        if (fields.length !== 6) throw invalid()
+        if (fields.length !== 6 && fields.length !== 7) throw invalid()
         config.bindings.push({
           ieee: fields[1],
           action: fields[2],
           groupId: Number(fields[3]),
           off: fields[4] === '1',
+          dimDirection: fields[4] === '2' ? 1 : fields[4] === '3' ? -1 : 0,
+          position: fields.length === 7 ? Number(fields[6]) : -1,
           sceneIds: fields[5] ? fields[5].split(',').map(Number) : [],
         })
         break
@@ -110,8 +114,12 @@ export function isDimmable(device: Device): boolean {
   )
 }
 
+export function sceneDeviceId(device: Device): string {
+  return device.source === 'matter' ? device.external_id : device.ieee_address
+}
+
 export function newState(address: string, devices: Device[]): SceneState {
-  const device = devices.find((item) => item.ieee_address === address)
+  const device = devices.find((item) => sceneDeviceId(item) === address)
   const brightness =
     device && isDimmable(device) ? (device.has_brightness ? device.brightness_percent : 100) : -1
   return { ieee: address, on: device?.light_on ?? true, brightness }
@@ -142,12 +150,18 @@ export function serializeScenes(config: SceneConfig, devices: Device[]): string 
     }
   }
   for (const binding of config.bindings) {
-    if (!binding.ieee || !binding.groupId || (!binding.off && !binding.sceneIds.length))
+    if (!binding.ieee || !binding.groupId || (!binding.off && !binding.dimDirection && !binding.sceneIds.length))
       throw new Error('Each binding needs a remote, group, and scene')
+    if (binding.dimDirection) {
+      const remote = devices.find((device) => sceneDeviceId(device) === binding.ieee)
+      const actions = remote?.source === 'matter' ? ['matter_press', 'matter_hold', 'matter_multi_press'] : ['brightness_up', 'brightness_down']
+      if (!remote || !actions.includes(binding.action)) throw new Error('Choose a brightness button or Matter press or hold for dimming')
+    }
+    if (!Number.isInteger(binding.position) || binding.position < -1 || binding.position > 254) throw new Error('Button position must be between 0 and 254')
     lines.push(
-      `B\t${binding.ieee}\t${binding.action}\t${binding.groupId}\t${binding.off ? 1 : 0}\t${
-        binding.off ? '' : binding.sceneIds.join(',')
-      }`
+      `B\t${binding.ieee}\t${binding.action}\t${binding.groupId}\t${binding.dimDirection > 0 ? 2 : binding.dimDirection < 0 ? 3 : binding.off ? 1 : 0}\t${
+        binding.off || binding.dimDirection ? '' : binding.sceneIds.join(',')
+      }${binding.position >= 0 ? `\t${binding.position}` : ''}`
     )
   }
   const nativeRemotes = new Set<string>()

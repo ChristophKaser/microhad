@@ -119,6 +119,11 @@ bool requestValid(unsigned char opcode, const std::string& text) {
         static const char* const commands[] = {"\"on\"", "\"off\"", "\"toggle\"", "\"sync_time\"", "\"identify\""};
         if (!hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
             !number(fields["endpoint"], 0, 65534)) return false;
+        if (fields["command"] == "\"stop_level\"") return fields.size() == 4;
+        if (fields["command"] == "\"move_up\"" || fields["command"] == "\"move_down\"")
+            return fields.size() == 5 && number(fields["level"], 1, 255);
+        if (fields["command"] == "\"step_up\"" || fields["command"] == "\"step_down\"")
+            return fields.size() == 6 && number(fields["level"], 1, 254) && number(fields["transition_deciseconds"], 0, 65535);
         if (fields["command"] == "\"sync_time\"") return fields.size() == 6 && signedNumber(fields["offset_seconds"], -50400, 50400) && fields["time_zone"].size() > 2;
         if (member(fields["command"], commands, 5)) return fields.size() == 4;
         return fields["command"] == "\"move_to_level\"" && fields.size() == 6 &&
@@ -515,6 +520,9 @@ bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* 
         !hex(fields["node"], 16, 16) || fields["node"] <= "\"0000000000000001\"" ||
         !number(fields["endpoint"], 0, 65534)) return false;
     if(fields["command"]=="\"thermostat\"") { *body=input; return requestValid(11,*body); }
+    const bool relativeStep = fields["command"] == "\"step_up\"" || fields["command"] == "\"step_down\"";
+    const bool relativeMove = fields["command"] == "\"move_up\"" || fields["command"] == "\"move_down\"";
+    const bool stopLevel = fields["command"] == "\"stop_level\"";
     const bool level = fields["command"] == "\"move_to_level\"";
     const bool syncTime = fields["command"] == "\"sync_time\"";
     if(syncTime && fields.size()==4) {
@@ -522,11 +530,15 @@ bool MatterChannel::deviceCommandRequest(const std::string& input, std::string* 
     }
     if ((level && (fields.size() != 6 || !number(fields["level"], 0, 254) ||
                    !number(fields["transition_deciseconds"], 0, 65535))) ||
+        (relativeStep && (fields.size() != 6 || !number(fields["level"], 1, 254) || !number(fields["transition_deciseconds"], 0, 65535))) ||
+        (relativeMove && (fields.size() != 5 || !number(fields["level"], 1, 255))) ||
+        (stopLevel && fields.size() != 4) ||
         (syncTime && (fields.size() != 6 || !signedNumber(fields["offset_seconds"], -50400, 50400) || fields["time_zone"].size() < 3)) ||
-        (!level && !syncTime && (fields.size() != 4 || !member(fields["command"], commands, 5)))) return false;
+        (!level && !syncTime && !relativeStep && !relativeMove && !stopLevel && (fields.size() != 4 || !member(fields["command"], commands, 5)))) return false;
     *body = "{\"schema\":1,\"command\":" + fields["command"] + ",\"node\":" + fields["node"] +
         ",\"endpoint\":" + fields["endpoint"];
-    if (level) *body += ",\"level\":" + fields["level"] + ",\"transition_deciseconds\":" + fields["transition_deciseconds"];
+    if (level || relativeStep || relativeMove) *body += ",\"level\":" + fields["level"];
+    if (level || relativeStep) *body += ",\"transition_deciseconds\":" + fields["transition_deciseconds"];
     if (syncTime) *body += ",\"time_zone\":" + fields["time_zone"] + ",\"offset_seconds\":" + fields["offset_seconds"];
     *body += '}';
     return requestValid(11, *body);

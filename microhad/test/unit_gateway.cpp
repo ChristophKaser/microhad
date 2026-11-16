@@ -2284,6 +2284,96 @@ public:
         return gateway.sceneRetries_[10].sceneId == 1 && !gateway.sceneRetries_[10].retryRequested &&
                gateway.selectedScenes_.count(10) == 0;
     }
+    static bool remoteDimMoveAndStop() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        const std::string remote = "remote-dimmer";
+        gateway.nodeAddresses_[0x1234] = remote;
+        Device& device = gateway.devices_[remote];
+        device.ieeeAddress = remote; device.remote.setPresent(true);
+        EndpointDescriptor endpoint; endpoint.endpoint = 1; endpoint.outputClusters.push_back(8);
+        device.zigbee.ensure().endpoints.push_back(endpoint);
+        Device& lamp = gateway.devices_["matter-lamp"];
+        lamp.ieeeAddress = "matter-lamp"; lamp.source = "matter"; lamp.brightness.setPresent(true);
+        lamp.matter.ensure().node = "000000000000002a"; lamp.matter.ensure().endpoint = 1;
+        SceneGroup group; group.id = 10; group.name = "Room"; group.members.push_back("matter-lamp"); gateway.sceneGroups_.push_back(group);
+        RemoteSceneBinding binding; binding.ieeeAddress = remote; binding.action = "brightness_up";
+        binding.groupId = 10; binding.dimDirection = 1; gateway.sceneBindings_.push_back(binding);
+        gateway.online_ = true; gateway.networkFormed_ = true; gateway.coordinatorInitializationStep_ = 0;
+        std::vector<unsigned char> move; move.push_back(0); move.push_back(42);
+        if (!gateway.logRemoteKeyEvent(0x1234, 8, 1, 0, 1, move, 7) ||
+            gateway.remoteDimGroups_[remote + ":1"].size() != 1) return false;
+        std::vector<MatterProto::MessageBody> commands = gateway.takeMatterLightCommands();
+        if (commands.size() != 1 || commands[0].device_command_request.value.command.value != "move_up" ||
+            commands[0].device_command_request.value.level.value != 42) return false;
+        if (!gateway.logRemoteKeyEvent(0x1234, 8, 1, 0, 1, move, 7) ||
+            gateway.remoteDimGroups_[remote + ":1"].size() != 1 || !gateway.takeMatterLightCommands().empty()) return false;
+        if (!gateway.logRemoteKeyEvent(0x1234, 8, 1, 0, 3, std::vector<unsigned char>(), 8) ||
+            gateway.remoteDimGroups_.count(remote + ":1") != 0) return false;
+        commands = gateway.takeMatterLightCommands();
+        if (commands.size() != 1 || commands[0].device_command_request.value.command.value != "stop_level") return false;
+        binding.action = "brightness_down"; binding.dimDirection = -1; gateway.sceneBindings_.push_back(binding);
+        std::vector<unsigned char> step; step.push_back(1); step.push_back(25); step.push_back(5); step.push_back(0);
+        if (!gateway.logRemoteKeyEvent(0x1234, 8, 1, 0, 6, step, 9) || !gateway.remoteDimGroups_.empty()) return false;
+        commands = gateway.takeMatterLightCommands();
+        if (commands.size() != 1 || commands[0].device_command_request.value.command.value != "step_down" ||
+            commands[0].device_command_request.value.level.value != 25 || commands[0].device_command_request.value.transition_deciseconds.value != 5) return false;
+        const std::string logs = gateway.logsJson();
+        return logs.find("payload=110101002a") != std::string::npos &&
+               logs.find("payload=110203") != std::string::npos &&
+               logs.find("payload=11030601190500") != std::string::npos;
+    }
+    static bool mixedMatterScenesAndDimming() {
+        Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
+        Device& lamp = gateway.devices_["matter-light"];
+        lamp.ieeeAddress = "matter-light"; lamp.source = "matter"; lamp.light.setPresent(true); lamp.brightness.setPresent(true);
+        lamp.matter.ensure().node = "000000000000002a"; lamp.matter.ensure().endpoint = 2;
+        Device& zigbee = gateway.devices_["zigbee-light"];
+        zigbee.ieeeAddress = "zigbee-light"; zigbee.light.setPresent(true);
+        SceneGroup group; group.id = 19; group.name = "Mixed"; group.members.push_back("matter-light"); group.members.push_back("zigbee-light");
+        Scene scene; scene.id = 3; scene.name = "Evening";
+        SceneLightState state; state.ieeeAddress = "matter-light"; state.on = true; state.brightnessPercent = 50; scene.states.push_back(state);
+        state.ieeeAddress = "zigbee-light"; scene.states.push_back(state); group.scenes.push_back(scene); gateway.sceneGroups_.push_back(group);
+        std::string error;
+        gateway.sceneRetries_[19].sceneId = 9;
+        if (!gateway.activateScene(19, 3, &error) || gateway.sceneRetries_.count(19)) return false;
+        std::vector<MatterProto::MessageBody> commands = gateway.takeMatterLightCommands();
+        if (commands.size() != 2 || commands[0].device_command_request.value.command.value != "on" ||
+            commands[1].device_command_request.value.command.value != "move_to_level" || commands[1].device_command_request.value.level.value != 127) return false;
+        if (!gateway.turnOffSceneGroup(19, &error)) return false;
+        commands = gateway.takeMatterLightCommands();
+        if (commands.size() != 1 || commands[0].device_command_request.value.command.value != "off") return false;
+        Device& remote = gateway.devices_["matter-remote"];
+        remote.ieeeAddress = "matter-remote"; remote.source = "matter"; remote.remote.setPresent(true);
+        remote.matter.ensure().node = "000000000000002b"; remote.matter.ensure().endpoint = 4;
+        RemoteSceneBinding binding; binding.ieeeAddress = "matter-remote"; binding.action = "matter_hold";
+        binding.groupId = 19; binding.dimDirection = -1; binding.position = 1; gateway.sceneBindings_.push_back(binding);
+        RemoteSceneBinding press = binding; press.action = "matter_press"; press.dimDirection = 1; gateway.sceneBindings_.push_back(press);
+        MatterButtonEvent button; button.node = remote.matter.read().node; button.endpoint = 4; button.event = 1; button.position = 1;
+        if (!gateway.logMatterButtonEvent(button)) return false;
+        commands = gateway.takeMatterLightCommands();
+        if (commands.size() != 1 || commands[0].device_command_request.value.command.value != "step_up" ||
+            commands[0].device_command_request.value.level.value != 25) return false;
+        button.event = 2; button.position = 2;
+        if (!gateway.logMatterButtonEvent(button) || !gateway.takeMatterLightCommands().empty()) return false;
+        button.position = 1;
+        if (!gateway.logMatterButtonEvent(button)) return false;
+        commands = gateway.takeMatterLightCommands();
+        if (commands.size() != 1 || commands[0].device_command_request.value.command.value != "move_down" ||
+            commands[0].device_command_request.value.level.value != 64) return false;
+        button.event = 4; button.position = 2;
+        if (!gateway.logMatterButtonEvent(button) || !gateway.takeMatterLightCommands().empty()) return false;
+        button.position = 1;
+        if (!gateway.logMatterButtonEvent(button)) return false;
+        commands = gateway.takeMatterLightCommands();
+        if (commands.size() != 1 || commands[0].device_command_request.value.command.value != "stop_level" || !gateway.remoteDimGroups_.empty()) return false;
+        gateway.sceneBindings_[0].position = -1;
+        button.event = 2; button.position = -1;
+        if (!gateway.logMatterButtonEvent(button) || gateway.takeMatterLightCommands().size() != 1) return false;
+        button.event = 4; button.position = 1;
+        if (!gateway.logMatterButtonEvent(button)) return false;
+        commands = gateway.takeMatterLightCommands();
+        return commands.size() == 1 && commands[0].device_command_request.value.command.value == "stop_level" && gateway.remoteDimGroups_.empty();
+    }
     static bool rejectsDuplicateSceneStates() {
         Gateway gateway("/dev/null", 115200, "/tmp", "", "", "");
         std::string error;
@@ -3324,13 +3414,16 @@ static void testSceneConfigurationPersistence() {
     Scene secondScene; secondScene.id=8; secondScene.name="Late"; group.scenes.push_back(secondScene);
     groups.push_back(group);
     binding.ieeeAddress="0x00124b0000000099"; binding.action="on"; binding.groupId=42; binding.off=true; binding.sceneIds.push_back(7); binding.sceneIds.push_back(8); bindings.push_back(binding);
+    binding.action="brightness_up"; binding.off=false; binding.dimDirection=1; binding.sceneIds.clear(); bindings.push_back(binding);
+    binding.action="matter_hold"; binding.dimDirection=-1; binding.position=4; bindings.push_back(binding);
     NativeRemoteBinding native; native.ieeeAddress = binding.ieeeAddress; native.groupId = 42; nativeBindings.push_back(native);
     assert(saveSceneConfiguration(path.str()+"/scenes.conf",groups,bindings,nativeBindings,&error));
     assert(loadSceneConfiguration(path.str()+"/scenes.conf",&loaded,&loadedBindings,&loadedNativeBindings,&error));
     assert(loaded.size()==1 && loaded[0].id==42 && loaded[0].name=="Kitchen" && loaded[0].members.size()==1 && loaded[0].members[0]=="0x00124b0000000042");
     assert(loaded[0].scenes.size()==2 && loaded[0].scenes[0].id==7 && loaded[0].scenes[0].name=="Dinner" && loaded[0].scenes[0].states[0].brightnessPercent==35);
     assert(loaded[0].scenes[1].id==8 && loaded[0].scenes[1].name=="Late");
-    assert(loadedBindings.size()==1 && loadedBindings[0].ieeeAddress=="0x00124b0000000099" && loadedBindings[0].action=="on" && loadedBindings[0].groupId==42 && loadedBindings[0].off && loadedBindings[0].sceneIds.size()==2 && loadedBindings[0].sceneIds[0]==7 && loadedBindings[0].sceneIds[1]==8);
+    assert(loadedBindings.size()==3 && loadedBindings[1].dimDirection==1 && loadedBindings[2].dimDirection==-1 && loadedBindings[2].position==4);
+    assert(loadedBindings[0].ieeeAddress=="0x00124b0000000099" && loadedBindings[0].action=="on" && loadedBindings[0].groupId==42 && loadedBindings[0].off && loadedBindings[0].sceneIds.size()==2 && loadedBindings[0].sceneIds[0]==7 && loadedBindings[0].sceneIds[1]==8);
     assert(loadedNativeBindings.size()==1 && loadedNativeBindings[0].ieeeAddress==native.ieeeAddress && loadedNativeBindings[0].groupId==42);
     unlink((path.str()+"/scenes.conf").c_str()); rmdir(path.str().c_str());
 }
@@ -3692,6 +3785,8 @@ static void testRemoteKeyEvents() {
 static void testStyrbarArrowEvents() {
     assert(GatewayTestPeer::styrbarArrowEventsAreLogged());
     assert(GatewayTestPeer::remoteBindingsAndIgnoredEvents());
+    assert(GatewayTestPeer::remoteDimMoveAndStop());
+    assert(GatewayTestPeer::mixedMatterScenesAndDimming());
 }
 
 static void testSceneConfigurationRejectsDuplicateStates() {

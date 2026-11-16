@@ -150,6 +150,22 @@ void GatewayRunner::run() {
         }
         const int64_t pollStart = diagnosticMicros(CLOCK_MONOTONIC);
         { AUTOMATION_PROFILE("coord.poll");gateway_->poll(); }
+        {
+            std::vector<MatterProto::MessageBody> requests = gateway_->takeMatterLightCommands();
+            for (size_t i = 0; i < requests.size(); ++i) {
+                if (matterLightPending_.size() < 128) matterLightPending_.push_back(requests[i]);
+                else gateway_->logEventLoopDiagnostic("Matter light command failed: queue capacity");
+            }
+            pthread_mutex_lock(&mutex_); MatterWorker* matter = automationMatter_; pthread_mutex_unlock(&mutex_);
+            while (!matterLightPending_.empty()) {
+                uint32_t id = 0; std::string failure;
+                if (!matter || !matter->submit(11, matterLightPending_.front(), &id, &failure)) {
+                    if (failure == "capacity") break;
+                    gateway_->logEventLoopDiagnostic("Matter light command failed: " + (failure.empty() ? std::string("worker unavailable") : failure));
+                }
+                matterLightPending_.pop_front();
+            }
+        }
         const int64_t publishStart = diagnosticMicros(CLOCK_MONOTONIC);
         publishAutomation();
         publishView(false);
