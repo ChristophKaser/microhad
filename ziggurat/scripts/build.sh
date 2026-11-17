@@ -76,6 +76,13 @@ fi
 if [[ "$CRASH_SNAPSHOTS" == true ]]; then
     export RUSTFLAGS="$RUSTFLAGS -C link-arg=-Wl,--wrap=pthread_create"
 fi
+# Older builds replaced Cargo's output with a stripped binary. Cargo may
+# consider that output fresh, so force this one-time migration to relink it.
+target_binary="$experiment_root/$build_output/$TARGET_SPEC_NAME/release/ziggurat"
+if [[ $ZIGGURAT_MULTIPAN == 1 && -f "$target_binary" ]] &&
+   ! "$TARGET_READELF" -S "$target_binary" | grep -q ' \.symtab '; then
+    touch "$build_worktree/crates/ziggurat-server/src/main.rs"
+fi
 cargo +$RUST_TOOLCHAIN build --locked --release \
     --no-default-features \
     --config 'profile.release.opt-level="s"' \
@@ -85,12 +92,10 @@ cargo +$RUST_TOOLCHAIN build --locked --release \
     -Z json-target-spec -Z build-std=std,panic_abort \
     "${crate_patches[@]}"
 if [[ $ZIGGURAT_MULTIPAN == 1 ]]; then
-    target_binary="$experiment_root/$build_output/$TARGET_SPEC_NAME/release/ziggurat"
-    cp "$target_binary" "$target_binary.elf"
+    cp "$target_binary" "$target_binary.stripped.elf"
     "$LLVM_STRIP" --keep-section=.gnu.attributes \
         -o "$target_binary.stripped" "$target_binary"
     python3 scripts/verify-gateway-target.py --link-mode "$LINK_MODE" "$target_binary.stripped"
-    cp "$target_binary.stripped" "$target_binary"
 fi
 
-python3 scripts/verify-gateway-target.py --link-mode "$LINK_MODE" "$experiment_root/$build_output/$TARGET_SPEC_NAME/release/ziggurat"
+python3 scripts/verify-gateway-target.py --link-mode "$LINK_MODE" "$target_binary"

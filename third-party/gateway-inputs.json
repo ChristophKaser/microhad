@@ -80,7 +80,7 @@
     "ziggurat/patches/ziggurat-syslog.patch": "89711ce172906331f6aeeb697f4ada0bbe71d39d72083b5b3fd1d069aa71401b",
     "ziggurat/patches/ziggurat-thread-tcp.patch": "befe2262c44c3a6a9cc5861e80e9c81c4951ac6eda874de1bf68fc10825137f5",
     "ziggurat/patches/ziggurat-upstream-head-tests.patch": "71eea497ca12201cf1156b55cc6e650e7b7904c854226efccd723b2964e91984",
-    "ziggurat/scripts/build.sh": "8f0ddbd9c1610c476d5265e209427a8539a24676dabb1c2a177656b63912ea05",
+    "ziggurat/scripts/build.sh": "502e37298bd8b8acf012afdf9739f27b20dcd0eb49dd27fb1da355e9cb84611a",
     "ziggurat/stock-uclibc-compat/Cargo.toml": "10d8809501704a473e93541ee4cbaa922eafc1a79b4ee0f9f3445f5a7361fdc1"
   },
   "records_sha256": "6822ef5d11b2cf534fbeb375a12b5482f3a8f103aae46bfa69933f536f4cd22f",
