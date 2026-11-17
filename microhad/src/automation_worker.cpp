@@ -559,7 +559,7 @@ struct AutomationWorker::Impl {
         if(d.power.present())return "power";
         return "default";
     }
-    static int notify(lua_State* L){
+    static int notifyImpl(lua_State* L, bool clear){
         Script* s=script(L);
         std::string title=stringArg(L,1),body=stringArg(L,2);
         Value options=Value::object();
@@ -597,6 +597,7 @@ struct AutomationWorker::Impl {
             if(!device || !device->record)return failure(L,error.empty()?"notification source device unavailable":error);
             source=deviceNotificationSource(*device->record);
         }
+        if(clear && options.fields["device_id"].string.empty() && options.fields["tag"].string.empty())return luaL_error(L,"notification clear requires device_id or tag");
         if(s->validation){lua_pushboolean(L,1);return 1;}
         std::string err;
         NotificationWorker* notifications=s->owner->notifications;
@@ -609,18 +610,20 @@ struct AutomationWorker::Impl {
                 // Keep author grouping separate from Android's channel setting.
                 std::ostringstream key;
                 key<<"automation:"<<s->id<<":"<<device.size()<<":"<<device<<":"<<tag;
-                accepted=notifications->enqueueState(title,body,key.str(),"show",std::vector<std::string>(),&err,"",recipientIds,source);
+                accepted=notifications->enqueueState(title,body,key.str(),clear ? "clear" : "show",std::vector<std::string>(),&err,"",recipientIds,source);
             }
         }
         if(!accepted)return failure(L,err.empty()?"notifications unavailable":err);
         lua_pushboolean(L,1);return 1;
     }
+    static int notify(lua_State* L){return notifyImpl(L,false);}
+    static int notifyClear(lua_State* L){lua_pushliteral(L, "");lua_insert(L,1);lua_pushliteral(L, "");lua_insert(L,2);return notifyImpl(L,true);}
     void bind(Script* s,const char* name,lua_CFunction fn){lua_pushlightuserdata(s->L,s);lua_pushcclosure(s->L,fn,1);lua_setfield(s->L,-2,name);}
     static int createRuntime(lua_State* L){Script* s=static_cast<Script*>(lua_touserdata(L,1));
         lua_rawgeti(L,LUA_REGISTRYINDEX,s->owner->factory);
         lua_newtable(L);
 #define B(name,fn) s->owner->bind(s,name,fn)
-        B("is_snapshot",isNativeSnapshot);B("watch",watch);B("now",now);B("monotonic",clock);B("script_id",id);B("calendar",calendar);B("handle",handle);B("handle_id",handleId);B("limit",limit);B("spent",spent);B("begin",begin);B("finish",finish);B("discard",discard);B("read_state",readState);B("write_state",writeState);B("serializable",serializable);B("failed",failed);B("failure",failureLog);B("log",log);B("dump",dump);B("resolve",resolveId);B("history_begin",historyBegin);B("history_cancel",historyCancel);B("device_get",deviceGet);B("device_list",deviceList);B("action",action);B("scene",scene);B("scene_get",sceneGet);B("notify",notify);
+        B("is_snapshot",isNativeSnapshot);B("watch",watch);B("now",now);B("monotonic",clock);B("script_id",id);B("calendar",calendar);B("handle",handle);B("handle_id",handleId);B("limit",limit);B("spent",spent);B("begin",begin);B("finish",finish);B("discard",discard);B("read_state",readState);B("write_state",writeState);B("serializable",serializable);B("failed",failed);B("failure",failureLog);B("log",log);B("dump",dump);B("resolve",resolveId);B("history_begin",historyBegin);B("history_cancel",historyCancel);B("device_get",deviceGet);B("device_list",deviceList);B("action",action);B("scene",scene);B("scene_get",sceneGet);B("notify",notify);B("notify_clear",notifyClear);
 #undef B
         lua_call(L,1,1);s->runtime=luaL_ref(L,LUA_REGISTRYINDEX);return 0;
     }

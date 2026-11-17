@@ -233,7 +233,7 @@ env.history={query=function(target,options)
   if not ok then current.wait=nil;return nil,err end
   return co.yield(current.wait)
 end}
-env.notify={send=host.notify};env.log=host.log
+env.notify={send=host.notify,clear=host.notify_clear};env.log=host.log
 local function unwrap(value,seen)
   if type(value)~='table'then return value end
   if seen[value]then return seen[value]end

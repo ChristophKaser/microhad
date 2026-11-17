@@ -47,17 +47,18 @@ extern void* sensorHistoryQueryPageHookData;
 namespace {
 using Automation::Value;
 class Delivery:public NotificationWorker::DeliveryHook {
-    pthread_mutex_t mutex_;unsigned count_;std::string key_,channel_;std::map<std::string,unsigned> sources_;
+    pthread_mutex_t mutex_;unsigned count_;std::string key_,channel_,action_;std::map<std::string,unsigned> sources_;
 public:
     Delivery():count_(0){pthread_mutex_init(&mutex_,0);}~Delivery(){pthread_mutex_destroy(&mutex_);}
     void deliver(const std::string&,const std::string&,const std::string&){pthread_mutex_lock(&mutex_);++count_;pthread_mutex_unlock(&mutex_);}
-    void deliverState(const std::string&,const std::string&,const std::string& channel,const std::string& key,const std::string& action){assert(action=="show");pthread_mutex_lock(&mutex_);++count_;key_=key;channel_=channel;pthread_mutex_unlock(&mutex_);}
+    void deliverState(const std::string&,const std::string&,const std::string& channel,const std::string& key,const std::string& action){pthread_mutex_lock(&mutex_);++count_;key_=key;channel_=channel;action_=action;pthread_mutex_unlock(&mutex_);}
     void deliverSource(const std::string& title,const std::string& body,const std::string& channel,const std::string& key,const std::string& action,const std::string& source){
         pthread_mutex_lock(&mutex_);++sources_[source];pthread_mutex_unlock(&mutex_);
         if(key.empty())deliver(title,body,channel);else deliverState(title,body,channel,key,action);
     }
     unsigned sourceCount(const std::string& source){pthread_mutex_lock(&mutex_);unsigned n=sources_[source];pthread_mutex_unlock(&mutex_);return n;}
     unsigned count(){pthread_mutex_lock(&mutex_);unsigned n=count_;pthread_mutex_unlock(&mutex_);return n;}
+    bool cleared(){pthread_mutex_lock(&mutex_);bool ok=action_=="clear" && key_.find(":0::test")!=key_.npos;if(!ok)fprintf(stderr,"clear test action=%s key=%s\n",action_.c_str(),key_.c_str());pthread_mutex_unlock(&mutex_);return ok;}
     bool grouped(){pthread_mutex_lock(&mutex_);bool ok=key_.find("0x00124b0000000042:test")!=key_.npos&&channel_.empty();pthread_mutex_unlock(&mutex_);return ok;}
 };
 std::string encode(const std::string& s){std::string out;const char* hex="0123456789ABCDEF";for(size_t i=0;i<s.size();++i){unsigned char c=s[i];if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'||c=='.')out+=c;else{out+='%';out+=hex[c>>4];out+=hex[c&15];}}return out;}
@@ -414,6 +415,10 @@ void runAutomationIntegrationTests(){
         std::string checkedApis=apiChecks;for(size_t i=0;i<checkedApis.size();++i)if(checkedApis[i]==';')checkedApis.insert(++i,"\n");
         const unsigned delivered=delivery.count();if(!automations.validate("apis.lua",checkedApis,&error)){fprintf(stderr,"API checks: %s\n",error.c_str());assert(false);}usleep(20000);assert(delivery.count()==delivered);
         assert(automations.save("apis.lua",checkedApis,true,&error));for(unsigned i=0;i<100&&delivery.count()==delivered;++i)usleep(10000);assert(delivery.count()==delivered+1);assert(delivery.grouped());
+        const unsigned clearBefore=delivery.count();
+        assert(automations.save("clear.lua", "assert(notify.clear({tag='test',recipients='Test phone'}));assert(not pcall(function() notify.clear({}) end))", true, &error));
+        for(unsigned i=0;i<100&&delivery.count()==clearBefore;++i)usleep(10000);
+        assert(delivery.count()==clearBefore+1);assert(delivery.cleared());
         // Real Lua -> queue -> worker delivery for both category and snapshot-derived sources.
         const unsigned sourceBefore=delivery.count();
         const unsigned tempBefore=delivery.sourceCount("temperature"),defaultBefore=delivery.sourceCount("default");

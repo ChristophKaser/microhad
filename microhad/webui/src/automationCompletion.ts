@@ -27,6 +27,7 @@ export const gatewayApi: Record<string, Spec> = {
   'scenes.get': ['group', 'group | nil, error', 'Read an immutable gateway scene selection and group-off state; this is not a physical state match.'],
   'scenes.activate': ['group, scene', 'boolean | nil, error', 'Activate a scene using names or string IDs.'],
   'scenes.off': ['group', 'boolean | nil, error', 'Turn off a scene group.'],
+  'notify.clear': ['options', 'boolean | nil, error', 'Dismiss a matching Android notification using the same tag, device_id, and recipients.'],
   'notify.send': ['title, body, options', 'boolean | nil, error', 'Send a notification; optional options: device_id, tag, recipients (one client ID/label or a list). Explicit recipients ignore presence; notification switches still apply.'],
   log: ['level, message, fields', 'nil', 'Log debug/info/warn/error; optional JSON-compatible fields.'],
   dump: ['value, label', 'nil', 'Log a structured value with optional label.'],

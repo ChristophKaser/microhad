@@ -220,6 +220,7 @@ ID or unique display label (labels are case-insensitive):
 ```lua
 notify.send("Alert", "Door opened", { recipients = "Alice" })
 notify.send("Alert", "Door opened", { recipients = { "Alice", "Bob" }, tag = "door" })
+notify.clear({ recipients = "Alice", tag = "door" }) -- dismiss the matching Android notification
 ```
 
 Omit `recipients` for normal routing. Explicit recipients bypass presence routing
