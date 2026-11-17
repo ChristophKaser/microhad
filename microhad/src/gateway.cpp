@@ -517,7 +517,7 @@ bool Gateway::removeDeviceRecords(const std::vector<std::string>& addresses, std
         }
         contactOpenedAt_.erase(id); nextContactAlertAt_.erase(id); nextContactTriggerAt_.erase(id);
         remoteCommands_.erase(id); sceneProvisioning_.erase(id); nativeBindingStates_.erase(id);
-        deviceConfigurations_.erase(id); deviceConfigurationQueries_.erase(id);
+        deviceConfigurations_.erase(id); deviceConfigurationQueries_.erase(id); topology_.erase(id); topologyQueries_.erase(id);
         for (std::vector<NativeBindOperation>::iterator it = nativeBindOperations_.begin(); it != nativeBindOperations_.end();)
             if (it->ieeeAddress == id || it->targetIeee == id) it = nativeBindOperations_.erase(it); else ++it;
     }
@@ -1526,6 +1526,14 @@ void Gateway::poll() {
             deviceConfigurationQueries_.erase(query++);
         else ++query;
     }
+    for (std::map<std::string, TopologyQuery>::iterator q=topologyQueries_.begin(); q!=topologyQueries_.end();) {
+        for (int i=0; i<2; ++i) if (q->second.deadlines[i] && time(0)>=q->second.deadlines[i]) {
+            q->second.deadlines[i]=0;
+            (i==0 ? topology_[q->first].neighborsStatus : topology_[q->first].routesStatus)="timed out";
+            markViewDirty();
+        }
+        if (!q->second.deadlines[0] && !q->second.deadlines[1]) topologyQueries_.erase(q++); else ++q;
+    }
     if (serialFd_ >= 0) {
         count = read(serialFd_, bytes, sizeof(bytes));
         if (count > 0) {
@@ -2216,6 +2224,26 @@ bool Gateway::identifyDevice(const std::string& ieeeAddress, std::string* error)
     }
     *error = "device has no Identify server endpoint";
     return false;
+}
+
+bool Gateway::queryTopology(const std::string& address, std::string* error) {
+    std::string id = resolveDeviceId(address);
+    std::map<std::string, Device>::const_iterator device = devices_.find(id);
+    if (device == devices_.end() || device->second.source != "zigbee") { *error = "unknown Zigbee device"; return false; }
+    if (!online_ || !networkFormed_ || coordinatorInitializationStep_ != 0) { *error = "Zigbee network is not ready"; return false; }
+    unsigned short node = device->second.zigbee.read().networkAddress;
+    if (node == 0xffff) { *error = "device has no active network address"; return false; }
+    if (topologyQueries_.count(id)) { *error = "topology query is already in progress"; return false; }
+    if (topologyQueries_.size() >= 8) { *error = "too many topology queries"; return false; }
+    TopologyStatus status; status.ieeeAddress=id; status.neighborsStatus="waiting"; status.routesStatus="waiting";
+    topology_[id] = status;
+    TopologyQuery query; query.node=node;
+    for (int i=0; i<2; ++i) {
+        query.sequences[i]=zdoSequence_++; query.deadlines[i]=time(0)+20;
+        std::vector<unsigned char> request; request.push_back(query.sequences[i]); request.push_back(0);
+        sendApsUnicast(node, 0, static_cast<unsigned short>(0x0031+i), 0, 0, request);
+    }
+    topologyQueries_[id]=query; markViewDirty(); return true;
 }
 
 bool Gateway::queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error) {
@@ -3835,6 +3863,19 @@ std::string GatewayView::statusJson() const {
         json << ",\"status\":\"" << jsonEscape(state) << "\"";
         json << '}';
     }
+    json << "],\"topology\":[";
+    for (unsigned long i=0;i<topology.size();++i) {
+        const TopologyStatus& t=topology[i]; if(i) json << ',';
+        json << "{\"ieee_address\":\"" << jsonEscape(t.ieeeAddress) << "\",\"neighbors_status\":\"" << jsonEscape(t.neighborsStatus)
+             << "\",\"routes_status\":\"" << jsonEscape(t.routesStatus) << "\",\"neighbors\":[";
+        for(unsigned long j=0;j<t.neighbors.size();++j) { const TopologyNeighbor& n=t.neighbors[j]; if(j) json << ',';
+            json << "{\"ieee_address\":\"" << jsonEscape(n.ieeeAddress) << "\",\"node\":" << n.node << ",\"device_type\":" << static_cast<unsigned int>(n.deviceType)
+                 << ",\"relationship\":" << static_cast<unsigned int>(n.relationship) << ",\"depth\":" << static_cast<unsigned int>(n.depth) << ",\"lqi\":" << static_cast<unsigned int>(n.lqi) << '}'; }
+        json << "],\"routes\":[";
+        for(unsigned long j=0;j<t.routes.size();++j) { const TopologyRoute& r=t.routes[j]; if(j) json << ',';
+            json << "{\"destination\":" << r.destination << ",\"next_hop\":" << r.nextHop << ",\"status\":" << static_cast<unsigned int>(r.status) << '}'; }
+        json << "]}";
+    }
     json << "],\"device_configurations\":[";
     for (unsigned long i = 0; i < deviceConfigurations.size(); ++i) {
         const DeviceConfigurationStatus& config = deviceConfigurations[i];
@@ -3898,6 +3939,7 @@ GatewayView Gateway::captureView(bool includeLogs,const Automation::CatalogPtr& 
         }
         view.devices.share(records);
     }
+    for (std::map<std::string, TopologyStatus>::const_iterator t=topology_.begin(); t!=topology_.end(); ++t) view.topology.push_back(t->second);
     view.sceneGroups = sceneGroups_; view.sceneBindings = sceneBindings_;
     view.nativeBindings = nativeBindings_;
     for (std::map<std::string, std::string>::const_iterator it = nativeBindingStates_.begin(); it != nativeBindingStates_.end(); ++it) {
@@ -6180,6 +6222,42 @@ void Gateway::handleApsMessage(unsigned short sender, unsigned short profile, un
                                       (static_cast<unsigned short>(message[2]) << 8);
         registerNode(announcedNode, &message[3]);
         return;
+    }
+    if (profile == 0 && (cluster == 0x8031 || cluster == 0x8032)) {
+        const int kind = cluster == 0x8031 ? 0 : 1;
+        std::map<unsigned short, std::string>::const_iterator owner=nodeAddresses_.find(sender);
+        if (owner == nodeAddresses_.end()) return;
+        std::map<std::string, TopologyQuery>::iterator q=topologyQueries_.find(owner->second);
+        if (q==topologyQueries_.end() || q->second.node!=sender || !q->second.deadlines[kind] || q->second.sequences[kind]!=message[0]) return;
+        TopologyStatus& status=topology_[owner->second];
+        std::string& result=kind==0 ? status.neighborsStatus : status.routesStatus;
+        unsigned int start=0,count=0,total=0; bool valid=message[1]==0 && message.size()>=5;
+        if (valid) {
+            total=message[2]; start=message[3]; count=message[4];
+            unsigned int width=kind==0 ? 22 : 5;
+            valid=start==q->second.starts[kind] && start+count<=total && message.size()==5+count*width && (count || start==total);
+            if (valid) for (unsigned int i=0; i<count; ++i) {
+                unsigned int at=5+i*width;
+                if (kind==0) {
+                    TopologyNeighbor n; std::ostringstream id; id << "0x" << std::hex << std::setfill('0');
+                    for (int b=7;b>=0;--b) id << std::setw(2) << static_cast<unsigned int>(message[at+8+b]);
+                    n.ieeeAddress=id.str(); n.node=message[at+16] | (message[at+17]<<8);
+                    n.deviceType=message[at+18]&3; n.relationship=(message[at+18]>>4)&7;
+                    n.depth=message[at+20]; n.lqi=message[at+21]; status.neighbors.push_back(n);
+                } else {
+                    TopologyRoute r; r.destination=message[at] | (message[at+1]<<8); r.status=message[at+2]&7;
+                    r.nextHop=message[at+3] | (message[at+4]<<8); status.routes.push_back(r);
+                }
+            }
+        }
+        if (!valid) { result=message[1] ? "unsupported or rejected" : "malformed response"; q->second.deadlines[kind]=0; }
+        else if (start+count<total) {
+            q->second.starts[kind]=static_cast<unsigned char>(start+count); q->second.sequences[kind]=zdoSequence_++; q->second.deadlines[kind]=time(0)+20;
+            std::vector<unsigned char> next; next.push_back(q->second.sequences[kind]); next.push_back(q->second.starts[kind]);
+            sendApsUnicast(sender,0,static_cast<unsigned short>(0x0031+kind),0,0,next);
+        } else { result="complete"; q->second.deadlines[kind]=0; }
+        if (!q->second.deadlines[0] && !q->second.deadlines[1]) topologyQueries_.erase(q);
+        markViewDirty(); return;
     }
     if (profile == 0x0000 && cluster == 0x8002 && message.size() >= 2) {
         std::map<unsigned short, std::string>::const_iterator owner = nodeAddresses_.find(sender);

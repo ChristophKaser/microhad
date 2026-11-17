@@ -11,6 +11,7 @@ import { SceneEditor } from './SceneEditor'
 import { ExternalDeviceDialog } from './ExternalDevices'
 import { PushDevices } from './PushDevices'
 import { ControllerStats } from './ControllerStats'
+import { Topology } from './Topology'
 import { MatterPanel } from './MatterPanel'
 import { useMatterDevices } from './useMatterDevices'
 import { useGatewayData } from './useGatewayData'
@@ -265,7 +266,7 @@ function App() {
         matterNetworkConfigured={thread?.available ? thread.configured : undefined}
         onReplaceZigbeeNetwork={status?.network_formed ? () => { setGatewaySettingsOpen(false); setDialog('network') } : undefined} />}
       <nav className="main-tabs" role="tablist" aria-label="Gateway views">
-        {['Dashboard', 'Gateway', 'Groups', 'Automations', ...visibleDeviceTypes.map(type => type.name), 'Diagnostics'].map(name => (
+        {['Dashboard', 'Gateway', 'Groups', 'Automations', ...visibleDeviceTypes.map(type => type.name), 'Diagnostics', 'Topology'].map(name => (
           <button key={name} role="tab" aria-selected={tab === name} className={`main-tab ${tab === name ? 'active' : ''}`} onClick={() => { if (name === tab || !automationDirty || window.confirm('Discard unsaved script changes?')) setTab(name) }}>{name}</button>
         ))}
       </nav>
@@ -399,6 +400,7 @@ function App() {
         />
       </section>
       }
+      {tab === 'Topology' && <Topology devices={status?.devices ?? []} initial={status?.topology ?? []} />}
       {tab === 'Diagnostics' && <section className="panel">
         <details open>
           <summary>

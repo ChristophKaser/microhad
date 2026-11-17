@@ -98,6 +98,7 @@ public:
     bool startOta(const std::string& address, const std::string& image, std::string* error);
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
+    bool queryTopology(const std::string& ieeeAddress, std::string* error);
     bool setThermostat(const std::string& address, const std::string& field,
                        const std::string& value, std::string* error, MatterProto::MessageBody* matterRequest = 0);
     bool thermostatResult(const std::string& node, unsigned short endpoint, const std::string& field, const std::string& error);
@@ -120,7 +121,7 @@ public:
     bool submitAutomation(const Automation::Action& action, std::string* error);
 
 private:
-    enum CommandType { DeviceDelete, DeviceDeleteStatus, MatterDeleteTarget, MatterNodeRemove, MatterNodesReconcile, GatewaySettings, TimeZoneSettings, MatterRegionSettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceReconfigure, DeviceIdentify, OtaStart, DeviceConfiguration, LightState, ThermostatSetting, ThermostatResult, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, MatterContact, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
+    enum CommandType { DeviceDelete, DeviceDeleteStatus, MatterDeleteTarget, MatterNodeRemove, MatterNodesReconcile, GatewaySettings, TimeZoneSettings, MatterRegionSettings, NetworkBackup, Join, CreateNetwork, DeviceSettings, DeviceValueAlerts, DeviceRefresh, DeviceReconfigure, DeviceIdentify, OtaStart, DeviceConfiguration, TopologyQuery, LightState, ThermostatSetting, ThermostatResult, SceneConfiguration, SceneActivate, SceneOff, TestNotification, NotificationSetting, EventLoopDebug, ShellyRegister, ShellyRemove, ShellyReconcile, MatterReconcile, MatterValue, MatterButton, MatterContact, ShellyEvent, FritzEvent, FritzReconcile, ActorState };
     struct Command {
         CommandType type;
         unsigned int seconds;

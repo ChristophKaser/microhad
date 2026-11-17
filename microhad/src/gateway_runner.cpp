@@ -450,6 +450,7 @@ void GatewayRunner::execute(Command* command) {
     else if (command->type == DeviceIdentify) result = gateway_->identifyDevice(command->address, &error);
     else if (command->type == NetworkBackup) result = gateway_->exportNetworkBackup(command->address, &error);
     else if (command->type == DeviceConfiguration) result = gateway_->queryDeviceConfiguration(command->address, &error);
+    else if (command->type == TopologyQuery) result = gateway_->queryTopology(command->address, &error);
     else if (command->type == ThermostatSetting) { std::string value=command->configuration;
         result = gateway_->setThermostat(command->address, command->name, value, &error, &command->matterRequest); }
     else if (command->type == ThermostatResult) result=gateway_->thermostatResult(command->matterReading.node,command->matterReading.endpoint,command->name,command->configuration);
@@ -833,6 +834,9 @@ bool GatewayRunner::queryDeviceConfiguration(const std::string& address, std::st
     command.type = DeviceConfiguration;
     command.address = address;
     return invoke(&command, error);
+}
+bool GatewayRunner::queryTopology(const std::string& address, std::string* error) {
+    Command command; command.type = TopologyQuery; command.address = address; return invoke(&command, error);
 }
 bool GatewayRunner::setThermostat(const std::string& address, const std::string& field,
                                   const std::string& value, std::string* error, MatterProto::MessageBody* matterRequest) {

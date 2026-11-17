@@ -31,6 +31,36 @@
 
 class GatewayTestPeer {
 public:
+    static void topologyQueries() {
+        Gateway gateway("/dev/null",115200,"/tmp","","","");
+        const std::string id="0x00124b0000001234";
+        Device d; d.ieeeAddress=id; d.zigbee.ensure().networkAddress=0x1234;
+        gateway.devices_[id]=d; gateway.nodeAddresses_[0x1234]=id;
+        gateway.online_=true; gateway.networkFormed_=true; gateway.coordinatorInitializationStep_=0;
+        std::string error; assert(gateway.queryTopology(id,&error));
+        assert(!gateway.queryTopology(id,&error));
+        unsigned char seq=gateway.topologyQueries_[id].sequences[0];
+        std::vector<unsigned char> response; response.push_back(seq); response.push_back(0); response.push_back(2); response.push_back(0); response.push_back(1);
+        const unsigned char entry[]={0,0,0,0,0,0,0,0, 0x88,0x77,0x66,0x55,0x44,0x33,0x22,0x11, 0x78,0x56, 0x21,0,3,180};
+        response.insert(response.end(),entry,entry+sizeof(entry));
+        gateway.handleApsMessage(0x1234,0,0x8031,0,0,0,0,0,0,0,0,response);
+        assert(gateway.topology_[id].neighbors.size()==1);
+        assert(gateway.topology_[id].neighbors[0].ieeeAddress=="0x1122334455667788");
+        assert(gateway.topology_[id].neighbors[0].relationship==2 && gateway.topology_[id].neighbors[0].lqi==180);
+        assert(gateway.topologyQueries_[id].starts[0]==1);
+        response[0]=gateway.topologyQueries_[id].sequences[0]; response[3]=1;
+        gateway.handleApsMessage(0x1234,0,0x8031,0,0,0,0,0,0,0,0,response);
+        assert(gateway.topology_[id].neighborsStatus=="complete" && gateway.topology_[id].neighbors.size()==2);
+        response.clear(); response.push_back(gateway.topologyQueries_[id].sequences[1]); response.push_back(0); response.push_back(1); response.push_back(0); response.push_back(1);
+        const unsigned char route[]={0x34,0x12,0,0x78,0x56}; response.insert(response.end(),route,route+sizeof(route));
+        gateway.handleApsMessage(0x1234,0,0x8032,0,0,0,0,0,0,0,0,response);
+        assert(gateway.topology_[id].routesStatus=="complete" && gateway.topology_[id].routes[0].nextHop==0x5678);
+        assert(gateway.topologyQueries_.empty());
+        assert(gateway.statusJson().find("\"next_hop\":22136")!=std::string::npos);
+        assert(gateway.queryTopology(id,&error)); response.clear(); response.push_back(gateway.topologyQueries_[id].sequences[0]); response.push_back(0); response.push_back(2); response.push_back(0); response.push_back(0);
+        gateway.handleApsMessage(0x1234,0,0x8031,0,0,0,0,0,0,0,0,response);
+        assert(gateway.topology_[id].neighborsStatus=="malformed response");
+    }
 
     static void matterContactTimes() {
         char directory[]="/tmp/microhad-contact-XXXXXX";assert(mkdtemp(directory));
@@ -4413,6 +4443,7 @@ void runUnitTests() {
     { DeviceCacheIsolation cache; GatewayTestPeer::networkJoinWindowDoesNotClearNetworkState(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::lightCommandEncoding(); }
     { DeviceCacheIsolation cache; GatewayTestPeer::identifyCommandEncoding(); }
+    { DeviceCacheIsolation cache; GatewayTestPeer::topologyQueries(); }
     { DeviceCacheIsolation cache; testAshRoundTrip(); }
     { DeviceCacheIsolation cache; testAshRejectsBadCrc(); }
     { DeviceCacheIsolation cache; testAshFragmentationAndFrameOrdering(); }

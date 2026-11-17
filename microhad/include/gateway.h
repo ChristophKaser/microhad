@@ -170,6 +170,21 @@ struct DeviceConfigurationStatus {
     std::vector<DeviceBindingEntry> bindings;
 };
 
+struct TopologyNeighbor {
+    std::string ieeeAddress;
+    unsigned short node;
+    unsigned char deviceType, relationship, depth, lqi;
+};
+struct TopologyRoute {
+    unsigned short destination, nextHop;
+    unsigned char status;
+};
+struct TopologyStatus {
+    std::string ieeeAddress, neighborsStatus, routesStatus;
+    std::vector<TopologyNeighbor> neighbors;
+    std::vector<TopologyRoute> routes;
+};
+
 // This is an index of shared immutable device records, not another inventory.
 class DeviceViewList {
     Automation::SnapshotListPtr records_;
@@ -210,6 +225,7 @@ public:
     std::vector<NativeRemoteBinding> nativeBindings;
     std::vector<NativeBindingStatus> nativeBindingStatuses;
     std::vector<DeviceConfigurationStatus> deviceConfigurations;
+    std::vector<TopologyStatus> topology;
 #ifdef MICROHAD_TESTING
     std::vector<std::string> logs;
 #endif
@@ -293,6 +309,7 @@ public:
     bool startOta(const std::string& address, const std::string& image, std::string* error);
     bool identifyDevice(const std::string& ieeeAddress, std::string* error);
     bool queryDeviceConfiguration(const std::string& ieeeAddress, std::string* error);
+    bool queryTopology(const std::string& ieeeAddress, std::string* error);
     bool setThermostat(const std::string& address, const std::string& field,
                        const std::string& value, std::string* error, MatterProto::MessageBody* matterRequest = 0,
                        const MatterProto::Measurement* schedule = 0);
@@ -584,6 +601,14 @@ private:
             nodeDescriptorDeadline(0), groupsDeadline(0),
             bindingsDeadline(0), bindingStartIndex(0), bindingTotal(0) {}
     };
+    struct TopologyQuery {
+        unsigned short node;
+        unsigned char sequences[2], starts[2];
+        time_t deadlines[2];
+        TopologyQuery() : node(0) { sequences[0]=sequences[1]=starts[0]=starts[1]=0; deadlines[0]=deadlines[1]=0; }
+    };
+    std::map<std::string, TopologyStatus> topology_;
+    std::map<std::string, TopologyQuery> topologyQueries_;
     std::map<std::string, DeviceConfigurationStatus> deviceConfigurations_;
     std::map<std::string, DeviceConfigurationQuery> deviceConfigurationQueries_;
     struct NativeBindOperation {

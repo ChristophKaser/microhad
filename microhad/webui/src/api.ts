@@ -159,6 +159,13 @@ export interface SceneGroupSummary {
   members: string[]
   scenes: SceneSummary[]
 }
+export interface TopologyResult {
+  ieee_address: string
+  neighbors_status: string
+  routes_status: string
+  neighbors: { ieee_address: string; node: number; device_type: number; relationship: number; depth: number; lqi: number }[]
+  routes: { destination: number; next_hop: number; status: number }[]
+}
 export interface Status {
   temperature_sources?: TemperatureSource[]
   coordinator_backend?: 'ezsp' | 'ziggurat'
@@ -174,6 +181,7 @@ export interface Status {
   devices: Device[]
   scene_groups: SceneGroupSummary[]
   native_bindings: { ieee_address: string; group_id: number; status: string }[]
+  topology?: TopologyResult[]
   device_configurations: DeviceConfiguration[]
 }
 

@@ -1553,6 +1553,7 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
         std::string::size_type reconfigureAt = route.find("/reconfigure ", prefix.size());
         std::string::size_type identifyAt = route.find("/identify ", prefix.size());
         std::string::size_type configurationAt = route.find("/configuration ", prefix.size());
+        std::string::size_type topologyAt = route.find("/topology ", prefix.size());
         std::string::size_type thermostatAt = route.find("/thermostat ", prefix.size());
         std::string::size_type lightAt = route.find("/light ", prefix.size());
         std::string::size_type bodyAt = request.find("\r\n\r\n");
@@ -1573,6 +1574,11 @@ void HttpServer::handleRequest(int clientFd, const std::string& request) {
                 }
             }
             else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(valid ? error : "invalid thermostat request") + "\"}");
+        } else if (topologyAt != std::string::npos) {
+            std::string address = decodeComponent(request.substr(prefix.size(), topologyAt - prefix.size()));
+            std::string error;
+            if (gateway_->queryTopology(address, &error)) writeResponse(clientFd, 200, "application/json", "{\"ok\":true}");
+            else writeResponse(clientFd, 400, "application/json", "{\"ok\":false,\"error\":\"" + jsonEscape(error) + "\"}");
         } else if (configurationAt != std::string::npos) {
             std::string ieeeAddress = decodeComponent(request.substr(prefix.size(), configurationAt - prefix.size()));
             std::string error;
