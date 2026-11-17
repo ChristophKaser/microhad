@@ -17,9 +17,12 @@ present after a timeout or failure; only a `complete` table is a full response.
 Querying again replaces previous results. Read-only viewer access can inspect
 status; starting a query requires administrator access.
 
-The Topology tab shows devices with at least one completed table, connecting
-responding devices where a neighbor table reports a relationship. A reported
-neighbor link is directional and does not establish which copy of a multicast
-reached a device. Network addresses and routes can change, and some devices do
+The Topology tab shows responding devices, the coordinator, and children
+reported in their neighbor tables. Outlined children have not themselves
+returned a table. Each arrow points from the reporting device to the reported
+neighbor; opposite directions can have different LQI values. The coordinator
+is identified by network address 0x0000, and its own table is not queried.
+A reported neighbor link does not establish which copy of a multicast reached
+a device. Network addresses and routes can change, and some devices do
 not support these queries. Matter inventory does not expose Thread neighbor or
 routing tables through the current service, so it is not shown as topology.
