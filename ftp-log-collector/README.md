@@ -98,3 +98,5 @@ before replacement, then restarts and verifies the gateway. This also handles
 collectors retained by older supervisors across stack restarts. An unchanged
 binary skips upload and restart. Configuration, archive retention, and saved
 network state are not rewritten by this update.
+
+See [development packet capture](../docs/packet-capture.md) for configuring the UDP capture stream and FTP archives.

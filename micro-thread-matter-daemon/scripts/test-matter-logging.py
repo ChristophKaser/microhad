@@ -2,6 +2,8 @@
 """Host-only syslog integration using synthetic service traffic and libc interception."""
 import os
 import re
+import socket
+import struct
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,34 +14,16 @@ ROOT = Path(__file__).resolve().parents[2]
 BINARY = ROOT / 'build/micro-thread-matter-daemon/target/release/mthread-matter'
 
 
-def verify_session_capture(records):
-    # Syslog fragments can interleave; reassemble by entry ID, as in live logs.
-    messages = []
-    pending = {}
-    for line in records.splitlines():
-        body = line.split('\t', 2)[2]
-        fragment = re.match(r'\[([0-9a-fA-F]+)/([0-9a-fA-F]+)([+=])\] ?(.*)', body)
-        if fragment:
-            entry, sequence, end, payload = fragment.groups()
-            pending.setdefault(entry, []).append((int(sequence, 16), payload))
-            if end == '=':
-                messages.append(''.join(p for _, p in sorted(pending.pop(entry))))
-        else:
-            messages.append(body)
+def verify_session_capture(messages, packets):
     keys = {}
     for message in messages:
         match = re.search(r'SESSION_KEY direction=(RX|TX) session_id=([0-9A-F]+) source_node=([0-9A-F]+) peer=.* key=\[([^]]+)\]', message)
         if match:
             direction, sid, node, key = match.groups()
             keys[direction, int(sid, 16)] = (int(node, 16), bytes.fromhex(key.replace(',', ' ')))
-    assert len(keys) == 2, 'both directional session keys must survive syslog fragmentation'
+    assert len(keys) == 2, 'both directional session keys must reach the capture socket'
     verified = set()
-    for message in messages:
-        match = re.search(r'(RX|TX) unix_us=\d+ peer=.* length=\d+ (?:result=\d+ )?payload=\[([^]]+)\]', message)
-        if not match:
-            continue
-        direction, payload = match.groups()
-        packet = bytes.fromhex(payload.replace(',', ' '))
+    for direction, packet in packets:
         if len(packet) < 24:
             continue
         sid = int.from_bytes(packet[1:3], 'little')
@@ -83,23 +67,44 @@ def main():
         print('PASS synchronous critical radio diagnostics survive immediate exit')
         for mode in ('off', 'on'):
             capture.unlink(missing_ok=True)
-            subprocess.run([str(probe), mode], env=env, check=True)
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
+                receiver.bind(('127.0.0.1', 0))
+                receiver.settimeout(.1)
+                subprocess.run([str(probe), mode, f'127.0.0.1:{receiver.getsockname()[1]}'],
+                               env=env, check=True)
+                datagrams = []
+                while True:
+                    try:
+                        datagrams.append(receiver.recv(1200))
+                    except socket.timeout:
+                        break
             records = capture.read_text()
             assert 'capture probe ready' in records
             assert 'general library trace must stay disabled' not in records
             assert 'INFO thread_diagnostics: OpenThread [W] SrpServer----: signature rejected' in records
             assert 'INFO thread_diagnostics: OpenThread [I] SrpServer----: registration accepted' in records
             assert 'routine stack detail' not in records
+            assert 'matter_raw' not in records and 'SESSION_KEY' not in records
             if mode == 'on':
-                verify_session_capture(records)
-                print('PASS captured session keys authenticate RX and TX AES-CCM packets')
-                assert 'RX unix_us=' in records and 'peer=[fd00::1234]:5540' in records
-                assert 'length=3 payload=[00, AB, FF]' in records
-                assert 'length=2 result=0 payload=[01, CD]' in records
-                assert 'length=1 result=4 payload=[02]' in records
+                messages = [packet[48:].decode() for packet in datagrams if packet[5] == 4]
+                packets = []
+                results = []
+                for packet in datagrams:
+                    assert packet[:5] == b'GPC1\x02'
+                    if packet[5] in (1, 2):
+                        assert socket.inet_ntop(socket.AF_INET6, packet[48:64]) == 'fd00::1234'
+                        port, result = struct.unpack_from('<Hi', packet, 64)
+                        assert port == 5540
+                        direction = 'RX' if packet[5] == 1 else 'TX'
+                        packets.append((direction, packet[70:]))
+                        results.append((direction, result, packet[70:]))
+                verify_session_capture(messages, packets)
+                assert ('RX', 0, b'\x00\xab\xff') in results
+                assert ('TX', 0, b'\x01\xcd') in results
+                assert ('TX', 4, b'\x02') in results
+                assert any(packet[5] == 0 for packet in datagrams)
             else:
-                assert 'matter_raw' not in records
-                assert 'SESSION_KEY' not in records
+                assert not datagrams
         print('PASS asynchronous UDP payload capture, peer metadata, send results, filtering and shutdown flush')
         for level in ('off', 'error', 'warn', 'info', 'debug', 'trace'):
             capture.unlink(missing_ok=True)
@@ -117,7 +122,7 @@ def main():
         capture.unlink(missing_ok=True)
         result = subprocess.run([str(BINARY), '--raw-frames', '--log-level', 'info',
                                  '--state-dir', 'relative-path'], env=env, capture_output=True)
-        assert result.returncode != 0 and not result.stderr
+        assert result.returncode != 0 and b'no destination is configured' in result.stderr
         assert 'ERROR mthread_matter: Matter controller service failed' in capture.read_text()
         capture.unlink(missing_ok=True)
         env['MICROHAD_MATTER_TEST_LOG_LEVEL'] = 'trace'
@@ -147,8 +152,11 @@ def main():
         capture.unlink(missing_ok=True)
         env['MICROHAD_MATTER_TEST_LOG_LEVEL'] = 'info'
         env['MICROHAD_MATTER_TEST_RAW_FRAMES'] = 'on'
-        subprocess.run(['python3', str(ROOT / 'micro-thread-matter-daemon/scripts/test-matter-service.py')],
-                       env=env, check=True)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
+            receiver.bind(('127.0.0.1', 0))
+            env['PACKET_CAPTURE_DEST'] = f'127.0.0.1:{receiver.getsockname()[1]}'
+            subprocess.run(['python3', str(ROOT / 'micro-thread-matter-daemon/scripts/test-matter-service.py')],
+                           env=env, check=True)
         records = capture.read_text().splitlines()
         assert any('Matter controller service started' in record for record in records)
         assert not any('TRACE rs_matter' in record or 'DEBUG rs_matter' in record for record in records)

@@ -22,7 +22,7 @@
 #define MAX_NAMES 10000
 struct config {
     char host[256], user[256], password[256], directory[512];
-    unsigned ftp_port, udp_port, tcp_port, keep, rotate_seconds;
+    unsigned ftp_port, udp_port, tcp_port, capture_udp_port, keep, rotate_seconds;
     size_t queue_bytes, file_bytes;
 };
 static struct config cfg;
@@ -64,6 +64,7 @@ static int read_config(const char *path) {
         else if(!strcmp(line,"ftp_directory")) { if(copy_field(cfg.directory,sizeof(cfg.directory),eq))goto fail;seen|=8; }
         else if(!strcmp(line,"ftp_port")) { if(number(eq,1,65535,&n))goto fail;cfg.ftp_port=(unsigned)n; }
         else if(!strcmp(line,"udp_port")) { if(number(eq,1,65535,&n))goto fail;cfg.udp_port=(unsigned)n; }
+        else if(!strcmp(line,"capture_udp_port")) { if(number(eq,0,65535,&n))goto fail;cfg.capture_udp_port=(unsigned)n; }
         else if(!strcmp(line,"tcp_port")) { if(number(eq,1,65535,&n))goto fail;cfg.tcp_port=(unsigned)n; }
         else if(!strcmp(line,"log_file_bytes")) { if(number(eq,1024,1073741824UL,&n))goto fail;cfg.file_bytes=(size_t)n; }
         else if(!strcmp(line,"log_files")) { if(number(eq,1,10000,&n))goto fail;cfg.keep=(unsigned)n; }
@@ -110,11 +111,15 @@ static void identifier(char *out,size_t n) {
     snprintf(out,n,"%010lu-%06lu-%05lu-%08u",(unsigned long)t.tv_sec,(unsigned long)t.tv_usec,(unsigned long)getpid(),id);
 }
 static int ftp_open(struct ftp_session *s) { return ftp_connect(s,cfg.host,cfg.ftp_port,cfg.user,cfg.password,cfg.directory); }
-struct names { char **v; size_t count; };
+struct names { char **v; size_t count; int capture; };
 static int collect_name(const char *name,void *context) {
-    struct names *n=context; size_t i,l=strlen(name),suffix; const char *prefix="ftp-log-collector-log-";
+    struct names *n=context; size_t i,l=strlen(name),suffix; const char *prefix=n->capture?"ftp-log-collector-capture-":"ftp-log-collector-log-";
     if(l<strlen(prefix)+5 || strncmp(name,prefix,strlen(prefix)))return 0;
-    if(l>=4&&!strcmp(name+l-4,".log"))suffix=4;
+    if(n->capture) {
+        if(l>=15&&!strcmp(name+l-15,".pcapng.partial"))suffix=15;
+        else if(l>=7&&!strcmp(name+l-7,".pcapng"))suffix=7;
+        else return 0;
+    } else if(l>=4&&!strcmp(name+l-4,".log"))suffix=4;
     else if(l>=8&&!strcmp(name+l-8,".partial"))suffix=8;
     else return 0;
     for(i=strlen(prefix);i<l-suffix;i++)if((name[i]<'0'||name[i]>'9')&&name[i]!='-')return 0;
@@ -122,8 +127,8 @@ static int collect_name(const char *name,void *context) {
     n->v[n->count]=strdup(name); if(!n->v[n->count])return -1;n->count++;return 0;
 }
 static int compare_names(const void *a,const void *b) { return strcmp(*(char * const *)a,*(char * const *)b); }
-static void trim_logs(struct ftp_session *s) {
-    struct names n;size_t i; n.count=0;n.v=calloc(MAX_NAMES,sizeof(*n.v));if(!n.v)return;
+static void trim_logs(struct ftp_session *s,int capture) {
+    struct names n;size_t i; n.count=0;n.capture=capture;n.v=calloc(MAX_NAMES,sizeof(*n.v));if(!n.v)return;
     if(!ftp_list(s,collect_name,&n)) {
         qsort(n.v,n.count,sizeof(*n.v),compare_names);
         for(i=0;i+cfg.keep<n.count;i++) if(ftp_delete(s,n.v[i]))break;
@@ -160,13 +165,15 @@ static void *logs(void *unused) {
             bytes+=n;n=0;
         }
         if(bytes>=cfg.file_bytes || (n && bytes+n>cfg.file_bytes) || time(0)-opened>=(time_t)cfg.rotate_seconds || stopping) {
-            if(!ftp_finish_upload(&ftp)&&!ftp_rename(&ftp,tmp,final))trim_logs(&ftp);
+            if(!ftp_finish_upload(&ftp)&&!ftp_rename(&ftp,tmp,final))trim_logs(&ftp,0);
             else if(time(0)-last_error>=60){syslog(LOG_WARNING,"FTP log publication failed");last_error=time(0);}
             ftp_close(&ftp);active=0;
         }
     }
     if(active){if(!ftp_finish_upload(&ftp))ftp_rename(&ftp,tmp,final);ftp_close(&ftp);}return 0;
 }
+#include "packet-capture.inc"
+
 static int exact(int fd,void *data,size_t n) {
     unsigned char *p=data;while(n){ssize_t r=recv(fd,p,n,0);if(r<0&&errno==EINTR)continue;if(r<=0)return -1;p+=r;n-=(size_t)r;}return 0;
 }
@@ -203,22 +210,38 @@ static void report_drops(struct timespec *last, unsigned long *reported, const s
     } else pthread_mutex_unlock(&mutex);
 }
 int main(int argc,char **argv) {
-    int udp,tcp;pthread_t log_thread,core_thread;unsigned char packet[MAX_PACKET];struct sigaction sa;unsigned long reported=0;
+    int udp,tcp,packet_udp=-1;pthread_t log_thread,core_thread,packet_thread;unsigned char packet[MAX_PACKET];struct sigaction sa;unsigned long reported=0;
     struct timespec last_report={0,0};
     if(argc==3&&!strcmp(argv[1],"--check-config"))return read_config(argv[2])?2:0;
     if(argc!=2||read_config(argv[1])){fprintf(stderr,"Usage: ftp-log-collector PRIVATE_CONFIG (invalid or insecure configuration)\n");return 2;}
     signal(SIGPIPE,SIG_IGN);memset(&sa,0,sizeof(sa));sa.sa_handler=stop;sigaction(SIGTERM,&sa,0);sigaction(SIGINT,&sa,0);
     openlog("ftp-log-collector",LOG_PID,LOG_DAEMON);lower_upload_priority();queue=malloc(cfg.queue_bytes);if(!queue)return 1;
     udp=listener(SOCK_DGRAM,cfg.udp_port);tcp=listener(SOCK_STREAM,cfg.tcp_port);if(udp<0||tcp<0){syslog(LOG_ERR,"cannot bind diagnostic listeners");return 1;}
+    if(cfg.capture_udp_port) {
+        packet_udp=listener(SOCK_DGRAM,cfg.capture_udp_port);
+        if(packet_udp<0||pthread_create(&packet_thread,0,packet_upload,0)) {
+            syslog(LOG_ERR,"cannot start packet capture listener");
+            return 1;
+        }
+    }
     if(pthread_create(&log_thread,0,logs,0)||pthread_create(&core_thread,0,cores,&tcp))return 1;
     while(!stopping) {
-        struct timeval tv;fd_set set;int r;FD_ZERO(&set);FD_SET(udp,&set);tv.tv_sec=2;tv.tv_usec=0;r=select(udp+1,&set,0,0,&tv);
-        if(r>0){ssize_t n=recv(udp,packet,sizeof(packet)-1,0);if(n>0){packet[n]=0;if(!strstr((char*)packet,"ftp-log-collector["))enqueue(packet,(size_t)n);}}
+        struct timeval tv;fd_set set;int r;FD_ZERO(&set);FD_SET(udp,&set);if(packet_udp>=0)FD_SET(packet_udp,&set);tv.tv_sec=2;tv.tv_usec=0;r=select((packet_udp>udp?packet_udp:udp)+1,&set,0,0,&tv);
+        if(r>0&&FD_ISSET(udp,&set)){ssize_t n=recv(udp,packet,sizeof(packet)-1,0);if(n>0){packet[n]=0;if(!strstr((char*)packet,"ftp-log-collector["))enqueue(packet,(size_t)n);}}
+        if(r>0&&packet_udp>=0&&FD_ISSET(packet_udp,&set)) {
+            ssize_t n=recv(packet_udp,packet,sizeof(packet),0);
+            if(n>0)packet_enqueue(packet,(size_t)n);
+        }
         {
             struct timespec now;
             clock_gettime(CLOCK_MONOTONIC,&now);
             report_drops(&last_report,&reported,&now);
         }
+    }
+    if(packet_udp>=0) {
+        close(packet_udp);
+        pthread_cond_broadcast(&packet_ready);
+        pthread_join(packet_thread,0);
     }
     close(udp);shutdown(tcp,SHUT_RDWR);close(tcp);pthread_cond_broadcast(&ready);pthread_join(log_thread,0);pthread_join(core_thread,0);free(queue);return 0;
 }

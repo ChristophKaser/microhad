@@ -1,0 +1,53 @@
+From: Gateway maintainers <gateway@localhost>
+Subject: [PATCH] Route Matter transport packet dumps to capture only
+
+---
+diff --git a/rs-matter-transport/src/lib.rs b/rs-matter-transport/src/lib.rs
+--- a/rs-matter-transport/src/lib.rs
++++ b/rs-matter-transport/src/lib.rs
+@@ -2356,7 +2356,8 @@
+     {
+         match recv.recv_from(buf).await {
+             Ok((len, addr)) => {
+-                trace!("\n>>RCV {} {}B:\n     {}", addr, len, Bytes(&buf[..len]));
++                #[cfg(feature = "log")]
++                log::trace!(target: "matter_raw", "\n>>RCV {} {}B:\n     {}", addr, len, Bytes(&buf[..len]));
+ 
+                 Ok((len, addr))
+             }
+diff --git a/rs-matter-transport/src/packet.rs b/rs-matter-transport/src/packet.rs
+--- a/rs-matter-transport/src/packet.rs
++++ b/rs-matter-transport/src/packet.rs
+@@ -88,7 +88,8 @@
+         self.plain.encode(&mut write_buf)?;
+         let plain_hdr_bytes = write_buf.as_slice();
+ 
+-        trace!("Unencrypted packet: {}", Bytes(wb.as_slice()));
++        #[cfg(feature = "log")]
++        log::trace!(target: "matter_raw", "Unencrypted packet: {}", Bytes(wb.as_slice()));
+         let ctr = self.plain.ctr;
+         if let Some(enc_key) = enc_key {
+             proto_hdr::encrypt_in_place(
+@@ -103,7 +103,8 @@
+         }
+ 
+         wb.prepend(plain_hdr_bytes)?;
+-        trace!("Full encrypted packet: {}", Bytes(wb.as_slice()));
++        #[cfg(feature = "log")]
++        log::trace!(target: "matter_raw", "Full encrypted packet: {}", Bytes(wb.as_slice()));
+ 
+         Ok(())
+     }
+diff --git a/rs-matter-transport/src/proto_hdr.rs b/rs-matter-transport/src/proto_hdr.rs
+--- a/rs-matter-transport/src/proto_hdr.rs
++++ b/rs-matter-transport/src/proto_hdr.rs
+@@ -282,7 +282,8 @@
+             self.ack_msg_ctr = parsebuf.le_u32()?;
+         }
+         trace!("[decode] {}", self);
+-        trace!("[rx payload]: {}", Bytes(parsebuf.as_slice()));
++        #[cfg(feature = "log")]
++        log::trace!(target: "matter_raw", "[rx payload]: {}", Bytes(parsebuf.as_slice()));
+         Ok(())
+     }
+ 

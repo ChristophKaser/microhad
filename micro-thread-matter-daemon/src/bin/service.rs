@@ -344,6 +344,7 @@ fn run(
     let mut validate_only = false;
     let mut log_level = log::LevelFilter::Info;
     let mut raw_frames = false;
+    let mut capture_dest = std::env::var("PACKET_CAPTURE_DEST").ok().filter(|value| !value.is_empty());
     let mut diagnostic_on_mesh_prefix = false;
     let mut diagnostic_external_routes = false;
     let mut args = std::env::args().skip(1);
@@ -364,6 +365,7 @@ fn run(
         match arg.as_str() {
             "--log-level" => log_level = micro_thread_matter_daemon::logging::parse_level(&value)?,
             "--socket" => socket = value.into(),
+            "--capture-dest" => capture_dest = Some(value),
             "--state-dir" => state = value.into(),
             "--validate-state-dir" => {
                 state = value.into();
@@ -374,10 +376,19 @@ fn run(
             _ => return Err("unknown option".into()),
         }
     }
+    let capture = match capture_dest {
+        Some(dest) if raw_frames => Some(
+            micro_thread_matter_daemon::logging::capture::configure(dest.parse()?, 2)?,
+        ),
+        _ => None,
+    };
     *log_guard = Some(
-        micro_thread_matter_daemon::logging::init(log_level, raw_frames)
+        micro_thread_matter_daemon::logging::init(log_level, capture.is_some())
             .map_err(|_| "logger initialization failed")?,
     );
+    if raw_frames && capture.is_none() {
+        eprintln!("Packet capture disabled because no destination is configured");
+    }
     if !state.is_absolute() {
         return Err("absolute state directory required".into());
     }

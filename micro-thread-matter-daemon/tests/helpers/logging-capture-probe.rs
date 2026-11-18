@@ -17,6 +17,12 @@ fn main() {
         }
     }
     let capture = std::env::args().nth(1).as_deref() == Some("on");
+    let _capture = if capture {
+        let dest = std::env::args().nth(2).expect("UDP listener").parse().unwrap();
+        Some(micro_thread_matter_daemon::logging::capture::configure(dest, 2).unwrap())
+    } else {
+        None
+    };
     let _guard = micro_thread_matter_daemon::logging::init(log::LevelFilter::Info, capture)
         .expect("logger initialization");
     log::info!("capture probe ready");
@@ -38,7 +44,7 @@ fn main() {
         otPlatLog(4, 0, c"[I] Mle----------: routine stack detail".as_ptr());
     }
     capture_session();
-    let peer = "[fd00::1234]:5540";
+    let peer = "[fd00::1234]:5540".parse().unwrap();
     micro_thread_matter_daemon::logging::packet_received(&peer, &[0x00, 0xab, 0xff]);
     micro_thread_matter_daemon::logging::packet_sent(&peer, &[0x01, 0xcd], 0);
     micro_thread_matter_daemon::logging::packet_sent(&peer, &[0x02], 4);
@@ -64,7 +70,7 @@ fn capture_session() {
     let tx_key = [0x72; 16];
     let local_node = 0x1122334455667788;
     let peer_node = 0x8877665544332211;
-    let mut session = ReservedSession::reserve_now(&matter, &crypto).unwrap();
+    let mut session = ReservedSession::reserve_now(matter.transport(), &crypto).unwrap();
     session
         .update(
             local_node,
@@ -83,6 +89,7 @@ fn capture_session() {
         )
         .unwrap();
     session.complete();
+    let peer = "[fd00::1234]:5540".parse().unwrap();
     for (rx, key, sid, node) in [
         (true, rx_key, 6u16, peer_node),
         (false, tx_key, 0x451bu16, local_node),

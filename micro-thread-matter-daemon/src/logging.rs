@@ -1,5 +1,8 @@
 //! Bounded log fragments for the gateway's 255-byte syslog receive limit.
 
+#[path = "../../shared/packet-capture/capture.rs"]
+pub mod capture;
+
 use crate::async_logging::AsyncOutput;
 pub use crate::async_logging::WorkerGuard;
 use std::io::{self, Write};
@@ -330,6 +333,10 @@ impl log::Log for Logger {
             let Some(output) = OUTPUT.get() else {
                 return;
             };
+            if record.target() == RAW_TARGET {
+                capture::record_debug(4, *record.args());
+                return;
+            }
             let mut writer = output.output.entry(priority(record.level()));
             let _ = writeln!(
                 writer,
@@ -344,7 +351,7 @@ impl log::Log for Logger {
 }
 
 fn enabled(level: log::Level, target: &str, normal: log::LevelFilter, raw: bool) -> bool {
-    level <= normal || (raw && target == RAW_TARGET)
+    if target == RAW_TARGET { raw } else { level <= normal }
 }
 
 pub(crate) fn emit(priority: i32, entry: &[u8]) {
@@ -383,23 +390,20 @@ pub fn init(
     Ok(guard)
 }
 
-pub fn packet_received(peer: &impl std::fmt::Display, bytes: &[u8]) {
-    if log::log_enabled!(target: RAW_TARGET, log::Level::Trace) {
-        log::trace!(target: RAW_TARGET, "RX unix_us={} peer={peer} length={} payload={:02X?}", packet_time(), bytes.len(), bytes);
-    }
+pub fn packet_received(peer: &std::net::SocketAddrV6, bytes: &[u8]) {
+    capture_matter(peer, bytes, 0, 1);
 }
 
-pub fn packet_sent(peer: &impl std::fmt::Display, bytes: &[u8], result: i32) {
-    if log::log_enabled!(target: RAW_TARGET, log::Level::Trace) {
-        log::trace!(target: RAW_TARGET, "TX unix_us={} peer={peer} length={} result={result} payload={:02X?}", packet_time(), bytes.len(), bytes);
-    }
+pub fn packet_sent(peer: &std::net::SocketAddrV6, bytes: &[u8], result: i32) {
+    capture_matter(peer, bytes, result, 2);
 }
 
-fn packet_time() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_micros()
+fn capture_matter(peer: &std::net::SocketAddrV6, bytes: &[u8], result: i32, kind: u8) {
+    let mut metadata = [0; 22];
+    metadata[..16].copy_from_slice(&peer.ip().octets());
+    metadata[16..18].copy_from_slice(&peer.port().to_le_bytes());
+    metadata[18..].copy_from_slice(&result.to_le_bytes());
+    capture::record(kind, &metadata, bytes);
 }
 
 #[cfg(test)]
@@ -432,7 +436,7 @@ mod logger_tests {
             log::LevelFilter::Info,
             false
         ));
-        assert!(enabled(
+        assert!(!enabled(
             log::Level::Trace,
             RAW_TARGET,
             log::LevelFilter::Trace,

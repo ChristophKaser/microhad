@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Host integration test with an in-memory, passive FTP server."""
 import os
+import shutil
 import socket
 import struct
 import subprocess
@@ -12,9 +13,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 class Server:
-    def __init__(self):
+    def __init__(self, host='127.0.0.1'):
+        self.host = host
+        self.data_delay = 0
         self.sock = socket.socket()
-        self.sock.bind(('127.0.0.1', 0))
+        self.sock.bind((self.host, 0))
         self.sock.listen(8)
         self.sock.settimeout(.2)
         self.port = self.sock.getsockname()[1]
@@ -52,15 +55,17 @@ class Server:
                 elif verb == b'TYPE': stream.write(b'200 type\r\n')
                 elif verb == b'CWD': stream.write(b'250 directory\r\n')
                 elif verb == b'PASV':
-                    data = socket.socket(); data.bind(('127.0.0.1', 0)); data.listen(1)
+                    data = socket.socket(); data.bind((self.host, 0)); data.listen(1)
                     port = data.getsockname()[1]
-                    stream.write(f'227 Passive (127,0,0,1,{port//256},{port%256})\r\n'.encode())
+                    stream.write(f'227 Passive ({self.host.replace('.', ',')},{port//256},{port%256})\r\n'.encode())
                 elif verb == b'STOR':
                     stream.write(b'150 open\r\n'); transfer, _ = data.accept(); chunks=[]
                     while True:
                         chunk = transfer.recv(65536)
                         if not chunk: break
                         chunks.append(chunk)
+                        if self.data_delay:
+                            time.sleep(self.data_delay)
                     transfer.close(); data.close(); data=None
                     with self.lock: self.files[name] = b''.join(chunks)
                     stream.write(b'226 stored\r\n')
@@ -103,10 +108,11 @@ def wait_for(predicate):
 
 def main():
     server=Server(); udp=available(socket.SOCK_DGRAM); tcp=available(socket.SOCK_STREAM)
+    capture_udp=available(socket.SOCK_DGRAM)
     with tempfile.TemporaryDirectory() as td:
         binary=Path(td)/'collector'; config=Path(td)/'config'
         subprocess.run(['cc','-std=gnu99','-Wall','-Wextra','-Werror','-pthread',str(ROOT/'main.c'),str(ROOT/'ftp.c'),'-o',str(binary)],check=True)
-        config.write_text(f'ftp_host=127.0.0.1\nftp_port={server.port}\nftp_user=user\nftp_password=secret\nftp_directory=/\nudp_port={udp}\ntcp_port={tcp}\nrotate_seconds=1\nlog_files=2\n')
+        config.write_text(f'ftp_host=127.0.0.1\nftp_port={server.port}\nftp_user=user\nftp_password=secret\nftp_directory=/\nudp_port={udp}\ntcp_port={tcp}\ncapture_udp_port={capture_udp}\nrotate_seconds=1\nlog_files=2\n')
         config.chmod(0o600)
         checks=Path(td)/'queue-checks'
         subprocess.run(['cc','-std=gnu99','-Wall','-Wextra','-Werror','-pthread',
@@ -120,12 +126,28 @@ def main():
             def upload_priorities():
                 tasks=Path(f'/proc/{proc.pid}/task').glob('*/stat')
                 priorities=sorted(int(p.read_text().split(') ',1)[1].split()[16]) for p in tasks)
-                return priorities==sorted([base_priority,max(base_priority,10),max(base_priority,10)])
+                return priorities==[base_priority]*4
             wait_for(upload_priorities)
             s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
             s.sendto(b'<13>test log',( '127.0.0.1',udp));s.close()
             wait_for(lambda: any(k.endswith('.log') for k in server.files))
             assert any(b'test log' in v for k,v in server.files.items() if k.endswith('.log'))
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as capture:
+                body = bytes(13) + b'\x01\x00\x01\xff\xff'
+                header = struct.pack('<4sBBHQQQIIQ', b'GPC1', 1, 10, 0, 1, 1, 100, len(body), 0, 0)
+                capture.sendto(header + body, ('127.0.0.1', capture_udp))
+                capture.sendto(b'invalid packet', ('127.0.0.1', capture_udp))
+            wait_for(lambda: any(k.endswith('.pcapng') for k in server.files))
+            archive = next(v for k,v in server.files.items() if k.endswith('.pcapng'))
+            assert archive[:4] == bytes.fromhex('0a0d0d0a')
+            assert archive.count(b'GPC1') == 1 and b'invalid packet' not in archive
+            assert body[13:] in archive
+            if shutil.which('tcpdump'):
+                archive_path = Path(td) / 'capture.pcapng'
+                archive_path.write_bytes(archive)
+                decoded = subprocess.run(['tcpdump', '-nn', '-r', str(archive_path)],
+                                         capture_output=True, text=True, check=True)
+                assert '802.15.4' in decoded.stderr and decoded.stdout.strip()
             with socket.create_connection(('127.0.0.1',tcp),timeout=5) as client:
                 frame=lambda data:struct.pack('!I',len(data))+data
                 client.sendall(b'GCORE1 123 11 1700000000\n'+frame(b'exe=test\n')+frame(b'ELF fixture')+frame(b'')+b'C')

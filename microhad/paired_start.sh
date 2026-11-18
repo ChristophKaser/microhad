@@ -92,6 +92,13 @@ snapshot_pid=;snapshot_enabled=false
 ftp_collector_pid=
 ftp_collector_bin="${NATIVE_BIN%/*}/ftp-log-collector"
 ftp_collector_config="${NATIVE_BIN%/*}/ftp-log-collector.conf"
+if [ "${PACKET_CAPTURE_DEST+x}" != x ] && [ -r "$ftp_collector_config" ]; then
+    capture_port=$(awk -F= '$1=="capture_udp_port" && $2 ~ /^[0-9]+$/ &&
+        $2 >= 1 && $2 <= 65535 { port=$2+0 } END { if (port) print port }' "$ftp_collector_config")
+    if [ -n "$capture_port" ]; then PACKET_CAPTURE_DEST="127.0.0.1:$capture_port"; fi
+fi
+export PACKET_CAPTURE_DEST
+
 snapshot_bin="${NATIVE_BIN%/*}/gateway-snapshot"
 snapshot_transport="${NATIVE_BIN%/*}/gateway-core"
 if [ -x "$snapshot_bin" ] && [ -x "$snapshot_transport" ] &&

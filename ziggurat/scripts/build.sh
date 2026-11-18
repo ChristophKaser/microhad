@@ -54,6 +54,11 @@ python3 ziggurat/scripts/check-ziggurat-patches.py --build-worktree "$build_work
     --source-revision "$source_revision" --multipan "$ZIGGURAT_MULTIPAN"
 fi
 if [[ ${1:-} == --prepare-only ]]; then exit 0; fi
+capture_tree="${build_worktree}-capture-build"
+mkdir -p "$capture_tree"
+tar --exclude=.git -C "$build_worktree" -cf - . | tar -C "$capture_tree" -xf -
+build_worktree="$capture_tree"
+python3 ziggurat/scripts/prepare-packet-capture.py "$build_worktree"
 build_output="build/${TARGET_BUILD_SUBDIR}${build_output#build/}"
 python3 scripts/toolchain-build.py "$experiment_root/$build_output/$TARGET_SPEC_NAME"
 bash scripts/make-llvm-target.sh

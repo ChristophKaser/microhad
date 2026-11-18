@@ -32,5 +32,6 @@ python3 scripts/apply-mailbox-series.py "$service_dir" "$revision" \
     "$project_root/micro-thread-matter-daemon/patches/rs-matter-btp-response-timeout.patch" \
     "$project_root/micro-thread-matter-daemon/patches/rs-matter-session-key-capture.patch" \
     "$project_root/micro-thread-matter-daemon/patches/rs-matter-ota-final-block.patch" \
-    "$project_root/micro-thread-matter-daemon/patches/rs-matter-session-eviction.patch"
+    "$project_root/micro-thread-matter-daemon/patches/rs-matter-session-eviction.patch" \
+    "$project_root/micro-thread-matter-daemon/patches/rs-matter-packet-capture.patch"
 echo "Pinned rs-matter $revision; controller mailbox series applied"

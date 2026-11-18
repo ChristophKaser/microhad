@@ -251,19 +251,14 @@ extern "C" fn receive(
     let cell = unsafe { &*context.cast::<RefCell<Queue>>() };
     let peer = unsafe { *peer };
     let bytes = unsafe { core::slice::from_raw_parts(data, length as usize) };
-    let address = Address::Udp(SocketAddr::V6(SocketAddrV6::new(
-        peer.ip.into(),
-        peer.port,
-        0,
-        0,
-    )));
+    let address = SocketAddrV6::new(peer.ip.into(), peer.port, 0, 0);
     #[cfg(feature = "controller-service")]
     crate::logging::packet_received(&address, bytes);
     let mut queue = cell.borrow_mut();
     if queue.packets.len() >= 8 {
         return;
     } // Bounded loss; Matter MRP retries UDP packets.
-    queue.packets.push_back((bytes.to_vec(), address));
+    queue.packets.push_back((bytes.to_vec(), Address::Udp(SocketAddr::V6(address))));
     let waker = queue.waker.take();
     drop(queue);
     if let Some(waker) = waker {

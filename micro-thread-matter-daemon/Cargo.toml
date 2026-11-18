@@ -67,3 +67,8 @@ required-features = ["controller-service"]
 
 [target.'cfg(all(target_arch = "mips", target_env = "uclibc"))'.dependencies]
 ziggurat-stock-uclibc-compat = { path = "../ziggurat/stock-uclibc-compat" }
+
+[[example]]
+name = "packet-capture-benchmark"
+path = "tests/helpers/packet-capture-benchmark.rs"
+required-features = ["controller-service"]

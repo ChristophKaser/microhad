@@ -109,3 +109,5 @@ improves recovery from lost links; it does not diagnose the cause of their loss.
 The synthetic neighbor recovery fixture uses only a loopback radio and test
 keys; it checks authentication, bootstrap coalescing, queued delivery, bounded
 retries and timely terminal failure.
+
+See [development packet capture](../docs/packet-capture.md) for configuring the UDP capture stream and FTP archives.
