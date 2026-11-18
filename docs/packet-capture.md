@@ -70,6 +70,34 @@ packet loss. The reader accounts for reordering by inspecting all supplied
 segments before counting gaps. A missing initial or final record may leave
 no visible sequence gap.
 
+## Read and decrypt captures
+
+Run `tcpdump -nn -r FILE -c 20` to inspect IEEE 802.15.4 radio frames, or
+open the archive in Wireshark. Zigbee network-layer decryption requires the
+network key configured privately in the analyzer. APS-secured payloads can
+also require the matching link key. The decoded Zigbee records in the archive
+reflect frames the gateway decoded itself.
+
+Matter UDP packets and traffic keys live in custom blocks. To authenticate and
+export the plaintext of captured Matter unicast sessions, run:
+
+```sh
+python3 ftp-log-collector/decrypt_matter_capture.py \
+  diagnostics/capture-early.pcapng diagnostics/capture-later.pcapng \
+  --output diagnostics/matter-plaintext.jsonl
+```
+
+This requires the Python `cryptography` package. Pass segments from the
+same Matter process back to session establishment. The decoder matches each
+packet to a key by run, direction, peer and destination session ID. It uses
+AES-CCM with the clear Matter header as authenticated data and the security
+flags, message counter and source node ID as the nonce. The output file
+contains the authenticated Matter message body as `plaintext_hex`, including
+the exchange header and any application payload. It is a new private file.
+Omit `--output` for counts only. Missing keys, unsupported headers and failed
+authentication are counted separately. Attaching capture after a session was
+established can leave that session without its keys in the archive.
+
 ## Gateway replay measurements
 
 The isolated release MIPS replay used the real capture sender and FTP
